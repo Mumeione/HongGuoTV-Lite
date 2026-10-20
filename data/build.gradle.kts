@@ -16,7 +16,9 @@ android {
 
 dependencies {
     implementation(project(":core"))
-    implementation("org.json:json:20240303")
+    // Android 运行时已提供 org.json（android.jar），不要再打包一份；
+    // 只有本模块的 JVM 单测需要真实实现。
+    testImplementation("org.json:json:20240303")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     compileOnly("androidx.media3:media3-exoplayer:1.8.0")
     testImplementation("junit:junit:4.13.2")

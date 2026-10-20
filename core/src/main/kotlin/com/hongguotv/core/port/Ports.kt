@@ -17,7 +17,9 @@ import com.hongguotv.core.model.Suggestion
  *
  * 约定（每个端口的接口都包含这些，不只是方法签名）：
  * - 实现必须线程安全，调用方不保证在哪个线程调。
- * - 所有失败以 [UpstreamError] 或 [LocalError] 抛出，不用魔法返回值。
+ * - 运行期失败一律以 [UpstreamError] 或 [LocalError] 抛出，不用魔法返回值。
+ *   例外：端点表之类的静态配置错误属于**装配错误**，在启动时直接抛参数异常——
+ *   把它们包成 UpstreamError 会让人误以为上游变了。
  * - 不返回"未过滤/已排序不清楚"的集合：语义写进返回类型名。
  */
 

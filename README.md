@@ -75,7 +75,24 @@ interface ContentPort {
 }
 ```
 
-端点、请求签名、字段映射、季线排序、介质过滤全部在它背后。上游改一个字段，改动落在协议表里的一行。
+端点、请求签名、字段映射、季线排序、介质过滤全部在它背后。
+
+协议形状本身是一张数据表，不是代码：`core/src/main/resources/endpoints.json`。端点、query 顺序、
+body 模板、用哪套签名，都在这一个文件里。Kotlin 侧由 `protocol/Endpoints.kt` 读取；
+S8 的诊断探针会读同一份文件（当前尚未接入）。上游改一个字段名，改动落在 `Fields.kt` 的一行；
+改一个端点，落在表里的一个块。
+
+```jsonc
+"preload": {
+  "host": "stream",
+  "path": "/novel/player/multi_video_model/preload/v1/",
+  "signer": "preload",          // 取流用简化签名，不能用完整套件
+  "queryProfile": "none",       // 自带全部 20 个参数，不并入公共设备常量
+  "query": [["aid", "8662"], ["device_id", "$deviceId"], "…"]
+}
+```
+
+`query` 是数组而不是对象，因为签名覆盖 query 的字节顺序——顺序是协议的一部分。
 
 失败也分类，而不是拼中文字符串给上层猜：
 
@@ -120,7 +137,7 @@ export ANDROID_HOME=$HOME/.buildozer/android/platform/android-sdk
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
 | S0 | 七模块骨架、依赖规则、端口接口、空壳 APK | ✅ 完成 |
-| S1 | `protocol`：端点表、字段表、请求签名、Spade 解密、MP4 CENC 索引 | 进行中 |
+| S1 | `protocol`：端点表、字段表、请求签名、Spade 解密、MP4 CENC 索引 | 🟡 代码完成；实网探针待 S8 |
 | S2 | `data`：内容端口实现、本地存储（进度/收藏/设置）、错误分类 | 待开始 |
 | S3 | `uikit`：设计令牌、六种控件、焦点图纯函数、页面骨架 | 待开始 |
 | S4 | `feature-catalog`：搜索 / 收藏 / 历史 / 设置 | 待开始 |

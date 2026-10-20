@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "note": "上游协议形状的唯一事实来源。改端点、改参数、改 body 结构、改变签名策略，都只改这个文件。Kotlin 侧由 protocol/Endpoints.kt 读取。query 用数组而不是对象：签名覆盖 query 的字节顺序，顺序是协议的一部分，不能被 JSON 对象的重排吞掉。模板里的 $name 全部是占位符，body 中不要出现字面量 $。",
+  "gaps": {
+    "siteSearch": "官网 SSR 搜索（GET {site}/search/{keyword}?page=1，无签名、HTML 响应）尚未收录：它在 path 里带占位符，而 Endpoints 目前只支持静态 path。S2 接入搜索数据源时一并补，不要绕过表直接拼 URL。"
+  },
+  "hosts": {
+    "content": "https://api5-normal-sinfonlinea.fqnovel.com",
+    "stream": "https://api5-normal-sinfonlineb.fqnovel.com",
+    "site": "https://hongguoduanju.com"
+  },
+  "endpoints": {
+    "suggest": {
+      "host": "content",
+      "path": "/reading/bookapi/search/suggest/v:version/",
+      "method": "GET",
+      "signer": "full",
+      "queryProfile": "device",
+      "query": [
+        ["q", "$keyword"],
+        ["search_source", "1"],
+        ["tab_name", "feed"],
+        ["count", "0"],
+        ["need_preload", "true"]
+      ],
+      "note": "联想词允许不完整（实测漏第六、第十季），只作输入辅助，不作为季数上线的判据。"
+    },
+    "seasonLine": {
+      "host": "content",
+      "path": "/reading/bookapi/plan/v:version/",
+      "method": "GET",
+      "signer": "full",
+      "queryProfile": "device",
+      "query": [
+        ["scene", "10"],
+        ["from", "detail_page_more_related"],
+        ["book_id", "$seriesId"],
+        ["limit", "0"],
+        ["offset", "0"]
+      ],
+      "note": "详情页「相关作品」cell（show_type=547）。季数排序的唯一事实来源；同 IP 卡片解析但不展示。"
+    },
+    "detail": {
+      "host": "content",
+      "path": "/novel/player/video_detail/v1/",
+      "method": "POST",
+      "signer": "full",
+      "queryProfile": "device",
+      "query": [],
+      "body": "{\"biz_param\":{\"detail_page_version\":1,\"disable_digg_stat\":false,\"disable_video_relate_book\":false,\"need_all_video_definition\":false,\"need_mp4_align\":false,\"screen_width_px\":\"1920\",\"source\":5,\"use_os_player\":false,\"use_server_dns\":false,\"video_id_type\":1},\"series_id\":\"$seriesId\"}",
+      "note": "全集顺序即播出顺序，本地不重排。官网详情页 2026-10 起全网 404，不再回退。"
+    },
+    "preload": {
+      "host": "stream",
+      "path": "/novel/player/multi_video_model/preload/v1/",
+      "method": "POST",
+      "signer": "preload",
+      "queryProfile": "none",
+      "query": [
+        ["aid", "8662"],
+        ["app_name", "novelread"],
+        ["version_code", "73532"],
+        ["version_name", "7.3.5.32"],
+        ["manifest_version_code", "73532"],
+        ["update_version_code", "73532"],
+        ["channel", "update_64"],
+        ["device_platform", "android"],
+        ["os", "android"],
+        ["ssmix", "a"],
+        ["device_type", "25053RT47C"],
+        ["device_brand", "Redmi"],
+        ["language", "zh"],
+        ["os_api", "36"],
+        ["os_version", "16"],
+        ["resolution", "1280*2772"],
+        ["dpi", "520"],
+        ["ac", "wifi"],
+        ["device_id", "$deviceId"],
+        ["iid", "$installId"]
+      ],
+      "body": "{\"biz_param\":{\"detail_page_version\":0,\"device_level\":3,\"disable_digg_stat\":false,\"need_all_video_definition\":true,\"need_mp4_align\":false,\"use_os_player\":false,\"use_server_dns\":false,\"video_platform\":1024},\"mixed_video_id_map\":{\"1004\":[\"$vid\"]}}",
+      "note": "旧入口 video_model / multi_video_model 自 2026-10 起返回 200 空体，preload 是唯一还吐数据的入口。风控只放行 onedrama 6905554 同款：精简 query（无 ts）+ 老版 X-Gorgon，且版本号是 73532——与内容端点的 71332 不同，不要为了统一而合并，那会被判成另一个客户端。"
+    }
+  }
+}
