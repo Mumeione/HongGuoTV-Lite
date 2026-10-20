@@ -1,13 +1,13 @@
-package com.hongguotv.lite.data.content
+package com.hongguotv.core.model
 
 /**
- * 标题里的季号与系列键。规则逐条沿用旧仓库 ContentRepository 的 companion（行为基准），
- * 只在收藏 base 键与锚点定序时使用——季线排序本身由服务端下发，本地不重排。
+ * 季号与系列键（季键）。规则逐条沿用旧仓库 `ContentRepository` 的 companion（行为基准），
+ * 只在收藏 base 键、锚点定序与"是否已收藏"判断时使用——季线排序本身由服务端下发，本地不重排。
+ *
+ * 放在 core 而不是 data：季键是领域概念（`docs/CONTEXT.md`「季键」），
+ * 收藏页与搜索页都要用它判断"这是不是同一个系列"。留在实现层会让 feature 复制一份规则。
  */
-internal object TitleKeys {
-
-    /** 合法剧集 id：纯数字。上游偶尔混入脏行，解析时按此过滤。 */
-    val ID = Regex("[0-9]{1,30}")
+object SeasonKeys {
 
     // 季号两种形态：①「第N季/部」（阿拉伯或中文数字）②阿拉伯数字直连季字（"之无灵证道40季"，实测存在）。
     // 中文数字必须保留「第」前缀，否则"斩天十三剑"这类标题会被误伤。
@@ -40,4 +40,9 @@ internal object TitleKeys {
 
     /** 收藏/连播共用的系列键：去季号再归一化标点。 */
     fun seasonKey(title: String): String = normalizeTitle(seasonBase(title))
+}
+
+/** 合法剧集 id：纯数字。上游偶尔混入脏行，解析时按此过滤。 */
+object SeriesIds {
+    val ID = Regex("[0-9]{1,30}")
 }

@@ -55,12 +55,31 @@ data class Progress(
     val updatedAt: Long,
 )
 
+/**
+ * 一条观看历史 = 进度 + 这部剧的元数据。
+ *
+ * 光有 [Progress] 画不出历史页：卡片要标题与封面，而进度里只有 id。
+ * 本地库本来就按"作品 + 进度"存历史行，端口把它如实交出来，不做第二次查询。
+ */
+data class HistoryEntry(
+    val series: Series,
+    val progress: Progress,
+)
+
 data class FavoriteEntry(
     val series: Series,
     val addedAt: Long,
     val status: FavoriteStatus,
+    /**
+     * 收藏的系列键（去季号归一化标题）。
+     * 收藏与季线都以它为索引——**不要让调用方从 title 猜**：series.title 在这里被换成了基名，
+     * 但那是实现的约定，不是类型能保证的事实。实现必须填：只有它知道真正的基名。
+     */
+    val seriesKey: String,
     /** 季线里的最新季号；0 = 未知。 */
     val latestSeason: Int = 0,
+    /** 最近一次「检查更新」的时间；0 = 从未检查。1 小时有效期用它判断。 */
+    val checkedAt: Long = 0,
 )
 
 enum class FavoriteStatus { UP_TO_DATE, NEW_SEASON, UNCHECKED, FAILED }

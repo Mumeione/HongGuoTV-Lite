@@ -1,7 +1,9 @@
 package com.hongguotv.lite.data.content
 
 import com.hongguotv.core.model.ContentFilter
+import com.hongguotv.core.model.SeasonKeys
 import com.hongguotv.core.model.Series
+import com.hongguotv.core.model.SeriesIds
 import com.hongguotv.core.port.UpstreamError
 import com.hongguotv.core.protocol.Fields
 import org.json.JSONArray
@@ -47,14 +49,14 @@ internal object Parsers {
             intro = o.str(Fields.Card.SERIES_INTRO),
             badge = o.str(Fields.Card.EPISODE_RIGHT_TEXT).ifEmpty { if (count > 0) "全 $count 集" else "" },
             tags = (0 until minOf(tags.length(), 5)).joinToString(" · ") { tags.optJSONObject(it)?.str(Fields.Card.NAME) ?: tags.optString(it) },
-            season = TitleKeys.seasonNumber(title),
+            season = SeasonKeys.seasonNumber(title),
         )
         return Card(series, isComic = celebs == null || celebs.length() == 0)
     }
 
     /** 脏行过滤：id 必须是纯数字、标题非空，按 id 去重。 */
     fun valid(rows: List<Card>): List<Card> =
-        rows.filter { TitleKeys.ID.matches(it.series.id) && it.series.title.isNotBlank() }.distinctBy { it.series.id }
+        rows.filter { SeriesIds.ID.matches(it.series.id) && it.series.title.isNotBlank() }.distinctBy { it.series.id }
 
     fun filterType(rows: List<Card>, filter: ContentFilter): List<Card> = when (filter) {
         ContentFilter.COMIC -> rows.filter { it.isComic }
@@ -113,9 +115,9 @@ internal object Parsers {
         for (card in cell.optJSONArray(Fields.Plan.VIDEO_DATA)?.objects() ?: emptyList()) {
             val o = card.optJSONObject(Fields.Plan.VIDEO_DATA) ?: card
             val id = o.str(Fields.Card.SERIES_ID)
-            if (!TitleKeys.ID.matches(id)) continue
+            if (!SeriesIds.ID.matches(id)) continue
             val count = o.optInt(Fields.Card.EPISODE_CNT, 0)
-            val n = TitleKeys.seasonNumber(card.optJSONObject(Fields.Plan.TAG_INFO)?.str(Fields.Plan.TAG_TEXT).orEmpty())
+            val n = SeasonKeys.seasonNumber(card.optJSONObject(Fields.Plan.TAG_INFO)?.str(Fields.Plan.TAG_TEXT).orEmpty())
             // n<=0 的卡片是同 IP 无季标签条目，不进入季线
             if (n <= 0) continue
             seasons += n to Series(

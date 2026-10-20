@@ -4,6 +4,7 @@ import com.hongguotv.core.model.ContentFilter
 import com.hongguotv.core.model.Detail
 import com.hongguotv.core.model.Episode
 import com.hongguotv.core.model.FavoriteEntry
+import com.hongguotv.core.model.HistoryEntry
 import com.hongguotv.core.model.Progress
 import com.hongguotv.core.model.SearchResult
 import com.hongguotv.core.model.SeasonLine
@@ -41,7 +42,9 @@ interface ContentPort {
 /** 进度端口。写操作是"提交意图"，实现自行合并与节流；调用方不关心写盘时机。 */
 interface ProgressPort {
     fun progressOf(seriesId: String): Progress?
-    fun history(limit: Int = 30): List<Progress>
+
+    /** 历史按更新时间降序。[HistoryEntry] 同时给出作品元数据：历史页要标题与封面。 */
+    fun history(limit: Int = 30): List<HistoryEntry>
     fun isWatched(seriesId: String): Boolean
     fun watchedUpTo(seriesId: String): Int
     suspend fun save(progress: Progress)

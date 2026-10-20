@@ -136,7 +136,17 @@ class PrefsLibraryTest {
         val rows = JSONArray(s.data["progress"] as String)
         assertEquals(1, rows.length())
         assertEquals("凡人测试书第二季", rows.getJSONObject(0).getJSONObject("series").getString("title"))
-        assertEquals(3, lib.history()[0].episodeIndex)
+        assertEquals(3, lib.history()[0].progress.episodeIndex)
+    }
+
+    @Test
+    fun historyCarriesSeriesMetadataForTheHistoryPage() = runTest {
+        // 历史页要画标题与封面：只有 Progress 画不出卡片，端口必须把作品一起交出来
+        val lib = PrefsLibrary(store(*oldPrefs()))
+        val row = lib.history().single()
+        assertEquals("凡人测试书第二季", row.series.title)
+        assertEquals("1", row.series.id)
+        assertEquals("https://img.example/c.jpg", row.series.cover)
     }
 
     @Test
@@ -242,6 +252,20 @@ class PrefsLibraryTest {
         lib.toggle(Series("1", "测试书"))
         lib.rememberSeasonLine("测试书", SeasonLine(listOf(Series("1", "测试书第一季", season = 1), Series("2", "测试书第八季", season = 8))))
         assertEquals(8, lib.entry("测试书")!!.latestSeason)
+    }
+
+    @Test
+    fun favoriteEntryExposesItsKeyAndLastCheckTime() = runTest {
+        val lib = PrefsLibrary(store("favoriteSeries" to "{}"), clock = { 5_000L })
+        lib.toggle(Series("1", "凡人测试书第二季"))
+        // 从未检查：时间为 0，页面据此判定"该检查一次"
+        assertEquals(0L, lib.entry("凡人测试书")!!.checkedAt)
+        lib.acknowledge("1", totalEpisodes = 12, at = 9_000L)
+        val entry = lib.entry("凡人测试书")!!
+        // 键与检查时间都由实现给出，页面不用从 title 猜、也不用另存一份
+        assertEquals("凡人测试书", entry.seriesKey)
+        assertEquals(9_000L, entry.checkedAt)
+        assertEquals(9_000L, lib.all().single().checkedAt)
     }
 
     @Test

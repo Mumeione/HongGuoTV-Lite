@@ -4,14 +4,15 @@ import com.hongguotv.core.model.FavoriteEntry
 import com.hongguotv.core.model.FavoriteStatus
 import com.hongguotv.core.model.FrameMode
 import com.hongguotv.core.model.ContentFilter
+import com.hongguotv.core.model.HistoryEntry
 import com.hongguotv.core.model.Progress
+import com.hongguotv.core.model.SeasonKeys
 import com.hongguotv.core.model.SeasonLine
 import com.hongguotv.core.model.Series
 import com.hongguotv.core.model.Settings
 import com.hongguotv.core.port.FavoritesPort
 import com.hongguotv.core.port.ProgressPort
 import com.hongguotv.core.port.SettingsPort
-import com.hongguotv.lite.data.content.TitleKeys
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.ExecutorService
@@ -82,8 +83,8 @@ class PrefsLibrary(
         historyRows.firstOrNull { it.progress.seriesId == seriesId }?.progress
     }
 
-    override fun history(limit: Int): List<Progress> = synchronized(lock) {
-        historyRows.take(limit).map { it.progress }
+    override fun history(limit: Int): List<HistoryEntry> = synchronized(lock) {
+        historyRows.take(limit).map { HistoryEntry(it.series, it.progress) }
     }
 
     override fun isWatched(seriesId: String): Boolean = synchronized(lock) { seriesId in watchedIds }
@@ -143,7 +144,9 @@ class PrefsLibrary(
                 series = value.first,
                 addedAt = value.second,
                 status = statusOf(value.first.id),
+                seriesKey = base,
                 latestSeason = latestSeasonOf(base, value.first),
+                checkedAt = updateRows[value.first.id]?.checkedAt ?: 0L,
             )
         }
     }
@@ -152,13 +155,20 @@ class PrefsLibrary(
 
     override fun entry(seriesKey: String): FavoriteEntry? = synchronized(lock) {
         favoriteRows[seriesKey]?.let { (series, addedAt) ->
-            FavoriteEntry(series, addedAt, statusOf(series.id), latestSeasonOf(seriesKey, series))
+            FavoriteEntry(
+                series = series,
+                addedAt = addedAt,
+                status = statusOf(series.id),
+                seriesKey = seriesKey,
+                latestSeason = latestSeasonOf(seriesKey, series),
+                checkedAt = updateRows[series.id]?.checkedAt ?: 0L,
+            )
         }
     }
 
     /** 收藏/取消收藏一个系列（base = 去季号后的剧名）。返回 true 表示已收藏。 */
     override suspend fun toggle(series: Series): Boolean {
-        val base = TitleKeys.seasonKey(series.title)
+        val base = SeasonKeys.seasonKey(series.title)
         if (base.isBlank()) return false
         val added = synchronized(lock) {
             if (favoriteRows.containsKey(base)) {
@@ -286,7 +296,7 @@ class PrefsLibrary(
         val legacy = SeriesCodec.decodeList(values["favorites"] as? String)
         val all = LinkedHashMap<String, Pair<Series, Long>>()
         legacy.forEach { series ->
-            val base = TitleKeys.seasonKey(series.title)
+            val base = SeasonKeys.seasonKey(series.title)
             if (base.isNotBlank()) all[base] = series.copy(title = base) to clock()
         }
         synchronized(lock) { favoriteRows = all }

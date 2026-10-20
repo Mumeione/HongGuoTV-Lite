@@ -11,6 +11,8 @@ dependencies {
     // org.json，否则运行时 NoClassDefFoundError。core 自己的单测已用 testImplementation 供上。
     compileOnly("org.json:json:20240303")
     testImplementation("org.json:json:20240303")
+    // usecase 里的 suspend 流程要用 runBlocking 驱动（core 自身不依赖协程）
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     testImplementation("junit:junit:4.13.2")
 }
 

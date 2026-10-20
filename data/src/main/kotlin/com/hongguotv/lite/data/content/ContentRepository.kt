@@ -4,8 +4,10 @@ import com.hongguotv.core.model.ContentFilter
 import com.hongguotv.core.model.Detail
 import com.hongguotv.core.model.Episode
 import com.hongguotv.core.model.SearchResult
+import com.hongguotv.core.model.SeasonKeys
 import com.hongguotv.core.model.SeasonLine
 import com.hongguotv.core.model.Series
+import com.hongguotv.core.model.SeriesIds
 import com.hongguotv.core.model.StreamInfo
 import com.hongguotv.core.model.Suggestion
 import com.hongguotv.core.port.ContentPort
@@ -54,7 +56,7 @@ class ContentRepository(
         // 条目来自官网搜索（每词固定前 10 条，无法翻页）；季数排序由服务端下发（plan 接口「相关作品」cell）。
         // 仅当搜索词恰为某系列 base（输入了完整剧名）时才走季线；否则官方原序展示。
         val rows = Parsers.valid(siteCards(keyword))
-        val anchor = rows.firstOrNull { TitleKeys.seasonKey(it.series.title) == TitleKeys.normalizeTitle(keyword) }
+        val anchor = rows.firstOrNull { SeasonKeys.seasonKey(it.series.title) == SeasonKeys.normalizeTitle(keyword) }
             ?: return SearchResult(displayOf(rows, filter), emptyList())
 
         // plan 失败（网络/风控/结构）不是搜索失败：降级为官网原序，与旧行为一致
@@ -62,8 +64,8 @@ class ContentRepository(
         if (line == null || line.seasons.size < 2) return SearchResult(displayOf(rows, filter), emptyList())
 
         val lineIds = line.seasons.map { it.id }.toSet()
-        val keywordKey = TitleKeys.normalizeTitle(keyword)
-        val rest = rows.filter { it.series.id !in lineIds && TitleKeys.normalizeTitle(it.series.title).contains(keywordKey) }
+        val keywordKey = SeasonKeys.normalizeTitle(keyword)
+        val rest = rows.filter { it.series.id !in lineIds && SeasonKeys.normalizeTitle(it.series.title).contains(keywordKey) }
         val displayRest = Parsers.filterType(rest, filter).map { it.series }
         // 展示序：季线新 → 旧置顶，其余条目保持官方原序
         return SearchResult(filterLine(line, filter).asReversed() + displayRest, line.seasons)
@@ -109,7 +111,7 @@ class ContentRepository(
         return rows.objects().mapNotNull { o ->
             val video = o.optJSONObject(Fields.Suggest.VIDEO_DATA) ?: return@mapNotNull null
             val id = video.str(Fields.Suggest.SERIES_ID)
-            if (!TitleKeys.ID.matches(id)) return@mapNotNull null
+            if (!SeriesIds.ID.matches(id)) return@mapNotNull null
             val series = Series(
                 id = id,
                 title = o.str(Fields.Suggest.NAME),
@@ -123,7 +125,7 @@ class ContentRepository(
     // ---------- 详情 ----------
 
     override suspend fun detail(seriesId: String): Detail {
-        require(TitleKeys.ID.matches(seriesId)) { "剧集 id 无效：$seriesId" }
+        require(SeriesIds.ID.matches(seriesId)) { "剧集 id 无效：$seriesId" }
         // 全集顺序以服务端下发为准（本地不重排）；官网详情页 2026-10 起全网 404，不再回退。
         val signed = signers.sign("detail", mapOf("seriesId" to seriesId))
         val raw = http.text(signed)
@@ -134,7 +136,7 @@ class ContentRepository(
             ?: throw UpstreamError.Shape("data.video_data")
         val vids = (vd.optJSONArray(Fields.Detail.VIDEO_LIST)?.objects() ?: emptyList())
             .map { it.optString(Fields.Detail.VID) }
-            .filter { TitleKeys.ID.matches(it) }
+            .filter { SeriesIds.ID.matches(it) }
             .distinct()
         if (vids.isEmpty()) throw UpstreamError.Shape("data.video_data.video_list")
         val title = vd.str(Fields.Detail.SERIES_TITLE).ifEmpty { vd.str(Fields.Detail.SERIES_NAME) }
@@ -145,7 +147,7 @@ class ContentRepository(
             intro = vd.str(Fields.Detail.SERIES_INTRO),
             badge = "全 ${vd.optInt(Fields.Detail.EPISODE_CNT, vids.size)} 集",
             tags = Parsers.detailTags(vd),
-            season = TitleKeys.seasonNumber(title),
+            season = SeasonKeys.seasonNumber(title),
         )
         return Detail(series, vids.mapIndexed { index, vid -> Episode(vid, index) })
     }
@@ -163,14 +165,14 @@ class ContentRepository(
      * 返回季按季号升序（旧 → 新）。
      */
     private suspend fun planCells(seriesId: String, isComic: Boolean, anchor: Series?): PlanLine {
-        require(TitleKeys.ID.matches(seriesId)) { "剧集 id 无效：$seriesId" }
+        require(SeriesIds.ID.matches(seriesId)) { "剧集 id 无效：$seriesId" }
         val signed = signers.sign("seasonLine", mapOf("seriesId" to seriesId))
         val raw = http.text(signed)
         val data = runCatching { JSONObject(raw).optJSONArray(Fields.Envelope.DATA) ?: JSONArray() }
             .getOrElse { throw UpstreamError.Shape("body") }
         val entries = Parsers.planCell(data).toMutableList()
         if (anchor != null && entries.none { it.second.id == anchor.id }) {
-            val n = TitleKeys.seasonNumber(anchor.title)
+            val n = SeasonKeys.seasonNumber(anchor.title)
             entries += n to (if (n > 0) anchor.copy(season = n) else anchor)
         }
         return PlanLine(entries.sortedBy { it.first }.map { it.second }, isComic)
@@ -179,7 +181,7 @@ class ContentRepository(
     // ---------- 取流 ----------
 
     override suspend fun stream(vid: String, maxHeight: Int): StreamInfo {
-        require(TitleKeys.ID.matches(vid)) { "剧集 id 无效：$vid" }
+        require(SeriesIds.ID.matches(vid)) { "剧集 id 无效：$vid" }
         // 旧入口 video_model / multi_video_model 2026-10 起返回 200 空体，preload 是唯一还吐数据的入口；
         // 其风控只放行 onedrama 6905554 同款简化请求（PreloadSigner 负责），设备号是本类自己的随机身份。
         val signed = signers.sign(
