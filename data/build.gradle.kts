@@ -21,10 +21,14 @@ android {
 
 dependencies {
     implementation(project(":core"))
+    // ContentPort 是 suspend 接口：IO 调度与官网节流的 delay 都靠它。
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     // Android 运行时已提供 org.json（android.jar），不要再打包一份；
     // 只有本模块的 JVM 单测需要真实实现。
     testImplementation("org.json:json:20240303")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     compileOnly("androidx.media3:media3-exoplayer:1.8.0")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    testImplementation(kotlin("test"))
 }
