@@ -18,7 +18,7 @@ class EndpointsTest {
 
     @Test
     fun bundledTableLoads() {
-        assertEquals(setOf("suggest", "seasonLine", "detail", "preload"), Endpoints.all.keys)
+        assertEquals(setOf("suggest", "seasonLine", "detail", "siteSearch", "preload"), Endpoints.all.keys)
         assertEquals(setOf("content", "stream", "site"), Endpoints.hosts.keys)
     }
 
@@ -102,10 +102,29 @@ class EndpointsTest {
         assertThrows(IllegalArgumentException::class.java) { Endpoints.load(tableOf(RELATIVE_PATH)) }
     }
 
-    /** path 带占位符现在不支持：宁可响亮失败，也不要拼出一个错的 URL。 */
+    /** path 占位符：表里允许写，最终地址由调用方填充（官网搜索在用）。 */
     @Test
-    fun pathPlaceholderIsRejected() {
-        assertThrows(IllegalArgumentException::class.java) { Endpoints.load(tableOf(PATH_WITH_PLACEHOLDER)) }
+    fun pathPlaceholderIsFilledAtRequestTime() {
+        val table = Endpoints.load(tableOf(PATH_WITH_PLACEHOLDER))
+        val endpoint = table.endpoints.getValue("bad")
+        assertTrue("base 仍是模板：${endpoint.base}", endpoint.base.endsWith("/search/\$keyword"))
+        // url() 只填占位符不编码：编码是调用方的责任（统一走 urlEncode）
+        assertEquals("https://example.com/search/%E5%87%A1%E4%BA%BA", endpoint.url(mapOf("keyword" to urlEncode("凡人"))))
+        val error = assertThrows(IllegalArgumentException::class.java) { endpoint.url(emptyMap()) }
+        assertTrue("报错必须点名缺哪个参数：${error.message}", error.message.orEmpty().contains("keyword"))
+    }
+
+    /** 官网搜索端点：无签名通道，query 是表自带的 page=1，keyword 只出现在 path 里。 */
+    @Test
+    fun siteSearchGoesThroughTheUnsignedChannel() {
+        val endpoint = Endpoints["siteSearch"]
+        assertEquals(SignerKind.NONE, endpoint.signer)
+        assertEquals(QueryProfile.NONE, endpoint.queryProfile)
+        assertEquals(HttpMethod.GET, endpoint.method)
+        assertTrue(endpoint.base.startsWith("https://hongguoduanju.com/search/"))
+        // url() 只负责 path；query 由 resolvedQuery / 签名器拼接
+        assertEquals("https://hongguoduanju.com/search/%E5%87%A1%E4%BA%BA", endpoint.url(mapOf("keyword" to urlEncode("凡人"))))
+        assertEquals(listOf("page" to "1"), endpoint.resolvedQuery(emptyMap()))
     }
 
     @Test

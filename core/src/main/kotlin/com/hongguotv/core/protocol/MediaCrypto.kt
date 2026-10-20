@@ -24,6 +24,8 @@ object MediaCrypto {
         while(end>0 && bytes[end-1].u()==0) end--
         return String(bytes,0,end,Charsets.UTF_8)
     }
+    /** data 层入口：key_seed 上游给的是 base64。decode64 是 core 内部实现，外部只该走这里。 */
+    fun decryptUrl(value: String, keySeedBase64: String): String = decryptUrl(value, decode64(keySeedBase64))
     private data class Box(val start: Int,val end: Int,val body: Int,val type: String)
     private fun box(data: ByteArray, at: Int, limit: Int = data.size): Box? {
         if(at<0 || at+8>limit) return null

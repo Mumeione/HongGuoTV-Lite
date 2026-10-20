@@ -1,9 +1,6 @@
 {
-  "version": 1,
-  "note": "上游协议形状的唯一事实来源。改端点、改参数、改 body 结构、改变签名策略，都只改这个文件。Kotlin 侧由 protocol/Endpoints.kt 读取。query 用数组而不是对象：签名覆盖 query 的字节顺序，顺序是协议的一部分，不能被 JSON 对象的重排吞掉。模板里的 $name 全部是占位符，body 中不要出现字面量 $。",
-  "gaps": {
-    "siteSearch": "官网 SSR 搜索（GET {site}/search/{keyword}?page=1，无签名、HTML 响应）尚未收录：它在 path 里带占位符，而 Endpoints 目前只支持静态 path。S2 接入搜索数据源时一并补，不要绕过表直接拼 URL。"
-  },
+  "version": 2,
+  "note": "上游协议形状的唯一事实来源。改端点、改参数、改 body 结构、改变签名策略，都只改这个文件。Kotlin 侧由 protocol/Endpoints.kt 读取。query 用数组而不是对象：签名覆盖 query 的字节顺序，顺序是协议的一部分，不能被 JSON 对象的重排吞掉。模板里的 $name 全部是占位符（path/query/body 通用），body 中不要出现字面量 $；path 占位符的值要求调用方已按 urlEncode 编码。",
   "hosts": {
     "content": "https://api5-normal-sinfonlinea.fqnovel.com",
     "stream": "https://api5-normal-sinfonlineb.fqnovel.com",
@@ -49,6 +46,17 @@
       "query": [],
       "body": "{\"biz_param\":{\"detail_page_version\":1,\"disable_digg_stat\":false,\"disable_video_relate_book\":false,\"need_all_video_definition\":false,\"need_mp4_align\":false,\"screen_width_px\":\"1920\",\"source\":5,\"use_os_player\":false,\"use_server_dns\":false,\"video_id_type\":1},\"series_id\":\"$seriesId\"}",
       "note": "全集顺序即播出顺序，本地不重排。官网详情页 2026-10 起全网 404，不再回退。"
+    },
+    "siteSearch": {
+      "host": "site",
+      "path": "/search/$keyword",
+      "method": "GET",
+      "signer": "none",
+      "queryProfile": "none",
+      "query": [
+        ["page", "1"]
+      ],
+      "note": "官网 SSR 搜索：HTML 响应、无签名，每词固定前 10 条、无法翻页。$keyword 必须先经 urlEncode。调用方必须走 data 层的统一节流（最少间隔 400ms），否则补搜多季时会触发限流。"
     },
     "preload": {
       "host": "stream",

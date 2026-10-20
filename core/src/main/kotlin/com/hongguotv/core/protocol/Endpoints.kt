@@ -2,14 +2,22 @@ package com.hongguotv.core.protocol
 
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URLEncoder
 
-/** 端点用哪套签名。两套的 query 组成与头集合完全不同，混用会被风控判为异常并返回 200 空体。 */
+/** URL 编码：空格 → %20、~ 保留。path 占位符与无签名 query 共用同一个口径。 */
+fun urlEncode(value: String): String =
+    URLEncoder.encode(value, Charsets.UTF_8.name()).replace("+", "%20").replace("%7E", "~")
+
+/** 端点用哪套签名。三套的 query 组成与头集合完全不同，混用会被风控判为异常并返回 200 空体。 */
 enum class SignerKind(val id: String) {
     /** 完整套件：x-gorgon + x-helios + x-medusa + x-ladon + x-argus，query 含 ts。 */
     FULL("full"),
 
     /** preload 简化套件：只有 x-gorgon（0x40 0x1c 变体），query 只有 _rticket。 */
-    PRELOAD("preload");
+    PRELOAD("preload"),
+
+    /** 无签名（官网 SSR）：不带任何签名头，风控只看 UA 与请求频率。 */
+    NONE("none");
 
     companion object {
         fun of(id: String): SignerKind =
@@ -46,12 +54,14 @@ enum class HttpMethod {
 /**
  * 一个上游端点。字段名照着 endpoints.json，不谈业务语义——语义在 data 层的映射里。
  *
- * 占位符写作 `$name`，由调用方按需传入；缺参数直接抛错，不静默拼空串。
- * 静默空串是这类代码最常见的事故形态：请求发出去了，上游返 200 空体，最后报"没有剧集"。
+ * 占位符写作 `$name`（path、query、body 通用），由调用方按需传入；缺参数直接抛错，
+ * 不静默拼空串。静默空串是这类代码最常见的事故形态：请求发出去了，上游返 200 空体，
+ * 最后报"没有剧集"。path 里的占位符（官网搜索）要求调用方传**已 URL 编码**的值——
+ * [urlEncode] 是统一口径，不要自己另写一套编码。
  */
 data class Endpoint(
     val id: String,
-    /** 绝对 URL 前缀（host + path），解析时拼好。调用方不必再持有 hosts 表。 */
+    /** host + path 原样拼好；path 含占位符时它仍是模板，取最终地址用 [url]。调用方不必再持有 hosts 表。 */
     val base: String,
     val method: HttpMethod,
     val signer: SignerKind,
@@ -60,6 +70,9 @@ data class Endpoint(
     val query: List<Pair<String, String>>,
     val bodyTemplate: String?,
 ) {
+    /** 最终请求地址：base 的占位符填好（无占位符时等于 base）。query 不在这里拼。 */
+    fun url(values: Map<String, String>): String = fill(base, values)
+
     fun resolvedQuery(values: Map<String, String>): List<Pair<String, String>> =
         query.map { (key, value) -> key to fill(value, values) }
 
@@ -116,9 +129,8 @@ object Endpoints {
 
         val path = o.getString("path")
         require(path.startsWith("/")) { "端点 $id 的 path 必须以 / 开头：$path" }
-        // path 暂不支持占位符：需要它的端点（官网搜索）还没有消费者，等 S2 接入时再扩展，
-        // 免得出一个"看起来能用其实拼错"的入口。
-        require(!path.contains('$')) { "端点 $id 的 path 暂不支持占位符：$path" }
+        // path 支持 $name 占位符（官网搜索在用）；缺参不在解析时报——等调用方填充时响亮失败，
+        // 因为"表里写了占位符但没人填"与"调用方少传了参数"是两种错误，后一种才有修复价值。
 
         val method = HttpMethod.of(o.getString("method"))
         val body = if (o.has("body")) o.getString("body") else null
