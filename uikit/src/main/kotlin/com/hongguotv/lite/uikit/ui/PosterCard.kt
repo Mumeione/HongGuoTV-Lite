@@ -3,6 +3,7 @@ package com.hongguotv.lite.uikit.ui
 import android.annotation.SuppressLint
 import android.graphics.Typeface
 import android.text.TextUtils
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -35,6 +36,12 @@ data class CardItem(
      * 然后提示"《xx》尚未上线"——那是产品文案，不是设计系统的规则。
      */
     val dim: Boolean = false,
+    /**
+     * 封面左上角的小角标（例如季线里的"当前"）。空串 = 不画。
+     *
+     * 与 [badge] 分工：角标说"它是什么"（当前季 / 已看完），[badge] 说"它的状态"。
+     */
+    val corner: String = "",
 )
 
 /**
@@ -52,6 +59,7 @@ class PosterCard internal constructor(
     private val tokens = ui.tokens
     private val artworkView = FrameLayout(ui.context)
     private val image = ImageView(ui.context)
+    private val cornerView = TextView(ui.context)
     private val titleView = TextView(ui.context)
     private val badgeView = TextView(ui.context)
 
@@ -79,6 +87,22 @@ class PosterCard internal constructor(
         image.scaleType = ImageView.ScaleType.FIT_CENTER
         image.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         artworkView.addView(image, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
+        // 封面上角的小角标（"当前"）：白底深字，比在标题里加前缀显眼，也不占标题的两行
+        cornerView.textSize = tokens.type.caption
+        cornerView.includeFontPadding = false
+        cornerView.maxLines = 1
+        cornerView.minLines = 1
+        cornerView.gravity = Gravity.CENTER
+        cornerView.setTypeface(null, Typeface.BOLD)
+        cornerView.setTextColor(tokens.colors.onFocus)
+        cornerView.setBackgroundColor(tokens.colors.focus)
+        cornerView.setPadding(dp(tokens.space.xs), dp(tokens.space.xxs), dp(tokens.space.xs), dp(tokens.space.xxs))
+        cornerView.visibility = View.GONE
+        artworkView.addView(
+            cornerView,
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.START),
+        )
 
         titleView.textSize = tokens.type.compact
         titleView.setTextColor(tokens.colors.text)
@@ -121,6 +145,8 @@ class PosterCard internal constructor(
         titleView.text = item.title
         contentDescription = item.title
         alpha = if (item.dim) tokens.metrics.dimAlpha else 1f
+        cornerView.text = item.corner
+        cornerView.visibility = if (item.corner.isEmpty()) View.GONE else View.VISIBLE
         badgeView.text = item.badge
         badgeView.setTextColor(if (item.badgeAttention) tokens.colors.focus else tokens.colors.muted)
         badgeView.setTypeface(null, if (item.badgeAttention) Typeface.BOLD else Typeface.NORMAL)

@@ -116,6 +116,9 @@ class UiKit(
 
     fun input(label: String, maxLength: Int = 80): TvInput = TvInput(context, tokens, label, maxLength)
 
+    /** 单张封面（详情页大图）。走封面端口取图，尺寸由调用方给。 */
+    fun cover(widthDp: Int, heightDp: Int): TvCover = TvCover(this, dp(widthDp), dp(heightDp))
+
     fun preview(): PreviewRail = PreviewRail(this)
 
     // ---------- 页面与网格 ----------
@@ -123,6 +126,15 @@ class UiKit(
     fun page(): PageScaffold = PageScaffold(this)
 
     fun grid(section: String = "card"): PosterGrid = PosterGrid(this, section)
+
+    /**
+     * 单张海报卡，宽度由调用方给（像素）。
+     *
+     * 给"列数由产品口径决定、不由宽度算出来"的场景用——季线一页 8 张就是这种：
+     * 用 [grid] 的话列数会按卡宽反推，40 季的剧会被 `pageCardLimit` 截断。
+     * 外观与网格里的卡完全一致，不为一个区块另造一种卡。
+     */
+    fun poster(widthPx: Int): PosterCard = PosterCard(this, widthPx)
 
     // ---------- 布局参数 ----------
 
@@ -155,7 +167,12 @@ class UiKit(
         return (metrics.heightPixels * tokens.metrics.pageInsetRatio).toInt()
     }
 
-    /** 内容区可用宽度：已量过就用量过的，没量过按屏幕减页边距估。 */
-    internal fun availableWidth(measured: Int): Int =
+    /**
+     * 内容区可用宽度：已量过就用量过的，没量过按屏幕减页边距估。
+     *
+     * 给"列数由产品口径决定"的行用（季线一页 8 张），它没法像网格那样按卡宽反推列数。
+     * 第一次渲染时视图还没量过，传 0 即可。
+     */
+    fun availableWidth(measured: Int): Int =
         if (measured > 0) measured else (context.resources.displayMetrics.widthPixels - pageInsetHorizontal() * 2)
 }

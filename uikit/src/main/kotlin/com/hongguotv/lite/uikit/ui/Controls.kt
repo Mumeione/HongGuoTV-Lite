@@ -21,6 +21,12 @@ enum class ButtonVariant {
 
     /** 整行左对齐的设置项：占满一行，字靠左。 */
     ROW,
+
+    /**
+     * 紧凑格（分集格）：一行排 20 个时每格只有 40dp 左右，
+     * 常规按钮的左右内边距会把"100"挤到看不见。画法与 [STANDARD] 完全一致，只改尺寸。
+     */
+    CELL,
 }
 
 /**
@@ -45,12 +51,21 @@ class TvButton internal constructor(
 
     init {
         text = label
-        textSize = tokens.type.body
-        gravity = if (variant == ButtonVariant.ROW) Gravity.CENTER_VERTICAL else Gravity.CENTER
-        val horizontal = dp(tokens.metrics.controlPaddingH)
-        val vertical = dp(tokens.metrics.controlPaddingV)
+        // 形态只有两种尺寸口径（紧凑格 / 其余），先摊成两个布尔，别在四处重复比同一个枚举
+        val cell = variant == ButtonVariant.CELL
+        val row = variant == ButtonVariant.ROW
+        textSize = if (cell) tokens.type.compact else tokens.type.body
+        gravity = if (row) Gravity.CENTER_VERTICAL else Gravity.CENTER
+        val horizontal = dp(if (cell) tokens.metrics.episodeCellPaddingH else tokens.metrics.controlPaddingH)
+        val vertical = dp(if (cell) 0 else tokens.metrics.controlPaddingV)
         setPadding(horizontal, vertical, horizontal, vertical)
-        minHeight = dp(if (variant == ButtonVariant.ROW) tokens.metrics.navHeight else tokens.metrics.controlMinHeight)
+        minHeight = dp(
+            when {
+                row -> tokens.metrics.navHeight
+                cell -> tokens.metrics.episodeCellHeight
+                else -> tokens.metrics.controlMinHeight
+            },
+        )
         isSelected = initialSelected
         setOnClickListener { onTap() }
         repaint()
@@ -199,6 +214,10 @@ class TvLink internal constructor(
         setPadding(dp(tokens.space.m), dp(tokens.space.xs), dp(tokens.space.m), dp(tokens.space.xs))
         setOnClickListener { onTap() }
         repaint()
+    }
+
+    fun label(value: String) {
+        text = value
     }
 
     override fun paintState(focused: Boolean) {

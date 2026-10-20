@@ -146,6 +146,14 @@ data class Metrics(
     val brandIcon: Int = 30,
     /** 不可点击的卡片（未上线季）整体透明度：暗一档，一看就知道按不进去。 */
     val dimAlpha: Float = 0.55f,
+    /** 详情页大封面：宽 / 高 / 与右侧信息的间距。 */
+    val heroCoverWidth: Int = 98,
+    val heroCoverHeight: Int = 140,
+    val heroCoverGap: Int = 22,
+    /** 分集格：格高、左右内边距（20 列时三位数也放得下）、格间距。 */
+    val episodeCellHeight: Int = 40,
+    val episodeCellPaddingH: Int = 2,
+    val episodeCellGap: Int = 5,
 )
 
 data class Tokens(
