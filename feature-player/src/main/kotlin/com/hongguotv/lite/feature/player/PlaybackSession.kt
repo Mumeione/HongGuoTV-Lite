@@ -308,7 +308,21 @@ class PlaybackSession(
 
     /** 应用退到后台：暂停、保存、停掉在途重试。回到前台**不自动续播**。 */
     fun onLifecyclePause() {
-        if (state is PlaybackState.Playing) pause(PauseReason.LIFECYCLE)
+        // 定时停止是"这一次观看"的意图：退到后台就不该继续算（旧行为）。
+        // 不取消的话，用户半小时后回来一按播放，会被一个早已过期的定时立刻停住。
+        sleep.cancel()
+        when (state) {
+            is PlaybackState.Playing -> pause(PauseReason.LIFECYCLE)
+            // 取流还没完成就退到后台：只记下"因为生命周期而暂停"。
+            // 不记的话，流回来时按 `playWhenReady = pausedBy == null` 装，会在后台带着声音开播。
+            // **只认 Preparing**：出错 / 片尾时若也记上，用户回前台按「重试 / 下一集」会装载成暂停态，
+            // 提示卡消失、画面不动——那是把一个本该能播的操作变成按了没反应。
+            is PlaybackState.Preparing -> if (pausedBy == null) {
+                pausedBy = PauseReason.LIFECYCLE
+                refresh()
+            }
+            else -> Unit
+        }
         cancelRetry()
     }
 

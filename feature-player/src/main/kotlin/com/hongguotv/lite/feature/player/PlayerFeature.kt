@@ -68,6 +68,11 @@ class PlayerFeature(
         page?.pause()
     }
 
+    /** 回到前台：恢复心跳（定时停止与"等联网重试"都靠它）。**不自动续播**。 */
+    fun resume() {
+        page?.resume()
+    }
+
     /** 离开播放页：取消失效请求、释放播放器、停掉定时与浮层。 */
     fun release() {
         page?.release()

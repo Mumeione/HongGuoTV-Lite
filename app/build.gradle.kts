@@ -69,6 +69,8 @@ dependencies {
     // 组装层要亲手建 OkHttpClient（内容端点一个、封面一个，超时不同）并递给 data 的实现。
     // data 里它是 implementation，不对外暴露，所以这里必须自己声明一次。
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // 宿主建主线程作用域（Dispatchers.Main）。feature 的作用域由 app 注入，运行时由这里提供。
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     // 路由栈是不碰 android.* 的纯逻辑，用普通 JVM 单测覆盖（与 uikit / feature-* 同口径）。
     testImplementation("junit:junit:4.13.2")
 }

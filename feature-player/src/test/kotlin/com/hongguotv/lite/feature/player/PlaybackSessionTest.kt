@@ -582,6 +582,40 @@ class PlaybackSessionTest {
     }
 
     @Test
+    fun goingToTheBackgroundBeforeTheStreamArrivesKeepsTheSoundOff() {
+        // S7 才有人调 onLifecyclePause：取流还没回来就按 HOME，流回来时不能在后台带声音开播
+        val f = Fixture().start()
+        f.session.onLifecyclePause()
+        f.session.onStreamReady(FakeStream)
+        assertFalse(f.engine.loads.single().playWhenReady)
+        f.ready()
+        assertEquals(PlaybackState.Playing(0, PauseReason.LIFECYCLE, buffering = false), f.session.state)
+        // 回到前台不自动续播：要用户自己按一下（旧行为同口径）
+        assertEquals(0, f.engine.plays)
+    }
+
+    @Test
+    fun goingToTheBackgroundWhileFailedDoesNotPoisonTheNextRetry() {
+        // 出错时按 HOME：暂停原因必须保持"无"。若记成 LIFECYCLE，回前台按「重试」会装成暂停态，
+        // 提示卡消失、画面不动——用户按了确认却什么都没发生
+        val f = Fixture().start()
+        f.session.onStreamFailed(IOException("boom"))
+        f.session.onLifecyclePause()
+        f.session.retry()
+        f.session.onStreamReady(FakeStream)
+        assertTrue(f.engine.loads.last().playWhenReady)
+    }
+
+    @Test
+    fun goingToTheBackgroundCancelsTheSleepTimer() {
+        // 旧行为：退到后台就不算这一次观看的定时了。不取消的话，回来一按播放就被过期的定时立刻停住
+        val f = Fixture().start().ready()
+        f.session.sleepFor(15)
+        f.session.onLifecyclePause()
+        assertNull(f.session.sleep.remainingMs)
+    }
+
+    @Test
     fun releasingSavesAndTearsTheEngineDown() {
         val f = Fixture().start().ready()
         f.engine.positionMs = 8_000

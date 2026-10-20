@@ -69,6 +69,13 @@ internal class PlayerPage(
     private var toast: Toast? = null
     private var lastFocusToken: String? = null
 
+    /**
+     * 会话还没建起来就被要求暂停（宿主在后台把播放页推上来时会发生）：
+     * 记下来，等 `start()` 之后补一次生命周期暂停。否则流一回来就出声——
+     * 页面刚建、`session` 还是 `Idle`，`onLifecyclePause` 那时什么都做不了。
+     */
+    private var pausedBeforeStart = false
+
     fun view(): View = root
 
     fun build() {
@@ -146,6 +153,8 @@ internal class PlayerPage(
             detail = loaded
             preloadSeasonLine(loaded)
             session.start(loaded, startIndex, startPositionMs)
+            // 建页时就已退到后台：补一次暂停，别让流装成"自动播放"
+            if (pausedBeforeStart) session.onLifecyclePause()
             render()
         }
     }
@@ -443,7 +452,17 @@ internal class PlayerPage(
     // ---------- 生命周期 ----------
 
     fun pause() {
-        if (::session.isInitialized) session.onLifecyclePause()
+        if (::session.isInitialized) session.onLifecyclePause() else pausedBeforeStart = true
+        // 后台不心跳：定时停止、断网重连都等回到前台再说。
+        // 留着 tick 的话，"等联网自动重试"会在用户看不见的时候重新取流并开播。
+        handler.removeCallbacks(tick)
+    }
+
+    /** 回到前台：恢复每秒一次的心跳。 */
+    fun resume() {
+        if (!::session.isInitialized) return
+        handler.removeCallbacks(tick)
+        handler.postDelayed(tick, TICK_MS)
     }
 
     fun release() {

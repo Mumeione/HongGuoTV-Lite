@@ -40,6 +40,12 @@ class CatalogFeature(
     private var tab: CatalogTab = CatalogTab.of(initialTab)
     private var page: CatalogPage? = null
 
+    /**
+     * 当前页。**tab 的唯一所有者是本类**：宿主需要知道"用户在哪一页"时读这里，
+     * 不要在自己的路由里再存一份（两份必然漂移）。
+     */
+    val currentTab: CatalogTab get() = tab
+
     /** 每页最后一次的焦点 key：切页时保存，回来时按它落点（不依赖 ScrollView 的滚动位置）。 */
     private val lastFocus = LinkedHashMap<CatalogTab, FocusKey>()
 
