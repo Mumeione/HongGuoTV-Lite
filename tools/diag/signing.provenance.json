@@ -1,0 +1,5 @@
+{
+  "sourceFile": "hongguo.cjs",
+  "sourceSha256": "e6d506620d878befbd76ae32a4e8d2511d622a998654426cbdd4f7216fdcb03b",
+  "note": "参考实现为 drpys (GPL-3.0)，不随仓库分发。重新生成见 tools/diag/README.md。"
+}
