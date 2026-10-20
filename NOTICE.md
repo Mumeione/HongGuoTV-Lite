@@ -21,6 +21,7 @@ APK 不包含 Node、React Native、JavaScript 引擎或该 JavaScript 源文件
 ## 依赖
 
 - Kotlin 标准库：https://github.com/JetBrains/kotlin — Apache-2.0
+- kotlinx.coroutines：https://github.com/Kotlin/kotlinx.coroutines — Apache-2.0
 - AndroidX Media3：https://github.com/androidx/media — Apache-2.0
 - OkHttp / Okio：https://github.com/square/okhttp / https://github.com/square/okio — Apache-2.0
 - AndroidX core：https://developer.android.com/jetpack/androidx — Apache-2.0

@@ -23,5 +23,10 @@ android {
 dependencies {
     implementation(project(":core"))
     implementation(project(":uikit"))
+    // 页面要调 suspend 的端口方法：作用域由 app 注入（S7），协程运行时由本模块提供。
+    // data 已经打包了 coroutines-core，这里不会重复计入体积；-android 只为 Main 调度器。
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 }

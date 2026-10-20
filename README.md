@@ -5,8 +5,9 @@ An unofficial, non-commercial Android TV client for 红果短剧, written in Kot
 安卓 TV 端的红果短剧第三方客户端，Kotlin + 原生 View + Media3，**最低 Android 6.0（API 23）**。
 本项目是一次**搬迁式重构**：把已经验证可用的播放与交互实现，搬进一套依赖方向被强制约束的模块结构里。
 
-> **状态：S3 完成，尚不可用。** 协议层、数据层（`data`）与设计系统（`uikit`）已就位，
-> 三个业务页面（S4–S6）与 `app` 收口（S7）尚未开始，当前 APK 仍是空壳。
+> **状态：S4 完成，尚不可用。** 协议层、数据层（`data`）、设计系统（`uikit`）与目录四页
+> （`feature-catalog`：搜索 / 收藏 / 历史 / 设置）已就位；详情与播放（S5–S6）、`app` 收口（S7）
+> 尚未开始，当前 APK 仍是空壳——四页要等 S7 组装进 Activity 才能看到。
 > 进度见[路线图](#路线图)，逐阶段记录见 `docs/handoff/`。
 
 ---
@@ -116,13 +117,14 @@ sealed class UpstreamError {
 
 ```sh
 # JAVA_HOME 指向 JDK 17，local.properties 里的 sdk.dir 指向 Android SDK
-./gradlew :core:test :data:testDebugUnitTest :uikit:testDebugUnitTest :app:assembleDebug --console=plain
+./gradlew :core:test :data:testDebugUnitTest :uikit:testDebugUnitTest :feature-catalog:testDebugUnitTest :app:assembleDebug --console=plain
 ```
 
-一阶段一次全量验证（当前基线：core 51 项、data 103 项、uikit 41 项）：
+一阶段一次全量验证（当前基线：core 67 项、data 49 项、uikit 41 项、feature-catalog 31 项）：
 
 ```sh
-./gradlew :core:test :data:testDebugUnitTest :uikit:testDebugUnitTest :uikit:lintDebug :app:assembleDebug --console=plain
+./gradlew :core:test :data:testDebugUnitTest :uikit:testDebugUnitTest :feature-catalog:testDebugUnitTest \
+  :uikit:lintDebug :feature-catalog:lintDebug :app:assembleDebug --console=plain
 ```
 
 > **`:app:lintDebug` 目前是红的，原因是 S0 遗留的一处清单问题**：manifest 声明了 Leanback 入口却没有
@@ -144,13 +146,13 @@ sealed class UpstreamError {
 | S1 | `protocol`：端点表、字段表、请求签名、Spade 解密、MP4 CENC 索引 | 🟡 代码完成；实网探针待 S8 |
 | S2 | `data`：内容端口实现、本地存储（进度/收藏/设置）、错误分类 | ✅ 完成（103 项单测） |
 | S3 | `uikit`：设计令牌、控件、焦点图纯函数、页面骨架 | ✅ 完成（41 项单测） |
-| S4 | `feature-catalog`：搜索 / 收藏 / 历史 / 设置 | 待开始 |
+| S4 | `feature-catalog`：搜索 / 收藏 / 历史 / 设置 | ✅ 完成（31 项单测） |
 | S5 | `feature-detail`：详情、收藏系列页、跨季 | 待开始 |
 | S6 | `feature-player`：播放会话状态机、按键表、侧栏菜单 | 待开始 |
 | S7 | `app` 收口：导航、依赖组装 | 待开始 |
 | S8 | 诊断探针、CI、文档收尾 | 待开始 |
 
-功能在 S4–S6 之后才可用。在那之前，从旧仓库安装包体验更实际。
+功能在 S5–S7 之后才可用。在那之前，从旧仓库安装包体验更实际。
 
 ---
 
@@ -160,7 +162,7 @@ sealed class UpstreamError {
 core/        纯 JVM。protocol/ 协议与密码学 · model/ 领域模型 · port/ 端口接口与失败分类
 data/        端口实现。content/ 内容仓库与解析 · http/ 传输与错误分类 · library/ 本地存储
 uikit/       设计系统。token/ 令牌 · focus/ 焦点图与节流 · layout/ 几何与滚动 · ui/ 控件 · page/ 骨架与网格
-feature-*/   三个业务模块，互不感知（S4–S6，尚无源码）
+feature-*/   三个业务模块，互不感知（S4 已交付 feature-catalog，S5–S6 尚无源码）
 app/         装配与导航（S7，当前仍是 S0 的空壳 Activity）
 licenses/    第三方许可证全文
 ```
