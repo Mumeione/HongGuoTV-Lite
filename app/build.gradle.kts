@@ -66,4 +66,6 @@ dependencies {
     implementation(project(":feature-detail"))
     implementation(project(":feature-player"))
     implementation("androidx.core:core:1.8.0")
+    // 路由栈是不碰 android.* 的纯逻辑，用普通 JVM 单测覆盖（与 uikit / feature-* 同口径）。
+    testImplementation("junit:junit:4.13.2")
 }
