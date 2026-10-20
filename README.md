@@ -138,8 +138,8 @@ export ANDROID_HOME=$HOME/.buildozer/android/platform/android-sdk
 | --- | --- | --- |
 | S0 | 七模块骨架、依赖规则、端口接口、空壳 APK | ✅ 完成 |
 | S1 | `protocol`：端点表、字段表、请求签名、Spade 解密、MP4 CENC 索引 | 🟡 代码完成；实网探针待 S8 |
-| S2 | `data`：内容端口实现、本地存储（进度/收藏/设置）、错误分类 | 待开始 |
-| S3 | `uikit`：设计令牌、六种控件、焦点图纯函数、页面骨架 | 待开始 |
+| S2 | `data`：内容端口实现、本地存储（进度/收藏/设置）、错误分类 | ✅ 完成（103 项单测） |
+| S3 | `uikit`：设计令牌、控件、焦点图纯函数、页面骨架 | ✅ 完成（41 项单测） |
 | S4 | `feature-catalog`：搜索 / 收藏 / 历史 / 设置 | 待开始 |
 | S5 | `feature-detail`：详情、收藏系列页、跨季 | 待开始 |
 | S6 | `feature-player`：播放会话状态机、按键表、侧栏菜单 | 待开始 |
@@ -155,7 +155,7 @@ export ANDROID_HOME=$HOME/.buildozer/android/platform/android-sdk
 ```
 core/        纯 JVM。protocol/ 协议与密码学 · model/ 领域模型 · port/ 接口与错误 · usecase/ 纯逻辑
 data/        端口实现。remote/ 上游 HTTP · local/ 存储 · media/ 取流与解密
-uikit/       设计系统。token/ · widget/ · focus/ · page/
+uikit/       设计系统。token/ 令牌 · focus/ 焦点图与节流 · layout/ 几何与滚动 · ui/ 控件 · page/ 骨架与网格
 feature-*/   三个业务模块，互不感知
 app/         装配与导航
 licenses/    第三方许可证全文

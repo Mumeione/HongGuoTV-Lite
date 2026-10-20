@@ -104,8 +104,18 @@ data class ArtworkSpec(
     val heightPx: Int,
     /** 是否允许落盘（只有收藏/历史封面允许，避免占电视存储）。 */
     val persist: Boolean = false,
-    val priority: Int = 0,
-)
+    val priority: Int = PRIORITY_VISIBLE,
+) {
+    companion object {
+        /**
+         * 优先级：**数值越小越先做**（沿用旧实现的排序口径）。
+         * 光标当前所在项最先——用户马上要看到它。
+         */
+        const val PRIORITY_FOCUSED = 0
+        /** 已在屏幕内但未聚焦：常规优先级（也是默认值）。 */
+        const val PRIORITY_VISIBLE = 1
+    }
+}
 
 /** 诊断端口：五段探针与关键日志的唯一出口，保证日志字段不随重构漂移。 */
 interface DiagnosticsPort {

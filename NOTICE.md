@@ -24,6 +24,8 @@ APK 不包含 Node、React Native、JavaScript 引擎或该 JavaScript 源文件
 - AndroidX Media3：https://github.com/androidx/media — Apache-2.0
 - OkHttp / Okio：https://github.com/square/okhttp / https://github.com/square/okio — Apache-2.0
 - AndroidX core：https://developer.android.com/jetpack/androidx — Apache-2.0
+- 导航与排序图标（`uikit` 内的矢量图）取自 Material Icons：https://github.com/google/material-design-icons — Apache-2.0
+  （品牌标记为本项目自绘，随源码以 GPL-3.0-only 发布）
 - org.json（仅 JVM 工具，APK 使用 Android 内置实现）：https://github.com/stleary/JSON-java — 公有领域声明
 - JUnit（仅测试）：https://github.com/junit-team/junit4 — EPL-1.0
 

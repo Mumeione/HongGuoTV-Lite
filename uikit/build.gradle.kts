@@ -21,7 +21,7 @@ android {
 }
 
 dependencies {
-    implementation(project(":core"))
-    implementation("androidx.core:core:1.8.0")
+    // UiKit 的公开 API 里出现 ArtworkPort（封面端口）：对消费者必须可见，所以是 api 而不是 implementation。
+    api(project(":core"))
     testImplementation("junit:junit:4.13.2")
 }
