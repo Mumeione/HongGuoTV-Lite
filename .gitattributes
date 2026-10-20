@@ -1,0 +1,14 @@
+# 统一换行符：工作区与仓库一律 LF，避免 Windows 编辑器引入 CRLF 造成全文件 diff
+* text=auto eol=lf
+
+# 二进制文件不参与文本转换
+*.jar  binary
+*.zip  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.webp binary
+*.apk  binary
+*.aab  binary
+*.jks  binary
+*.keystore binary

@@ -1,0 +1,23 @@
+plugins {
+    id("com.android.library")
+    kotlin("android")
+}
+
+android {
+    namespace = "com.hongguotv.lite.data"
+    compileSdk = 36
+    defaultConfig { minSdk = 26 }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = "17" }
+}
+
+dependencies {
+    implementation(project(":core"))
+    implementation("org.json:json:20240303")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    compileOnly("androidx.media3:media3-exoplayer:1.8.0")
+    testImplementation("junit:junit:4.13.2")
+}
