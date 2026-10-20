@@ -110,6 +110,11 @@ data class Metrics(
     val controlMinHeight: Int = 42,
     val chipMinHeight: Int = 36,
     val linkMinHeight: Int = 32,
+    /** 输入框高度（搜索行）。 */
+    val inputHeight: Int = 44,
+    /** 输入框最大宽度，以及不宽于屏宽的比例：太长显得空，两边留白反而更聚焦。 */
+    val inputMaxWidth: Int = 520,
+    val inputWidthRatio: Float = 0.52f,
     val cardPadding: Int = 4,
     /** 卡片标题与角标之间的间距。 */
     val cardTitlePaddingTop: Int = 7,

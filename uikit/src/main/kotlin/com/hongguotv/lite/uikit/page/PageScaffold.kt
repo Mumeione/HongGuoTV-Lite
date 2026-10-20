@@ -71,9 +71,9 @@ class TopBar internal constructor(ui: UiKit, brand: String, items: List<TopBarIt
     }
 }
 
-/** 内页页头：返回 + 标题 + 右侧动作。 */
+/** 内页页头：返回（可无）+ 标题 + 右侧动作。 */
 @SuppressLint("ViewConstructor")
-class PageHeader internal constructor(ui: UiKit, title: String, onBack: () -> Unit) : LinearLayout(ui.context) {
+class PageHeader internal constructor(ui: UiKit, title: String, onBack: (() -> Unit)?) : LinearLayout(ui.context) {
 
     private val tokens = ui.tokens
     val back: TvButton
@@ -85,7 +85,9 @@ class PageHeader internal constructor(ui: UiKit, title: String, onBack: () -> Un
         gravity = Gravity.CENTER_VERTICAL
         minimumHeight = dp(tokens.metrics.headerMinHeight)
 
-        back = ui.button("‹ 返回", variant = ButtonVariant.STANDARD, onTap = onBack)
+        back = ui.button("‹ 返回", variant = ButtonVariant.STANDARD, onTap = { onBack?.invoke() })
+        // 收藏/历史/设置是顶层页，没有"返回上一页"的语义：不给按钮，而不是给一个按了没反应的
+        back.visibility = if (onBack == null) View.GONE else View.VISIBLE
         addView(back)
 
         titleView = TextView(context).apply {
@@ -209,8 +211,12 @@ class PageScaffold internal constructor(private val ui: UiKit) : FrameLayout(ui.
         return bar
     }
 
-    /** 页头。与顶栏同一原则：建过就只更新标题，`onBack` 以第一次传入的为准。 */
-    fun showHeader(title: String, onBack: () -> Unit): PageHeader {
+    /**
+     * 页头。与顶栏同一原则：建过就只更新标题，`onBack` 以第一次传入的为准。
+     *
+     * [onBack] 为 null 时隐藏返回键——目录类顶层页（收藏 / 历史 / 设置）没有"上一页"可回。
+     */
+    fun showHeader(title: String, onBack: (() -> Unit)? = null): PageHeader {
         val existing = _header
         if (existing != null) {
             existing.title(title)

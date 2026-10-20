@@ -10,6 +10,7 @@ import android.widget.TextView
 import com.hongguotv.core.port.ArtworkPort
 import com.hongguotv.lite.uikit.R
 import com.hongguotv.lite.uikit.internal.dp
+import com.hongguotv.lite.uikit.internal.shape
 import com.hongguotv.lite.uikit.page.PageScaffold
 import com.hongguotv.lite.uikit.page.PosterGrid
 import com.hongguotv.lite.uikit.page.ScrollFocusKeeper
@@ -69,6 +70,12 @@ class UiKit(
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(heightDp))
     }
 
+    /** 面板：设置页两栏的卡片底。圆角与留白走令牌，页面不再自己拼背景。 */
+    fun panel(): LinearLayout = column().apply {
+        background = shape(tokens.colors.surface, tokens.shapes.panel, null)
+        setPadding(dp(tokens.space.xl), dp(tokens.space.xl), dp(tokens.space.xl), dp(tokens.space.l))
+    }
+
     /** 1px 分隔线：顶栏与内容之间的那条。 */
     fun divider(): View = View(context).apply {
         setBackgroundColor(tokens.colors.outline)
@@ -107,6 +114,8 @@ class UiKit(
 
     fun link(label: String, onTap: () -> Unit): TvLink = TvLink(context, tokens, label, onTap)
 
+    fun input(label: String, maxLength: Int = 80): TvInput = TvInput(context, tokens, label, maxLength)
+
     fun preview(): PreviewRail = PreviewRail(this)
 
     // ---------- 页面与网格 ----------
@@ -116,6 +125,12 @@ class UiKit(
     fun grid(section: String = "card"): PosterGrid = PosterGrid(this, section)
 
     // ---------- 布局参数 ----------
+
+    /**
+     * dp → 像素。feature 侧写尺寸（输入框宽度、页脚高度…）一律走这里，
+     * 不在调用点自己乘密度——换算只有一处，换屏幕密度时才不会漏改。
+     */
+    fun dp(value: Int): Int = context.dp(value)
 
     fun params(
         width: Int = ViewGroup.LayoutParams.WRAP_CONTENT,
