@@ -1,0 +1,17 @@
+<resources>
+    <!--
+      壳的主题。只负责三件系统级的事：没有标题栏 / 没有 ActionBar、窗口底色、输入法不顶飞布局。
+      页面自己长什么样由 uikit 的令牌决定——**这里不定义任何控件的样式**。
+
+      窗口底色与 `Tokens.colors.background`（#FF0B0F15）同值：它是首帧之前的底色，
+      资源文件里引不到 Kotlin 常量，所以只能写死一次。改品牌色时两处一起改。
+    -->
+    <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#0B0F15</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:colorAccent">#FFFFFF</item>
+        <item name="android:fontFamily">sans</item>
+    </style>
+</resources>

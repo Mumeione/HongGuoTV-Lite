@@ -6,6 +6,8 @@
 
     <application
         android:label="红果 TV Lite"
+        android:icon="@mipmap/app_icon"
+        android:banner="@drawable/tv_banner"
         android:allowBackup="false"
         android:enableOnBackInvokedCallback="false"
         android:usesCleartextTraffic="true"
@@ -13,6 +15,7 @@
         <activity
             android:name=".LiteActivity"
             android:exported="true"
+            android:theme="@style/AppTheme"
             android:screenOrientation="landscape"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|uiMode"
             android:launchMode="singleTop">
