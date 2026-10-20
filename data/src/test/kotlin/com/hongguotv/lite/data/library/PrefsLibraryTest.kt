@@ -268,9 +268,37 @@ class PrefsLibraryTest {
         assertEquals(9_000L, lib.all().single().checkedAt)
     }
 
+    /** 系列页点了哪一季，就把它记成"当前季"——收藏行的 title 仍是系列基名，这条不变量不能破。 */
     @Test
-    fun pruningDropsUpdatesOfUnfavoritedSeries() = runTest {
-        val s = store("favoriteSeries" to "{}")
+    fun switchingTheCurrentSeasonKeepsTheBaseNameAndMovesTheBadge() = runTest {
+        val lib = PrefsLibrary(store("favoriteSeries" to "{}"))
+        lib.toggle(Series("6", "凡人测试书第六季", season = 6))
+        lib.rememberSeasonLine(
+            "凡人测试书",
+            SeasonLine(listOf(Series("6", "凡人测试书第六季", season = 6), Series("7", "凡人测试书第七季", season = 7))),
+        )
+        // 收藏的是第六季，季线里已经有第七季：角标应当说"第七季已上线"
+        assertEquals(7, lib.entry("凡人测试书")!!.latestSeason)
+        assertTrue(lib.entry("凡人测试书")!!.latestSeason > lib.entry("凡人测试书")!!.series.season)
+
+        lib.setCurrentSeason("凡人测试书", Series("7", "凡人测试书第七季", season = 7))
+        val entry = lib.entry("凡人测试书")!!
+        assertEquals("7", entry.series.id)
+        assertEquals("凡人测试书", entry.series.title)
+        assertEquals(7, entry.series.season)
+        // 切换后不再是"有新季"
+        assertEquals(7, entry.latestSeason)
+    }
+
+    @Test
+    fun switchingASeasonOnASeriesThatIsNotFavoritedChangesNothing() = runTest {
+        val lib = PrefsLibrary(store("favoriteSeries" to "{}"))
+        lib.setCurrentSeason("没收藏过的剧", Series("1", "没收藏过的剧第一季", season = 1))
+        assertNull(lib.entry("没收藏过的剧"))
+    }
+
+    @Test
+    fun pruningDropsUpdatesOfUnfavoritedSeries() = runTest {        val s = store("favoriteSeries" to "{}")
         val lib = PrefsLibrary(s)
         lib.toggle(Series("1", "测试书"))
         lib.acknowledge("1", 10, 1_000L)

@@ -1,0 +1,77 @@
+package com.hongguotv.lite.uikit.text
+
+import com.hongguotv.core.model.Progress
+import com.hongguotv.core.port.LocalError
+import com.hongguotv.core.port.UpstreamError
+
+/**
+ * 全应用共用的文本派生：时间、集数、季号、失败文案。
+ *
+ * 为什么放在 uikit 而不是某个 feature：这些是**用户看到的话**，同一条规则出现在两个页面里就会出现
+ * "收藏页说网络断了、详情页说加载失败"这类分裂。uikit 的约定是"控件只收字符串"，而这里是
+ * **产出那些字符串的唯一一处**——不 import `android.*`，因此能在 JVM 单测里钉死。
+ *
+ * 领域词汇（季、季键、季线）仍由 core 的类型表达，这里只负责把它们写成中文。
+ */
+object TvText {
+
+    private const val CN_DIGITS = "零一二三四五六七八九"
+
+    /** 季号用中文数字，与官方季名（「万妖图录传第五季」）一致；超过 99 季直接用阿拉伯数字。 */
+    fun chineseNumber(n: Int): String {
+        if (n <= 0 || n >= 100) return n.toString()
+        return when {
+            n < 10 -> CN_DIGITS[n].toString()
+            n == 10 -> "十"
+            n < 20 -> "十" + CN_DIGITS[n % 10]
+            n % 10 == 0 -> CN_DIGITS[n / 10] + "十"
+            else -> CN_DIGITS[n / 10] + "十" + CN_DIGITS[n % 10]
+        }
+    }
+
+    /** 「第七季」；无季号返回空串（单季剧不写季号）。 */
+    fun season(n: Int): String = if (n > 0) "第${chineseNumber(n)}季" else ""
+
+    /** `mm:ss`。手写补零，不用 `String.format`——它按默认 Locale 出数字，可能变成别的字符。 */
+    fun clock(millis: Long): String {
+        val seconds = millis.coerceAtLeast(0) / 1000
+        return "${twoDigits(seconds / 60)}:${twoDigits(seconds % 60)}"
+    }
+
+    /** 「第 9 集 · 12:34」。 */
+    fun progress(index: Int, positionMs: Long): String = "第 ${index + 1} 集 · ${clock(positionMs)}"
+
+    /**
+     * 「上次看到…」这一句。目录页的预览、详情页的状态行、系列页的状态行都要说它——
+     * **说法只能有一份**，否则同一条记录会在三页上有三种写法。
+     *
+     * [season] > 0 时把季名带上（多季剧不写季名就分不清是哪一季）；单季剧不写。
+     */
+    fun watchStatus(progress: Progress?, watched: Boolean, season: Int = 0): String = when {
+        progress == null -> if (watched) "整剧已看完" else ""
+        progress.completed -> "上次已看完整季"
+        else -> listOf(
+            "上次看到",
+            season(season),
+            "第 ${progress.episodeIndex + 1} 集 · ${clock(progress.positionMs)}",
+        ).filter { it.isNotBlank() }.joinToString(" ")
+    }
+
+    /**
+     * 失败文案按**类型**映射，不匹配中文字符串。
+     * 风控空体（[UpstreamError.EmptyBody]）必须单独说"被限制"，不能说成"没有内容"——
+     * 后者会让用户去换剧名，而不是等一会儿（`docs/CONTEXT.md`「风控空体」）。
+     */
+    fun error(cause: Throwable): String = when (cause) {
+        is UpstreamError.Network -> "连不上内容网站，请检查网络后重试。"
+        is UpstreamError.HttpStatus -> "服务暂时不可用（${cause.code}），请稍后重试。"
+        is UpstreamError.EmptyBody -> "请求被临时限制，请稍后重试。"
+        is UpstreamError.RiskControl -> "请求被限制（${cause.code}），请稍后再试。"
+        is UpstreamError.Shape -> "内容结构发生变化，暂时无法显示。"
+        is UpstreamError.Decrypt -> "内容解析失败，请稍后重试。"
+        is LocalError -> "读取本机数据失败，请重试。"
+        else -> "内容加载失败，请稍后重试。"
+    }
+
+    private fun twoDigits(value: Long): String = if (value < 10) "0$value" else value.toString()
+}

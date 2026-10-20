@@ -18,8 +18,10 @@ import com.hongguotv.core.model.Settings
 import com.hongguotv.core.model.Suggestion
 import com.hongguotv.core.port.UpstreamError
 import com.hongguotv.lite.uikit.focus.FocusKey
+import com.hongguotv.lite.uikit.focus.FocusSections
 import com.hongguotv.lite.uikit.page.GridRendered
 import com.hongguotv.lite.uikit.page.PosterGrid
+import com.hongguotv.lite.uikit.text.TvText
 import com.hongguotv.lite.uikit.ui.CardItem
 import com.hongguotv.lite.uikit.ui.Icons
 import com.hongguotv.lite.uikit.ui.PreviewRail
@@ -324,7 +326,7 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         stateView.visibility = if (showState) View.VISIBLE else View.GONE
         stateView.text = when {
             model.loading -> "正在搜索…"
-            error != null -> CatalogText.error(error)
+            error != null -> TvText.error(error)
             showContinue || showResult -> ""
             else -> CatalogText.emptySearch(model.keyword, current.filter)
         }
@@ -361,12 +363,12 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
 
         val sections = listOf(
             navSection(),
-            CatalogSections.section(CatalogSections.keys("filter", filterChips.size), filterChips.size),
-            CatalogSections.section(listOf(FocusKey("search:input"), FocusKey("search:sort")), 2),
-            CatalogSections.section(CatalogSections.keys("suggest", suggestChips.size), suggestChips.size),
-            if (retry.visibility == View.VISIBLE) CatalogSections.section(listOf(FocusKey("search:retry")), 1) else null,
-            continueRendered?.let { CatalogSections.section(it.keys, it.columns) },
-            rendered?.let { CatalogSections.section(it.keys, it.columns) },
+            FocusSections.section(FocusSections.keys("filter", filterChips.size), filterChips.size),
+            FocusSections.section(listOf(FocusKey("search:input"), FocusKey("search:sort")), 2),
+            FocusSections.section(FocusSections.keys("suggest", suggestChips.size), suggestChips.size),
+            if (retry.visibility == View.VISIBLE) FocusSections.section(listOf(FocusKey("search:retry")), 1) else null,
+            continueRendered?.let { FocusSections.section(it.keys, it.columns) },
+            rendered?.let { FocusSections.section(it.keys, it.columns) },
         )
         applyPlan(sections, views)
     }

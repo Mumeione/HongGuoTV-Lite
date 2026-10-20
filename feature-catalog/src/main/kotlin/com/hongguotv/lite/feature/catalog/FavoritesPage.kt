@@ -6,7 +6,9 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.hongguotv.core.model.FavoriteEntry
 import com.hongguotv.core.usecase.FavoriteUpdateCheck
+import com.hongguotv.core.usecase.SeasonProgress
 import com.hongguotv.lite.uikit.focus.FocusKey
+import com.hongguotv.lite.uikit.focus.FocusSections
 import com.hongguotv.lite.uikit.page.GridRendered
 import com.hongguotv.lite.uikit.page.PosterGrid
 import com.hongguotv.lite.uikit.ui.CardItem
@@ -166,12 +168,12 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
     private fun previewFavorite(item: CardItem) {
         val entry = entries.firstOrNull { it.series.id == item.id } ?: return
         val line = host.favorites.seasonLine(entry.seriesKey)
-        val progress = FavoriteProgress.latest(entry, line) { host.progress.progressOf(it) }
+        val progress = SeasonProgress.latest(entry, line) { host.progress.progressOf(it) }
         preview.show(
             title = entry.series.title,
             status = CatalogText.previewStatus(
                 favorite = true,
-                season = progress?.let { FavoriteProgress.seasonOf(it, line, entry.series.season) } ?: entry.series.season,
+                season = progress?.let { SeasonProgress.seasonOf(it, line, entry.series.season) } ?: entry.series.season,
                 progress = progress,
                 watched = host.progress.isWatched(entry.series.id),
             ),
@@ -187,8 +189,8 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
 
         val sections = listOf(
             navSection(),
-            CatalogSections.section(listOf(FocusKey("favorites:check")), 1),
-            rendered?.let { CatalogSections.section(it.keys, it.columns) },
+            FocusSections.section(listOf(FocusKey("favorites:check")), 1),
+            rendered?.let { FocusSections.section(it.keys, it.columns) },
         )
         applyPlan(sections, views)
     }

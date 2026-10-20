@@ -4,9 +4,8 @@ import com.hongguotv.core.model.ContentFilter
 import com.hongguotv.core.model.FavoriteEntry
 import com.hongguotv.core.model.FavoriteStatus
 import com.hongguotv.core.model.FrameMode
-import com.hongguotv.core.model.Progress
-import com.hongguotv.core.model.SeasonLine
 import com.hongguotv.core.usecase.FavoriteCheckReport
+import com.hongguotv.lite.uikit.text.TvText
 
 /**
  * 收藏卡片的角标与状态行。
@@ -23,7 +22,7 @@ internal object FavoriteLabels {
         entry.latestSeason > 0 && entry.latestSeason > entry.series.season
 
     fun badge(entry: FavoriteEntry): String = when {
-        hasNewerSeason(entry) -> "${CatalogText.season(entry.latestSeason)}已上线"
+        hasNewerSeason(entry) -> "${TvText.season(entry.latestSeason)}已上线"
         entry.status == FavoriteStatus.NEW_SEASON -> "已更新"
         entry.status == FavoriteStatus.UP_TO_DATE -> "已是最新"
         entry.status == FavoriteStatus.FAILED -> "检查失败"
@@ -54,26 +53,6 @@ internal object FavoriteLabels {
         report.checked == 1 -> "检查完成 · 已是最新"
         else -> "检查完成 · ${report.checked} 部都已是最新"
     }
-}
-
-/**
- * 一个系列最近的一条观看记录。
- *
- * 收藏的是系列，进度是按季存的：要把季线里的每一季都问一遍，取更新时间最新的那条。
- * 「继续播放」与预览的"上次看到第七季 第 9 集"都读它。
- */
-internal object FavoriteProgress {
-
-    fun latest(entry: FavoriteEntry, line: SeasonLine?, progressOf: (String) -> Progress?): Progress? {
-        val ids = LinkedHashSet<String>()
-        ids += entry.series.id
-        line?.seasons?.forEach { ids += it.id }
-        return ids.mapNotNull(progressOf).maxByOrNull { it.updatedAt }
-    }
-
-    /** 这条记录属于哪一季（用于预览里的"第 N 季"）；拿不到返回 0。 */
-    fun seasonOf(progress: Progress, line: SeasonLine?, fallback: Int): Int =
-        line?.seasons?.firstOrNull { it.id == progress.seriesId }?.season ?: fallback
 }
 
 /** 设置项的档位与文案。循环切换：档位最多 6 个，比弹选择框少一次按键。 */

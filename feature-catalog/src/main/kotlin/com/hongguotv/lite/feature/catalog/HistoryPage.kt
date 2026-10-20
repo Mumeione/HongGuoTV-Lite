@@ -8,8 +8,10 @@ import android.widget.TextView
 import android.widget.Toast
 import com.hongguotv.core.model.HistoryEntry
 import com.hongguotv.lite.uikit.focus.FocusKey
+import com.hongguotv.lite.uikit.focus.FocusSections
 import com.hongguotv.lite.uikit.page.GridRendered
 import com.hongguotv.lite.uikit.page.PosterGrid
+import com.hongguotv.lite.uikit.page.TwoStepConfirm
 import com.hongguotv.lite.uikit.ui.PreviewRail
 import com.hongguotv.lite.uikit.ui.TvButton
 import com.hongguotv.lite.uikit.ui.TvLink
@@ -199,10 +201,10 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
 
         val sections = listOf(
             navSection(),
-            if (manageButton.visibility == View.VISIBLE) CatalogSections.section(listOf(FocusKey("history:manage")), 1) else null,
-            rendered?.let { CatalogSections.section(it.keys, it.columns) },
+            if (manageButton.visibility == View.VISIBLE) FocusSections.section(listOf(FocusKey("history:manage")), 1) else null,
+            rendered?.let { FocusSections.section(it.keys, it.columns) },
             if (managing) {
-                CatalogSections.section(
+                FocusSections.section(
                     listOf(
                         FocusKey("history:resume"),
                         FocusKey("history:watched"),

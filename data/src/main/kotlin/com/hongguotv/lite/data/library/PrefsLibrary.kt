@@ -188,6 +188,20 @@ class PrefsLibrary(
         seasonLines[seriesKey]?.takeIf { it.size >= 2 }?.let { SeasonLine(it) }
     }
 
+    /**
+     * 换"当前季"。存进去的 title 仍然换成系列基名——收藏行的 title 是 base，这条不变量不能破
+     * （季卡上的季名来自季线，不来自这一行）。
+     */
+    override suspend fun setCurrentSeason(seriesKey: String, series: Series) {
+        synchronized(lock) {
+            val existing = favoriteRows[seriesKey] ?: return
+            val next = series.copy(title = seriesKey)
+            if (existing.first == next) return
+            favoriteRows[seriesKey] = next to existing.second
+        }
+        persist(KEY_FAVORITE_SERIES)
+    }
+
     /** 季线落库（LRU 保留 [SEASON_LINE_LIMIT] 个系列）。少于两季不落：单季没有"线"可言。 */
     override fun rememberSeasonLine(seriesKey: String, line: SeasonLine) {
         if (seriesKey.isBlank() || line.seasons.size < 2) return

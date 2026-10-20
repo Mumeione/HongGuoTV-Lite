@@ -6,12 +6,10 @@ import com.hongguotv.core.model.FavoriteStatus
 import com.hongguotv.core.model.FrameMode
 import com.hongguotv.core.model.HistoryEntry
 import com.hongguotv.core.model.Progress
-import com.hongguotv.core.model.SeasonLine
 import com.hongguotv.core.model.Series
 import com.hongguotv.core.usecase.FavoriteCheckReport
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -99,21 +97,8 @@ class CatalogLabelsTest {
     }
 
     // ---------- 系列进度 ----------
-
-    @Test
-    fun seriesProgressTakesTheLatestRowAcrossSeasons() {
-        val line = SeasonLine(
-            listOf(
-                Series("1", "测试书第一季", season = 1),
-                Series("2", "测试书第七季", season = 7),
-            ),
-        )
-        val rows = mapOf("1" to progress("1", updatedAt = 100L), "2" to progress("2", updatedAt = 900L, index = 8))
-        val latest = FavoriteProgress.latest(entry(), line) { rows[it] }
-        assertEquals("2", latest?.seriesId)
-        assertEquals(8, latest?.episodeIndex)
-        assertEquals(7, FavoriteProgress.seasonOf(latest!!, line, fallback = 0))
-    }
+    // 「系列最近一条记录」的规则已上提到 core 的 SeasonProgress（S5），用例在 core 的 SeasonProgressTest；
+    // 这里只留"页面把这条记录写成什么字"的部分。
 
     @Test
     fun aFinishedSeasonReadsAsFinishedInsteadOfZeroSeconds() {
@@ -131,12 +116,6 @@ class CatalogLabelsTest {
             "整剧已看完",
             CatalogCards.history(finished.copy(progress = finished.progress.copy(completed = false)), watched = true).badge,
         )
-    }
-
-    @Test
-    fun seriesProgressIsNullWhenNothingWasWatched() {
-        val line = SeasonLine(listOf(Series("1", "测试书第一季", season = 1), Series("2", "测试书第二季", season = 2)))
-        assertNull(FavoriteProgress.latest(entry(), line) { null })
     }
 
     // ---------- 设置档位 ----------

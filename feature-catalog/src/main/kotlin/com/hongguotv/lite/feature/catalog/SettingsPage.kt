@@ -7,6 +7,8 @@ import android.widget.LinearLayout
 import android.widget.Toast
 import com.hongguotv.core.model.Settings
 import com.hongguotv.lite.uikit.focus.FocusKey
+import com.hongguotv.lite.uikit.focus.FocusSections
+import com.hongguotv.lite.uikit.page.TwoStepConfirm
 import com.hongguotv.lite.uikit.ui.ButtonVariant
 import com.hongguotv.lite.uikit.ui.TvButton
 import kotlinx.coroutines.launch
@@ -184,7 +186,7 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
 
         val sections = listOf(
             navSection(),
-            CatalogSections.section(keys, 2),
+            FocusSections.section(keys, 2),
         )
         applyPlan(sections, views)
     }

@@ -3,6 +3,7 @@ package com.hongguotv.lite.feature.catalog
 import com.hongguotv.core.model.FavoriteEntry
 import com.hongguotv.core.model.HistoryEntry
 import com.hongguotv.core.model.Series
+import com.hongguotv.lite.uikit.text.TvText
 import com.hongguotv.lite.uikit.ui.CardItem
 
 /**
@@ -39,7 +40,7 @@ internal object CatalogCards {
             id = entry.series.id,
             title = entry.series.title,
             coverUrl = entry.series.cover,
-            badge = if (finished) "整剧已看完" else CatalogText.progress(entry.progress.episodeIndex, entry.progress.positionMs),
+            badge = if (finished) "整剧已看完" else TvText.progress(entry.progress.episodeIndex, entry.progress.positionMs),
         )
     }
 }

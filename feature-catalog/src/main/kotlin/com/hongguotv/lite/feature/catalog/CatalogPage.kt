@@ -3,6 +3,7 @@ package com.hongguotv.lite.feature.catalog
 import android.view.View
 import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.focus.FocusSection
+import com.hongguotv.lite.uikit.focus.FocusSections
 import com.hongguotv.lite.uikit.focus.FocusSession
 import com.hongguotv.lite.uikit.page.PageScaffold
 import com.hongguotv.lite.uikit.page.TopBar
@@ -66,11 +67,11 @@ internal abstract class CatalogPage(
 
     /** 顶栏这一段：四个导航项一行。每页都是第一段，拼一次。 */
     protected fun navSection(): FocusSection? =
-        CatalogSections.section(CatalogSections.keys("nav", bar.navItems.size), bar.navItems.size)
+        FocusSections.section(FocusSections.keys("nav", bar.navItems.size), bar.navItems.size)
 
-    /** 提交焦点结构。空的段（没有联想、没有结果、页脚没开）由 [CatalogSections] 丢弃。 */
+    /** 提交焦点结构。空的段（没有联想、没有结果、页脚没开）由 [FocusSections] 丢弃。 */
     protected fun applyPlan(sections: List<FocusSection?>, views: Map<FocusKey, View>) {
-        val plan = CatalogSections.plan(sections) ?: return
+        val plan = FocusSections.plan(sections) ?: return
         focus.bind(plan, views)
         requestFocus(preferredOnBuild ?: focus.remembered())
     }

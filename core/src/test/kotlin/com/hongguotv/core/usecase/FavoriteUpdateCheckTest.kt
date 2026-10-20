@@ -81,6 +81,7 @@ class FavoriteUpdateCheckTest {
         override fun isFavorite(seriesKey: String): Boolean = false
         override fun entry(seriesKey: String): FavoriteEntry? = null
         override suspend fun toggle(series: Series): Boolean = false
+        override suspend fun setCurrentSeason(seriesKey: String, series: Series) = Unit
         override fun seasonLine(seriesKey: String): SeasonLine? = null
         override fun rememberSeasonLine(seriesKey: String, line: SeasonLine) {
             remembered += seriesKey to line

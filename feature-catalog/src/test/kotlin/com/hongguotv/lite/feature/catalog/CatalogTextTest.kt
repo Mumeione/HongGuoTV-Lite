@@ -4,13 +4,13 @@ import com.hongguotv.core.model.ContentFilter
 import com.hongguotv.core.model.Progress
 import com.hongguotv.core.model.Series
 import com.hongguotv.core.port.UpstreamError
+import com.hongguotv.lite.uikit.text.TvText
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.io.IOException
 
-/** 四页的文案派生：用户看到什么，就在这些断言里。 */
+/** 目录页的文案派生：用户看到什么，就在这些断言里。时间/季号/失败文案的口径在 uikit 的 `TvTextTest`。 */
 class CatalogTextTest {
 
     private fun series(id: String, title: String = "剧$id", season: Int = 0) = Series(id = id, title = title, season = season)
@@ -24,29 +24,6 @@ class CatalogTextTest {
         completed = completed,
         updatedAt = 1L,
     )
-
-    @Test
-    fun seasonUsesChineseNumbersLikeTheOfficialTitles() {
-        assertEquals("第七季", CatalogText.season(7))
-        assertEquals("第十季", CatalogText.season(10))
-        assertEquals("第十三季", CatalogText.season(13))
-        assertEquals("第二十季", CatalogText.season(20))
-        // 单季剧不写季号
-        assertEquals("", CatalogText.season(0))
-    }
-
-    @Test
-    fun clockIsPaddedAndNeverNegative() {
-        assertEquals("00:00", CatalogText.clock(0))
-        assertEquals("00:09", CatalogText.clock(9_400))
-        assertEquals("12:34", CatalogText.clock(754_000))
-        assertEquals("00:00", CatalogText.clock(-5_000))
-    }
-
-    @Test
-    fun progressBadgeCountsEpisodesFromOne() {
-        assertEquals("第 9 集 · 12:34", CatalogText.progress(index = 8, positionMs = 754_000))
-    }
 
     @Test
     fun previewStatusPutsTheSeasonInFrontOfTheEpisode() {
@@ -70,20 +47,10 @@ class CatalogTextTest {
 
     @Test
     fun riskControlEmptyBodyIsNeverReportedAsNoResult() {
-        val blocked = CatalogText.error(UpstreamError.EmptyBody())
+        val blocked = TvText.error(UpstreamError.EmptyBody())
         assertEquals("请求被临时限制，请稍后重试。", blocked)
         // 风控与"没有结果"必须是两句不同的话，否则用户会去换剧名而不是等一会儿
         assertNotEquals(CatalogText.emptySearch("凡人", ContentFilter.ALL), blocked)
-    }
-
-    @Test
-    fun everyFailureTypeHasItsOwnSentence() {
-        assertEquals("连不上内容网站，请检查网络后重试。", CatalogText.error(UpstreamError.Network(IOException("x"))))
-        assertEquals("服务暂时不可用（503），请稍后重试。", CatalogText.error(UpstreamError.HttpStatus(503)))
-        assertEquals("请求被限制（403），请稍后再试。", CatalogText.error(UpstreamError.RiskControl(403)))
-        assertEquals("内容结构发生变化，暂时无法显示。", CatalogText.error(UpstreamError.Shape("data.video_data")))
-        assertEquals("内容解析失败，请稍后重试。", CatalogText.error(UpstreamError.Decrypt("key")))
-        assertEquals("内容加载失败，请稍后重试。", CatalogText.error(IllegalStateException("boom")))
     }
 
     @Test

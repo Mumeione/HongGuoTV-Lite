@@ -1,11 +1,11 @@
-package com.hongguotv.lite.feature.catalog
+package com.hongguotv.lite.uikit.page
 
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 破坏性操作的两步确认。S4 没有模态确认框，删除记录与清空历史都靠它：
+ * 破坏性操作的两步确认。设计系统里没有模态确认框，删除记录、清空历史、取消收藏都靠它：
  * 第一次按下只进入确认态，同一个键再按才执行；焦点移开或换键都会撤销。
  */
 class TwoStepConfirmTest {

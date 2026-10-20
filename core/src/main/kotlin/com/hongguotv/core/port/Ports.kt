@@ -59,6 +59,11 @@ interface FavoritesPort {
     fun isFavorite(seriesKey: String): Boolean
     fun entry(seriesKey: String): FavoriteEntry?
     suspend fun toggle(series: Series): Boolean
+    /**
+     * 把收藏的"当前季"换成 [series]：系列页里点了哪一季，之后卡片角标与「继续播放」就以它为准。
+     * 不删任何季的进度——切换浏览不该抹掉"看过"的痕迹（旧行为）。
+     */
+    suspend fun setCurrentSeason(seriesKey: String, series: Series)
     /** 季线落库（LRU）。 */
     fun seasonLine(seriesKey: String): SeasonLine?
     fun rememberSeasonLine(seriesKey: String, line: SeasonLine)
