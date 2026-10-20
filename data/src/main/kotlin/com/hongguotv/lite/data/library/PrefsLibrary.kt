@@ -5,6 +5,7 @@ import com.hongguotv.core.model.FavoriteStatus
 import com.hongguotv.core.model.FrameMode
 import com.hongguotv.core.model.ContentFilter
 import com.hongguotv.core.model.HistoryEntry
+import com.hongguotv.core.model.PlaybackOptions
 import com.hongguotv.core.model.Progress
 import com.hongguotv.core.model.SeasonKeys
 import com.hongguotv.core.model.SeasonLine
@@ -469,10 +470,10 @@ class PrefsLibrary(
         ),
     )
 
-    /** 落盘值可能被外部改坏：读回时一律过一遍合法值域（旧行为）。 */
+    /** 落盘值可能被外部改坏：读回时一律过一遍合法值域（旧行为）。档位表在 core，三处共用一份。 */
     private fun normalizeSettings(value: Settings): Settings = value.copy(
-        quality = value.quality.takeIf { it in QUALITY_OPTIONS } ?: 1080,
-        speed = value.speed.takeIf { it in SPEED_OPTIONS } ?: 1f,
+        quality = PlaybackOptions.normalizeQuality(value.quality),
+        speed = PlaybackOptions.normalizeSpeed(value.speed),
         startupTab = value.startupTab.coerceIn(0, 3),
     )
 
@@ -502,9 +503,6 @@ class PrefsLibrary(
         const val HISTORY_LIMIT = 30
         const val FAVORITES_LIMIT = 500
         const val SEASON_LINE_LIMIT = 20
-
-        val QUALITY_OPTIONS = listOf(480, 720, 1080)
-        val SPEED_OPTIONS = listOf(0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
     }
 }
 

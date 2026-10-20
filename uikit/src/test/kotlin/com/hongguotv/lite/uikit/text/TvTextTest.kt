@@ -1,5 +1,6 @@
 package com.hongguotv.lite.uikit.text
 
+import com.hongguotv.core.model.FrameMode
 import com.hongguotv.core.model.Progress
 import com.hongguotv.core.port.LocalError
 import com.hongguotv.core.port.UpstreamError
@@ -67,5 +68,26 @@ class TvTextTest {
     fun riskControlEmptyBodyIsItsOwnSentence() {
         assertEquals("请求被临时限制，请稍后重试。", TvText.error(UpstreamError.EmptyBody()))
         assertNotEquals(TvText.error(UpstreamError.EmptyBody()), TvText.error(UpstreamError.Shape("data")))
+    }
+
+    /** 播放档位的写法：`1×` 不能写成 `1.0×`，清晰度带 P，画面模式三档各有名字。 */
+    @Test
+    fun playbackOptionsReadLikeTheOldApp() {
+        assertEquals("1×", TvText.speed(1f))
+        assertEquals("1.25×", TvText.speed(1.25f))
+        assertEquals("2×", TvText.speed(2f))
+        assertEquals("1080P", TvText.quality(1080))
+        assertEquals("完整画面", TvText.frame(FrameMode.FIT))
+        assertEquals("等比铺满", TvText.frame(FrameMode.ZOOM))
+        assertEquals("拉伸铺满", TvText.frame(FrameMode.FILL))
+    }
+
+    /** 定时停止的三种说法：分钟数向上取整（还剩 30 秒时说"1 分钟后"）。 */
+    @Test
+    fun sleepTimerRoundsUpAndFallsBackToOff() {
+        assertEquals("15 分钟后", TvText.sleepTimer(remainingMs = 15 * 60_000L, episodesLeft = 0))
+        assertEquals("1 分钟后", TvText.sleepTimer(remainingMs = 30_000L, episodesLeft = 0))
+        assertEquals("再播完 3 集", TvText.sleepTimer(remainingMs = null, episodesLeft = 3))
+        assertEquals("关闭", TvText.sleepTimer(remainingMs = null, episodesLeft = 0))
     }
 }

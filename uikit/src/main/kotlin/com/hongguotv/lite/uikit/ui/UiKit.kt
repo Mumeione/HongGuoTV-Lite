@@ -76,6 +76,17 @@ class UiKit(
         setPadding(dp(tokens.space.xl), dp(tokens.space.xl), dp(tokens.space.xl), dp(tokens.space.l))
     }
 
+    /**
+     * 悬浮块的底（播放侧栏、提示卡）：与 [panel] 同色，圆角与内边距由调用方给。
+     *
+     * 与 [panel] 的区别只有"谁来定留白"——侧栏要贴边、提示卡要塞在画面底部，
+     * 都不能用页面级的固定内边距。
+     */
+    fun tile(radiusDp: Int = tokens.shapes.panel, paddingDp: Int = tokens.space.l): LinearLayout = column().apply {
+        background = shape(tokens.colors.surface, radiusDp, null)
+        setPadding(dp(paddingDp), dp(paddingDp), dp(paddingDp), dp(paddingDp))
+    }
+
     /** 1px 分隔线：顶栏与内容之间的那条。 */
     fun divider(): View = View(context).apply {
         setBackgroundColor(tokens.colors.outline)

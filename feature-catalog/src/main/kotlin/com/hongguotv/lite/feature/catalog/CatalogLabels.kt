@@ -4,6 +4,8 @@ import com.hongguotv.core.model.ContentFilter
 import com.hongguotv.core.model.FavoriteEntry
 import com.hongguotv.core.model.FavoriteStatus
 import com.hongguotv.core.model.FrameMode
+import com.hongguotv.core.model.PlaybackOptions
+import com.hongguotv.core.model.nextAfter
 import com.hongguotv.core.usecase.FavoriteCheckReport
 import com.hongguotv.lite.uikit.text.TvText
 
@@ -55,30 +57,27 @@ internal object FavoriteLabels {
     }
 }
 
-/** 设置项的档位与文案。循环切换：档位最多 6 个，比弹选择框少一次按键。 */
+/**
+ * 设置项的档位与文案。循环切换：档位最多 6 个，比弹选择框少一次按键。
+ *
+ * 倍速 / 清晰度 / 画面这三条的**档位**来自 `core.model.PlaybackOptions`、
+ * **文案**来自 `uikit.TvText`（S6 的播放侧栏是第二个消费者）——这里只留"循环切换"这层页面语义。
+ */
 internal object SettingRows {
 
-    val qualities = listOf(480, 720, 1080)
-    val speeds = listOf(0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
+    val qualities = PlaybackOptions.qualities
+    val speeds = PlaybackOptions.speeds
     val frames = FrameMode.entries
     val filters = ContentFilter.entries
 
-    /** 下一档；当前值不在档位里（盘上被改坏）时回落到第一档。 */
-    fun <T> next(current: T, options: List<T>): T {
-        if (options.isEmpty()) return current
-        val index = options.indexOf(current)
-        return if (index < 0) options.first() else options[(index + 1) % options.size]
-    }
+    /** 下一档；当前值不在档位里（盘上被改坏）时回落到第一档。实现只有一份，见 `core.model.nextAfter`。 */
+    fun <T> next(current: T, options: List<T>): T = options.nextAfter(current)
 
-    fun qualityLabel(value: Int): String = "${value}P"
+    fun qualityLabel(value: Int): String = TvText.quality(value)
 
-    fun speedLabel(value: Float): String = value.toString().removeSuffix(".0") + "×"
+    fun speedLabel(value: Float): String = TvText.speed(value)
 
-    fun frameLabel(mode: FrameMode): String = when (mode) {
-        FrameMode.FIT -> "完整画面"
-        FrameMode.ZOOM -> "等比铺满"
-        FrameMode.FILL -> "拉伸铺满"
-    }
+    fun frameLabel(mode: FrameMode): String = TvText.frame(mode)
 
     fun filterLabel(filter: ContentFilter): String = when (filter) {
         ContentFilter.ALL -> "全部"

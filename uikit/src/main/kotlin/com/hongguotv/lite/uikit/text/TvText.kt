@@ -1,5 +1,6 @@
 package com.hongguotv.lite.uikit.text
 
+import com.hongguotv.core.model.FrameMode
 import com.hongguotv.core.model.Progress
 import com.hongguotv.core.port.LocalError
 import com.hongguotv.core.port.UpstreamError
@@ -40,6 +41,33 @@ object TvText {
 
     /** 「第 9 集 · 12:34」。 */
     fun progress(index: Int, positionMs: Long): String = "第 ${index + 1} 集 · ${clock(positionMs)}"
+
+    /** `1×` / `1.25×`。`Float.toString()` 的 `1.0` 要去掉尾巴，不能写出"1.0×"。 */
+    fun speed(value: Float): String = value.toString().removeSuffix(".0") + "×"
+
+    /** `1080P`。 */
+    fun quality(value: Int): String = "${value}P"
+
+    /** 画面模式三档。旧实现把它写成"完整画面 · 保留比例与全部内容"，那半句解释放在选择项里，不放在状态上。 */
+    fun frame(mode: FrameMode): String = when (mode) {
+        FrameMode.FIT -> "完整画面"
+        FrameMode.ZOOM -> "等比铺满"
+        FrameMode.FILL -> "拉伸铺满"
+    }
+
+    /**
+     * 定时停止的剩余量：`15 分钟后` / `再播完 3 集` / `关闭`。
+     *
+     * 分钟数**向上取整**：还剩 30 秒时说"1 分钟后"比"0 分钟后"诚实。
+     */
+    fun sleepTimer(remainingMs: Long?, episodesLeft: Int): String = when {
+        remainingMs != null -> "${sleepMinutes(remainingMs)} 分钟后"
+        episodesLeft > 0 -> "再播完 $episodesLeft 集"
+        else -> "关闭"
+    }
+
+    /** 剩余毫秒 → 分钟（向上取整）。定时的文案与档位判定共用它，免得两处各写一遍除法和取整。 */
+    fun sleepMinutes(remainingMs: Long): Long = (remainingMs + 59_999) / 60_000
 
     /**
      * 「上次看到…」这一句。目录页的预览、详情页的状态行、系列页的状态行都要说它——

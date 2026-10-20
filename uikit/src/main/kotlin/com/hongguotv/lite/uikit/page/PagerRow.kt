@@ -1,4 +1,4 @@
-package com.hongguotv.lite.feature.detail
+package com.hongguotv.lite.uikit.page
 
 import android.view.Gravity
 import android.view.View
@@ -9,12 +9,19 @@ import com.hongguotv.lite.uikit.ui.TvButton
 import com.hongguotv.lite.uikit.ui.UiKit
 
 /**
- * 分组翻页行：`‹ 上一组 | 第 x—y 集 | 下一组 ›`。分集与季线都用它，只是单位不同。
+ * 分组翻页行：`‹ 上一组 | 第 1—100 集 | 下一组 ›`。分集、季线、播放侧栏都用它，只是单位不同。
  *
  * 不可用的翻组键**保留位置但禁用**：隐藏会让中间的范围文字左右跳动；
  * 禁用的视图本来就拿不到焦点，而调用方只把可用的那个放进焦点图——不会出现"按进去出不来"。
+ *
+ * 从 `feature-detail` 上提到 uikit 的原因：S6 的播放侧栏是第二个消费者，
+ * 两份实现必然在"到底保留还是隐藏禁用键"上分家。
  */
-internal class PagerRow(ui: UiKit, prevLabel: String = "‹ 上一组", nextLabel: String = "下一组 ›") {
+class PagerRow(
+    ui: UiKit,
+    prevLabel: String = "‹ 上一组",
+    nextLabel: String = "下一组 ›",
+) {
 
     private val tokens: Tokens = ui.tokens
     private val rangeView: TextView = ui.text("", tokens.type.subtitle, tokens.colors.muted).apply {

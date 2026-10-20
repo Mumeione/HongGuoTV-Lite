@@ -154,6 +154,20 @@ data class Metrics(
     val episodeCellHeight: Int = 40,
     val episodeCellPaddingH: Int = 2,
     val episodeCellGap: Int = 5,
+    /**
+     * 播放侧栏：宽度按屏宽比例算（右侧留白与页边距同一口径，不写像素）。
+     * 85% 是"20 列格子仍然有 40dp 宽"的下限——再看窄就得减列，两侧算法就分家了。
+     */
+    val sidebarWidthRatio: Float = 0.85f,
+    val sidebarPaddingH: Int = 18,
+    val sidebarPaddingV: Int = 14,
+    /** 侧栏内块与块之间的间距。 */
+    val sidebarGap: Int = 8,
+    /** 播放提示卡最大宽度占屏宽比例，以及它离屏幕底部的距离。 */
+    val noticeWidthRatio: Float = 0.52f,
+    val noticeBottomMargin: Int = 56,
+    /** 跳集页那个大号数字的字号倍数（相对 body）。 */
+    val jumpDigitsScale: Float = 2.2f,
 )
 
 data class Tokens(
