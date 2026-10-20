@@ -17,13 +17,20 @@ android {
 
     defaultConfig {
         applicationId = "com.hongguotv.lite"
-        minSdk = 26
+        minSdk = 23
         targetSdk = 36
         versionCode = System.getenv("HONGGUOTV_VERSION_CODE")?.toInt() ?: 1
         versionName = System.getenv("HONGGUOTV_VERSION_NAME") ?: "1.0.0-lite"
     }
 
     buildFeatures { buildConfig = true }
+
+    // 平台基线是 API 23：任何超版本 API 都必须在构建期拦住，而不是等用户家的老电视崩。
+    // core 是纯 JVM 模块，Lint 看不到它，那边由 core 的 verifyJvmApiLevel 任务兜住。
+    lint {
+        abortOnError = true
+        error += "NewApi"
+    }
 
     signingConfigs {
         create("delivery") {

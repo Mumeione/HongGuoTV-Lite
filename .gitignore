@@ -15,3 +15,6 @@ keystore.properties
 *.jks
 *.keystore
 .kotlin/
+
+# 文档不入库
+docs/

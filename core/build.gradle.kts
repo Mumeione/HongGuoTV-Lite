@@ -15,3 +15,77 @@ dependencies {
 }
 
 tasks.withType<Test> { useJUnit() }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 平台基线守卫（API 23）
+//
+// Android 模块靠 Lint 的 NewApi，但 Lint 看不到纯 JVM 模块——core 里的越界调用
+// 在编译期、Lint 期都不会报，只会在老设备上 NoClassDefFoundError。
+//
+// 高版本 JDK 类的名字在 class 文件常量池里是明文，直接扫字节即可，不需要额外依赖。
+// 这条守卫的价值不在拦截现有代码，而在拦住**以后写的**代码：S2–S6 的业务层如果
+// 用了 API 24+，将来降版本就要回挖。
+// ─────────────────────────────────────────────────────────────────────────────
+val androidApiCeiling = 23
+
+val forbiddenJdkApis: List<Pair<String, Int>> = listOf(
+    "java/util/Base64" to 26,
+    "java/time/" to 26,
+    "java/nio/file/" to 26,
+    "java/util/stream/" to 24,
+    "java/util/function/" to 24,
+    "java/util/Optional" to 24,
+    "java/util/concurrent/CompletableFuture" to 24,
+)
+
+fun ByteArray.indexOfAscii(needle: String): Int {
+    val target = needle.toByteArray(Charsets.US_ASCII)
+    if (target.isEmpty()) return 0
+    outer@ for (i in 0..(size - target.size)) {
+        for (j in target.indices) if (this[i + j] != target[j]) continue@outer
+        return i
+    }
+    return -1
+}
+
+val verifyJvmApiLevel by tasks.registering {
+    group = "verification"
+    description = "扫描字节码，拦截高于 Android API $androidApiCeiling 的 JDK 类引用"
+    dependsOn(tasks.named("classes"))
+    // Kotlin 是当前唯一源码语言；java/main 一并扫上，防止将来混入 Java 源文件绕过守卫。
+    val classesDirs = listOf(
+        layout.buildDirectory.dir("classes/kotlin/main"),
+        layout.buildDirectory.dir("classes/java/main"),
+    )
+    doLast {
+        val hits = mutableListOf<String>()
+        classesDirs.map { it.get().asFile }
+            .filter { it.isDirectory }
+            .forEach { root ->
+                root.walkTopDown()
+                    .filter { it.isFile && it.extension == "class" }
+                    .forEach { file ->
+                        val bytes = file.readBytes()
+                        forbiddenJdkApis.forEach { (needle, level) ->
+                            if (level > androidApiCeiling && bytes.indexOfAscii(needle) >= 0) {
+                                hits += "${file.relativeTo(root).path} 引用了 $needle（API $level）"
+                            }
+                        }
+                    }
+            }
+        if (hits.isNotEmpty()) {
+            throw GradleException(
+                buildString {
+                    appendLine("core 里出现了高于 API $androidApiCeiling 的 JDK 类：")
+                    hits.sorted().forEach { appendLine("  ✕ $it") }
+                    appendLine("替代方案见 docs/PLATFORM.md 的 API 红线表。")
+                }
+            )
+        }
+    }
+}
+
+tasks.named("test") { dependsOn(verifyJvmApiLevel) }
+// Android 模块经 project 依赖消费 core 时触发的是 :core:jar（而非 test）——
+// 挂上它，任何产物构建都会先过一遍守卫。
+tasks.named("jar") { dependsOn(verifyJvmApiLevel) }
