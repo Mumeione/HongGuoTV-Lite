@@ -2,11 +2,12 @@
 
 An unofficial, non-commercial Android TV client for 红果短剧, written in Kotlin. GPL-3.0.
 
-安卓 TV 端的红果短剧第三方客户端，Kotlin + 原生 View + Media3，最低 Android 8.0（API 26）。
+安卓 TV 端的红果短剧第三方客户端，Kotlin + 原生 View + Media3，**最低 Android 6.0（API 23）**。
 本项目是一次**搬迁式重构**：把已经验证可用的播放与交互实现，搬进一套依赖方向被强制约束的模块结构里。
 
-> **状态：S0 骨架。尚未可用。** 当前仓库只有模块骨架、端口接口与一个空壳 Activity。
-> 功能按 S1–S7 逐步搬入，进度见[路线图](#路线图)。
+> **状态：S3 完成，尚不可用。** 协议层、数据层（`data`）与设计系统（`uikit`）已就位，
+> 三个业务页面（S4–S6）与 `app` 收口（S7）尚未开始，当前 APK 仍是空壳。
+> 进度见[路线图](#路线图)，逐阶段记录见 `docs/handoff/`。
 
 ---
 
@@ -111,20 +112,23 @@ sealed class UpstreamError {
 
 ## 构建
 
-需要 JDK 17、Android SDK 36（含 build-tools 36.0.0）。
+需要 JDK 17、Android SDK 36（含 build-tools 36.0.0）。本项目**只在 Windows 上构建**（不做 WSL/Linux 交叉验证）：
 
 ```sh
-./gradlew :core:test
-./gradlew :app:assembleDebug
+# JAVA_HOME 指向 JDK 17，local.properties 里的 sdk.dir 指向 Android SDK
+./gradlew :core:test :data:testDebugUnitTest :uikit:testDebugUnitTest :app:assembleDebug --console=plain
 ```
 
-宿主机没有 Android SDK 时，在 WSL（Ubuntu 24.04）里构建，并显式导出环境变量——`bash -c` 不是登录 shell，不会自动加载 profile：
+一阶段一次全量验证（当前基线：core 51 项、data 103 项、uikit 41 项）：
 
 ```sh
-export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
-export ANDROID_HOME=$HOME/.buildozer/android/platform/android-sdk
-./gradlew :core:test :app:assembleDebug --console=plain
+./gradlew :core:test :data:testDebugUnitTest :uikit:testDebugUnitTest :uikit:lintDebug :app:assembleDebug --console=plain
 ```
+
+> **`:app:lintDebug` 目前是红的，原因是 S0 遗留的一处清单问题**：manifest 声明了 Leanback 入口却没有
+> `android:banner`，Lint 的 `MissingTvBanner` 会让 app 模块的 lint 任务失败。各模块自己的
+> `NewApi`（API 23 守卫）是干净的，例如 `:uikit:lintDebug` 输出 "No issues found"。
+> 修法二选一（补 banner 图 / 去掉 Leanback 入口），排在 S7 收口，详见 `docs/PLATFORM.md` 的「构建期守卫的当前状态」。
 
 正式签名需要 `keystore.properties`（不入库），或用环境变量 `HONGGUOTV_KEYSTORE` / `HONGGUOTV_STORE_PASSWORD` / `HONGGUOTV_KEY_ALIAS` / `HONGGUOTV_KEY_PASSWORD`。
 
@@ -153,11 +157,11 @@ export ANDROID_HOME=$HOME/.buildozer/android/platform/android-sdk
 ## 目录结构
 
 ```
-core/        纯 JVM。protocol/ 协议与密码学 · model/ 领域模型 · port/ 接口与错误 · usecase/ 纯逻辑
-data/        端口实现。remote/ 上游 HTTP · local/ 存储 · media/ 取流与解密
+core/        纯 JVM。protocol/ 协议与密码学 · model/ 领域模型 · port/ 端口接口与失败分类
+data/        端口实现。content/ 内容仓库与解析 · http/ 传输与错误分类 · library/ 本地存储
 uikit/       设计系统。token/ 令牌 · focus/ 焦点图与节流 · layout/ 几何与滚动 · ui/ 控件 · page/ 骨架与网格
-feature-*/   三个业务模块，互不感知
-app/         装配与导航
+feature-*/   三个业务模块，互不感知（S4–S6，尚无源码）
+app/         装配与导航（S7，当前仍是 S0 的空壳 Activity）
 licenses/    第三方许可证全文
 ```
 
