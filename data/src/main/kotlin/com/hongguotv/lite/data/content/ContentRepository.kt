@@ -16,6 +16,8 @@ import com.hongguotv.core.protocol.MediaCrypto
 import com.hongguotv.core.protocol.SignedRequest
 import com.hongguotv.core.protocol.SignerRegistry
 import com.hongguotv.core.protocol.urlEncode
+import com.hongguotv.lite.data.http.HttpTransport
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -32,7 +34,7 @@ import kotlin.random.Random
  * 拆成两个独立事实，不再拼中文展示串。
  */
 class ContentRepository(
-    private val http: com.hongguotv.lite.data.http.HttpTransport,
+    private val http: HttpTransport,
     private val signers: SignerRegistry = SignerRegistry(),
 ) : ContentPort {
 
@@ -56,7 +58,7 @@ class ContentRepository(
             ?: return SearchResult(displayOf(rows, filter), emptyList())
 
         // plan 失败（网络/风控/结构）不是搜索失败：降级为官网原序，与旧行为一致
-        val line = runCatching { planCells(anchor.series.id, anchor.isComic, anchor.series) }.getOrNull()
+        val line = runCatchingIo { planCells(anchor.series.id, anchor.isComic, anchor.series) }.getOrNull()
         if (line == null || line.seasons.size < 2) return SearchResult(displayOf(rows, filter), emptyList())
 
         val lineIds = line.seasons.map { it.id }.toSet()
@@ -97,10 +99,11 @@ class ContentRepository(
 
     override suspend fun suggest(keyword: String): List<Suggestion> {
         require(keyword.isNotBlank() && keyword.length <= 80) { "联想词无效" }
-        // 联想是输入辅助，任何失败静默降级为空列表，不打断输入（旧行为）。
+        // 联想是输入辅助，网络与解析失败静默降级为空列表，不打断输入（旧行为）。
         // 它允许不完整（实测漏个别季），不作为季数上线的事实来源——那是 plan 接口的职责。
-        val signed = runCatching { signers.sign("suggest", mapOf("keyword" to keyword)) }.getOrElse { return emptyList() }
-        val raw = runCatching { http.text(signed) }.getOrElse { return emptyList() }
+        // 注意：sign 不在降级范围内——端点表坏了是装配错误，启动时就要炸（端口契约）。
+        val signed = signers.sign("suggest", mapOf("keyword" to keyword))
+        val raw = runCatchingIo { http.text(signed) }.getOrElse { return emptyList() }
         val data = runCatching { JSONObject(raw).optJSONObject(Fields.Envelope.DATA) }.getOrNull() ?: return emptyList()
         val rows = data.optJSONArray(Fields.Suggest.QUERY_RESULT) ?: return emptyList()
         return rows.objects().mapNotNull { o ->
@@ -224,3 +227,16 @@ class ContentRepository(
         const val SITE_INTERVAL_MS = 400L
     }
 }
+
+/**
+ * 标准库 runCatching 会把 CancellationException 一并捕获——取消不是失败，
+ * 吞掉它会破坏结构化并发（调用方以为请求还在跑）。包 suspend 调用一律走这里。
+ */
+private inline fun <T> runCatchingIo(block: () -> T): Result<T> =
+    try {
+        Result.success(block())
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Result.failure(e)
+    }

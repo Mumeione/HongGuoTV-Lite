@@ -115,6 +115,8 @@ class PrefsLibraryTest {
         ))
         assertTrue(lib.history().isEmpty())
         assertNull(lib.seasonLine("任何键"))
+        // 坏分区不炸启动，但必须留痕（顺序 = init 的解码顺序）
+        assertEquals(listOf("seasonGroups", "progress"), lib.corruptPartitions)
     }
 
     // ---------- 进度 ----------

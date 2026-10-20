@@ -1,7 +1,6 @@
 package com.hongguotv.lite.data.library
 
 import android.content.Context
-import com.hongguotv.core.port.LocalError
 
 /**
  * 本地键值存储的最小面。Android 上由 [SharedPreferencesStore] 实现；
@@ -30,7 +29,9 @@ class SharedPreferencesStore(context: Context, name: String = PREFS_NAME) : KeyV
                 is Float -> editor.putFloat(key, value)
                 is Boolean -> editor.putBoolean(key, value)
                 is Set<*> -> editor.putStringSet(key, value.filterIsInstance<String>().toSet())
-                else -> throw LocalError.Storage(IllegalStateException("不支持的本地存储类型：${value::class.java.name}"))
+                // 不支持的类型是编程错误（静态错误），按端口契约直接抛参数异常，
+                // 包成 LocalError 会让人误以为是磁盘坏了
+                else -> throw IllegalArgumentException("不支持的本地存储类型：${value::class.java.name}")
             }
         }
         // 写盘走单线程写队列（见 PrefsLibrary），这里同步 commit 换取落盘确定性

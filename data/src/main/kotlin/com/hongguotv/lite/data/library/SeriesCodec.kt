@@ -45,6 +45,4 @@ internal object SeriesCodec {
             runCatching { fromJson(rows.getJSONObject(i)) }.onFailure(onCorrupt).getOrNull()
         }
     }
-
-    fun encodeList(rows: List<Series>): String = JSONArray(rows.map { toJson(it) }).toString()
 }

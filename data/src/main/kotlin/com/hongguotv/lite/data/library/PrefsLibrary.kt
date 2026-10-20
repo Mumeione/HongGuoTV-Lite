@@ -9,7 +9,6 @@ import com.hongguotv.core.model.SeasonLine
 import com.hongguotv.core.model.Series
 import com.hongguotv.core.model.Settings
 import com.hongguotv.core.port.FavoritesPort
-import com.hongguotv.core.port.LocalError
 import com.hongguotv.core.port.ProgressPort
 import com.hongguotv.core.port.SettingsPort
 import com.hongguotv.lite.data.content.TitleKeys
@@ -53,19 +52,28 @@ class PrefsLibrary(
     private var watchedIds: Set<String>
     private var settings: Settings
 
+    /**
+     * 启动加载时无法解析、被整段丢弃的分区（对应 LocalError.Corrupt 的分类位置）。
+     * 加载失败不炸启动（旧行为：坏分区按空处理），但必须留痕——默默丢数据是迁移大忌。
+     */
+    var corruptPartitions: List<String> = emptyList()
+        private set
+
     private val writer: ExecutorService = Executors.newSingleThreadExecutor { task -> Thread(task, "hongguotv-lite-library") }
 
     private data class HistoryRow(val series: Series, val progress: Progress)
 
     init {
         val values = store.all()
-        favoriteRows = decodeFavoriteSeries(values[KEY_FAVORITE_SERIES] as? String)
-        seasonLines = decodeSeasonGroups(values[KEY_SEASON_GROUPS] as? String)
-        updateRows = decodeUpdates(values[KEY_FAVORITE_UPDATES] as? String)
-        historyRows = decodeHistory(values[KEY_PROGRESS] as? String)
+        val corrupt = mutableListOf<String>()
+        favoriteRows = decodeFavoriteSeries(values[KEY_FAVORITE_SERIES] as? String) { corrupt += KEY_FAVORITE_SERIES }
+        seasonLines = decodeSeasonGroups(values[KEY_SEASON_GROUPS] as? String) { corrupt += KEY_SEASON_GROUPS }
+        updateRows = decodeUpdates(values[KEY_FAVORITE_UPDATES] as? String) { corrupt += KEY_FAVORITE_UPDATES }
+        historyRows = decodeHistory(values[KEY_PROGRESS] as? String) { corrupt += KEY_PROGRESS }
         watchedIds = (values[KEY_WATCHED] as? Set<*>)?.filterIsInstance<String>()?.toSet().orEmpty()
         settings = loadSettings(values)
         if (!values.containsKey(KEY_FAVORITE_SERIES)) migrateLegacyFavorites(values)
+        corruptPartitions = corrupt.toList()
     }
 
     // ---------- ProgressPort ----------
@@ -254,13 +262,13 @@ class PrefsLibrary(
         val changedKeys = synchronized(lock) {
             val next = normalizeSettings(transform(settings))
             val keys = mutableListOf<String>()
-            if (next.quality != settings.quality) keys += "quality"
-            if (next.speed != settings.speed) keys += "playbackSpeed"
-            if (next.frame != settings.frame) keys += "frameMode"
-            if (next.autoNext != settings.autoNext) keys += "autoNext"
-            if (next.filter != settings.filter) keys += "contentType"
-            if (next.startupTab != settings.startupTab) keys += "startupTab"
-            if (next.seasonSortAsc != settings.seasonSortAsc) keys += "seasonSortAsc"
+            if (next.quality != settings.quality) keys += SETTING_QUALITY
+            if (next.speed != settings.speed) keys += SETTING_SPEED
+            if (next.frame != settings.frame) keys += SETTING_FRAME
+            if (next.autoNext != settings.autoNext) keys += SETTING_AUTO_NEXT
+            if (next.filter != settings.filter) keys += SETTING_CONTENT_TYPE
+            if (next.startupTab != settings.startupTab) keys += SETTING_STARTUP_TAB
+            if (next.seasonSortAsc != settings.seasonSortAsc) keys += SETTING_SEASON_SORT_ASC
             settings = next
             keys
         }
@@ -283,6 +291,8 @@ class PrefsLibrary(
         }
         synchronized(lock) { favoriteRows = all }
         persist(KEY_FAVORITE_SERIES)
+        // 旧版口径：迁移完立即同步检查结果——旧的无主 update 行不该活过这次迁移
+        pruneUpdates()
     }
 
     // ---------- 磁盘编解码 ----------
@@ -313,14 +323,15 @@ class PrefsLibrary(
                 KEY_FAVORITE_UPDATES -> batch[key] = encodeUpdates(updateRows)
                 KEY_PROGRESS -> batch[key] = encodeHistory(historyRows)
                 KEY_WATCHED -> batch[key] = watchedIds
-                "quality" -> batch[key] = settings.quality
-                "playbackSpeed" -> batch[key] = settings.speed
-                "autoNext" -> batch[key] = settings.autoNext
-                "contentType" -> batch[key] = settings.filter.toStored()
-                "frameMode" -> batch[key] = settings.frame.name
-                "startupTab" -> batch[key] = settings.startupTab
-                "seasonSortAsc" -> batch[key] = settings.seasonSortAsc
-                else -> throw LocalError.Storage(IllegalStateException("未知的本地库分区：$key"))
+                SETTING_QUALITY -> batch[key] = settings.quality
+                SETTING_SPEED -> batch[key] = settings.speed
+                SETTING_AUTO_NEXT -> batch[key] = settings.autoNext
+                SETTING_CONTENT_TYPE -> batch[key] = settings.filter.toStored()
+                SETTING_FRAME -> batch[key] = settings.frame.name
+                SETTING_STARTUP_TAB -> batch[key] = settings.startupTab
+                SETTING_SEASON_SORT_ASC -> batch[key] = settings.seasonSortAsc
+                // 调用点拼错键名是编程错误（静态错误），按端口契约直接炸，不包 LocalError
+                else -> throw IllegalArgumentException("未知的本地库分区：$key")
             }
         }
         batch
@@ -334,10 +345,10 @@ class PrefsLibrary(
         return obj.toString()
     }
 
-    private fun decodeFavoriteSeries(raw: String?): LinkedHashMap<String, Pair<Series, Long>> {
+    private fun decodeFavoriteSeries(raw: String?, onPartitionCorrupt: () -> Unit = {}): LinkedHashMap<String, Pair<Series, Long>> {
         val result = LinkedHashMap<String, Pair<Series, Long>>()
         if (raw.isNullOrEmpty()) return result
-        val obj = runCatching { JSONObject(raw) }.getOrNull() ?: return result
+        val obj = runCatching { JSONObject(raw) }.getOrNull() ?: run { onPartitionCorrupt(); return result }
         obj.keys().forEach { base ->
             runCatching {
                 val entry = obj.getJSONObject(base)
@@ -354,10 +365,10 @@ class PrefsLibrary(
         return obj.toString()
     }
 
-    private fun decodeSeasonGroups(raw: String?): LinkedHashMap<String, List<Series>> {
+    private fun decodeSeasonGroups(raw: String?, onPartitionCorrupt: () -> Unit = {}): LinkedHashMap<String, List<Series>> {
         val result = LinkedHashMap<String, List<Series>>()
         if (raw.isNullOrEmpty()) return result
-        val obj = runCatching { JSONObject(raw) }.getOrNull() ?: return result
+        val obj = runCatching { JSONObject(raw) }.getOrNull() ?: run { onPartitionCorrupt(); return result }
         obj.keys().forEach { base ->
             runCatching { obj.getJSONArray(base) }.getOrNull()?.let { arr ->
                 val seasons = SeriesCodec.decodeList(arr.toString())
@@ -373,10 +384,10 @@ class PrefsLibrary(
         return obj.toString()
     }
 
-    private fun decodeUpdates(raw: String?): LinkedHashMap<String, FavoriteUpdateRow> {
+    private fun decodeUpdates(raw: String?, onPartitionCorrupt: () -> Unit = {}): LinkedHashMap<String, FavoriteUpdateRow> {
         val result = LinkedHashMap<String, FavoriteUpdateRow>()
         if (raw.isNullOrEmpty()) return result
-        val obj = runCatching { JSONObject(raw) }.getOrNull() ?: return result
+        val obj = runCatching { JSONObject(raw) }.getOrNull() ?: run { onPartitionCorrupt(); return result }
         obj.keys().forEach { id ->
             FavoriteUpdateRow.fromJson(obj.optJSONObject(id))?.let { result[id] = it }
         }
@@ -394,9 +405,9 @@ class PrefsLibrary(
             .put("updatedAt", row.progress.updatedAt)
     }).toString()
 
-    private fun decodeHistory(raw: String?): List<HistoryRow> {
+    private fun decodeHistory(raw: String?, onPartitionCorrupt: () -> Unit = {}): List<HistoryRow> {
         if (raw.isNullOrEmpty()) return emptyList()
-        val rows = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
+        val rows = runCatching { JSONArray(raw) }.getOrNull() ?: run { onPartitionCorrupt(); return emptyList() }
         return (0 until rows.length()).mapNotNull { i ->
             runCatching {
                 val o = rows.getJSONObject(i)
@@ -455,6 +466,15 @@ class PrefsLibrary(
         const val KEY_PROGRESS = "progress"
         const val KEY_WATCHED = "watched"
 
+        // 设置项与旧版 prefs 键名逐字相同（旧数据要能读）
+        const val SETTING_QUALITY = "quality"
+        const val SETTING_SPEED = "playbackSpeed"
+        const val SETTING_AUTO_NEXT = "autoNext"
+        const val SETTING_CONTENT_TYPE = "contentType"
+        const val SETTING_FRAME = "frameMode"
+        const val SETTING_STARTUP_TAB = "startupTab"
+        const val SETTING_SEASON_SORT_ASC = "seasonSortAsc"
+
         const val HISTORY_LIMIT = 30
         const val FAVORITES_LIMIT = 500
         const val SEASON_LINE_LIMIT = 20
@@ -470,12 +490,6 @@ class PrefsLibrary(
  */
 internal data class FavoriteUpdateRow(val total: Int, val seen: Int, val checkedAt: Long) {
     val added: Int get() = (total - seen).coerceAtLeast(0)
-
-    fun observe(count: Int, now: Long, acknowledge: Boolean): FavoriteUpdateRow {
-        require(count > 0)
-        if (now < checkedAt) return this
-        return FavoriteUpdateRow(count, if (acknowledge) maxOf(seen, count) else seen, now)
-    }
 
     fun toJson(): JSONObject = JSONObject().put("total", total).put("seen", seen).put("checkedAt", checkedAt)
 

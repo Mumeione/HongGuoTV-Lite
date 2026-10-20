@@ -41,6 +41,8 @@ class OkHttpTransport(private val http: OkHttpClient = defaultClient()) : HttpTr
             http.newCall(builder.build()).execute().use { response ->
                 if (!response.isSuccessful) throw UpstreamError.HttpStatus(response.code)
                 val body = response.body ?: throw UpstreamError.EmptyBody()
+                // 超限沿用旧口径：旧实现抛 IOException，在新分类下本来就落 Network；
+                // 六分类没有更贴切的位置，不为此扩分类
                 val bytes = readCapped(body.byteStream(), MAX_BYTES)
                     ?: throw UpstreamError.Network(IOException("内容响应过大"))
                 val text = String(bytes, Charsets.UTF_8)
