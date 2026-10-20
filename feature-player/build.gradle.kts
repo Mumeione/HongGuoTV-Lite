@@ -25,5 +25,8 @@ dependencies {
     // 播放器只在 player 模块内可见，app 拿不到 ExoPlayer 类型
     implementation("androidx.media3:media3-exoplayer:1.8.0")
     implementation("androidx.media3:media3-ui:1.8.0")
+    // 取流是 suspend 的端口方法：作用域由 app 注入（S7），协程运行时由本模块提供。
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     testImplementation("junit:junit:4.13.2")
 }
