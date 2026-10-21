@@ -182,6 +182,7 @@ class PageScaffold internal constructor(private val ui: UiKit) : FrameLayout(ui.
     private val topBarSlot: FrameLayout
     private val dividerSlot: LinearLayout
     private val headerSlot: FrameLayout
+    private val headerDivider: LinearLayout
     private val bodySlot: FrameLayout
     private val footerSlot: LinearLayout
     private val bodyContent: LinearLayout
@@ -218,6 +219,16 @@ class PageScaffold internal constructor(private val ui: UiKit) : FrameLayout(ui.
 
         headerSlot = FrameLayout(context).apply { visibility = View.GONE }
         container.addView(headerSlot, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
+        // 页头与内容之间的分隔线：标题区和内容区要有一条明确的边界，
+        // 否则"观看历史"这类标题和下面的卡片挤在一起分不出层次（维护者实测）。
+        headerDivider = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            addView(ui.divider())
+            addView(ui.spacer(tokens.metrics.dividerGap))
+        }
+        container.addView(headerDivider, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         bodySlot = FrameLayout(context)
         container.addView(bodySlot, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
@@ -262,17 +273,20 @@ class PageScaffold internal constructor(private val ui: UiKit) : FrameLayout(ui.
         if (existing != null) {
             existing.title(title)
             headerSlot.visibility = View.VISIBLE
+            headerDivider.visibility = View.VISIBLE
             return existing
         }
         val header = PageHeader(ui, title, onBack)
         headerSlot.addView(header, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         headerSlot.visibility = View.VISIBLE
+        headerDivider.visibility = View.VISIBLE
         _header = header
         return header
     }
 
     fun hideHeader() {
         headerSlot.visibility = View.GONE
+        headerDivider.visibility = View.GONE
     }
 
     /** 内容容器（不滚动）。与 [scrollBody] 二选一，先调用者生效。 */

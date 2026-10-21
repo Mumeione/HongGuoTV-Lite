@@ -147,6 +147,7 @@ class PrefsLibrary(
                 status = statusOf(value.first.id),
                 seriesKey = base,
                 latestSeason = latestSeasonOf(base, value.first),
+                latestEpisodes = latestEpisodesOf(base, value.first),
                 checkedAt = updateRows[value.first.id]?.checkedAt ?: 0L,
             )
         }
@@ -162,6 +163,7 @@ class PrefsLibrary(
                 status = statusOf(series.id),
                 seriesKey = seriesKey,
                 latestSeason = latestSeasonOf(seriesKey, series),
+                latestEpisodes = latestEpisodesOf(seriesKey, series),
                 checkedAt = updateRows[series.id]?.checkedAt ?: 0L,
             )
         }
@@ -258,6 +260,20 @@ class PrefsLibrary(
         val candidates = listOfNotNull(current.season.takeIf { it > 0 }) +
             seasonLines[base].orEmpty().filter { it.released }.map { it.season }.filter { it > 0 }
         return candidates.maxOrNull() ?: 0
+    }
+
+    /**
+     * 最新一季现在的集数——收藏卡"更新到多少集"的数据。
+     * 多季剧读季线里最新已上线季的 [Series.episodeCount]；季线没有（单季剧、
+     * 或季线还没取到）时退回检查更新记录的 total（检查更新问的就是详情集数）。
+     */
+    private fun latestEpisodesOf(base: String, current: Series): Int {
+        val latest = latestSeasonOf(base, current)
+        if (latest > 0) {
+            seasonLines[base]?.firstOrNull { it.released && it.season == latest }?.episodeCount?.takeIf { it > 0 }
+                ?.let { return it }
+        }
+        return updateRows[current.id]?.total ?: 0
     }
 
     /** 需要跟踪检查结果的季 id：收藏的当前季 + 收藏系列季线里的全部季。 */

@@ -152,6 +152,9 @@ class PosterCard internal constructor(
         bindFocus(
             tokens = tokens,
             paint = { paintCard(it) },
+            // 卡片不缩放：滚动视口会在边界裁切，放大的卡在首行/末行会被切掉圆角，
+            // 看起来就成了"圆角矩形变长方形"（维护者实测）。白底信息区本身已是焦点信号。
+            scale = { false },
             onChange = { isFocused ->
                 focused = isFocused
                 val current = item ?: return@bindFocus
@@ -167,10 +170,18 @@ class PosterCard internal constructor(
         this.item = item
         titleView.text = item.title
         contentDescription = item.title
+        // 卡片下方不重复显示片名：片名由上方的大字预览区说，卡上只留一行状态
+        //（维护者口径：卡片太小，片名太长不美观）。空标题整行收起。
+        val hasTitle = item.title.isNotEmpty()
+        titleView.visibility = if (hasTitle) View.VISIBLE else View.GONE
+        // 标题行收起后角标直接贴着封面：把原本标题的顶部留白挪给角标，别挤在一起
+        badgeView.setPadding(dp(tokens.space.xxs), if (hasTitle) 0 else dp(tokens.metrics.cardTitlePaddingTop), 0, 0)
         alpha = if (item.dim) tokens.metrics.dimAlpha else 1f
         cornerView.text = item.corner
         cornerView.visibility = if (item.corner.isEmpty()) View.GONE else View.VISIBLE
         badgeView.text = item.badge
+        // 文字块高度随"有没有标题"变了：夹取过的封面要按新口径重算一次
+        applyHeightLimit()
         coverUrl = item.coverUrl
         if (coverUrl.isEmpty()) image.setImageDrawable(null) else syncCover()
         paintCard(focused)
@@ -198,7 +209,12 @@ class PosterCard internal constructor(
     fun heightLimit(maxHeightPx: Int) {
         if (heightLimit == maxHeightPx) return
         heightLimit = maxHeightPx
-        val next = artworkHeightFor(maxHeightPx)
+        applyHeightLimit()
+    }
+
+    /** 按"当前上限 + 当前内容"重算封面高度；高度没变就不动视图（避免无谓的重新取图）。 */
+    private fun applyHeightLimit() {
+        val next = artworkHeightFor(heightLimit)
         if (next == artworkHeight) return
         artworkHeight = next
         artworkView.layoutParams = (artworkView.layoutParams as LayoutParams).apply { height = next }
@@ -240,13 +256,14 @@ class PosterCard internal constructor(
 
     /**
      * 封面以下那块文字在竖直方向占多少：夹取封面高度时要把它先扣掉，
-     * 否则"标题两行 + 角标"又会被推到视口外。
+     * 否则"标题两行 + 角标"又会被推到视口外。标题行收起时只算角标。
      */
     private fun textBlockHeight(): Int {
         val lineHeight = (titleView.paint.fontMetrics.descent - titleView.paint.fontMetrics.ascent).toInt()
+        val titleLines = if (item?.title?.isNotEmpty() == true) TITLE_LINES else 0
         val padTop = dp(tokens.metrics.cardPadding)
         val padBottom = dp(tokens.metrics.cardGap - tokens.metrics.cardPadding)
-        return padTop + dp(tokens.metrics.cardTitlePaddingTop) + lineHeight * TITLE_LINES +
+        return padTop + (if (titleLines > 0) dp(tokens.metrics.cardTitlePaddingTop) + lineHeight * titleLines else 0) +
             dp(tokens.metrics.badgeHeight) + padBottom
     }
 

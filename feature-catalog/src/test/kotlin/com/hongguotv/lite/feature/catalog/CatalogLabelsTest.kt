@@ -19,6 +19,7 @@ class CatalogLabelsTest {
     private fun entry(
         season: Int = 5,
         latestSeason: Int = 5,
+        latestEpisodes: Int = 0,
         status: FavoriteStatus = FavoriteStatus.UP_TO_DATE,
     ) = FavoriteEntry(
         series = Series(id = "1", title = "测试书", season = season),
@@ -26,6 +27,7 @@ class CatalogLabelsTest {
         status = status,
         seriesKey = "测试书",
         latestSeason = latestSeason,
+        latestEpisodes = latestEpisodes,
     )
 
     private fun progress(seriesId: String, updatedAt: Long, index: Int = 0) = Progress(
@@ -41,32 +43,39 @@ class CatalogLabelsTest {
     // ---------- 角标 ----------
 
     @Test
-    fun newerSeasonWinsOverTheCheckStatus() {
-        val label = FavoriteLabels.badge(entry(season = 5, latestSeason = 13))
-        assertEquals("第十三季已上线", label)
+    fun theBadgeStatesWhereTheUpdatesAre() {
+        // 多季剧：更新到第几季 · 几集
+        assertEquals("更新到第十三季 · 80集", FavoriteLabels.updateBadge(entry(season = 5, latestSeason = 13, latestEpisodes = 80)))
         assertTrue(FavoriteLabels.attention(entry(season = 5, latestSeason = 13)))
     }
 
     @Test
-    fun upToDateAndNeverCheckedReadDifferently() {
-        assertEquals("已是最新", FavoriteLabels.badge(entry(latestSeason = 5)))
-        assertFalse(FavoriteLabels.attention(entry(latestSeason = 5)))
-        assertEquals("尚未检查更新", FavoriteLabels.badge(entry(status = FavoriteStatus.UNCHECKED)))
-        assertEquals("检查失败", FavoriteLabels.badge(entry(status = FavoriteStatus.FAILED)))
+    fun theBadgeNeverSaysUpToDate() {
+        // 维护者口径："已是最新"没有信息量，卡片直接说现在更新到哪里
+        assertEquals("更新到第五季 · 56集", FavoriteLabels.updateBadge(entry(latestSeason = 5, latestEpisodes = 56)))
+        assertFalse(FavoriteLabels.attention(entry(latestSeason = 5, latestEpisodes = 56)))
     }
 
     @Test
-    fun episodeGrowthIsShownButNotAsANewSeason() {
-        // 端口用 NEW_SEASON 表达"集数增长"：既没有更新的季，就说"有新集"，不要说"第N季已上线"
-        val label = FavoriteLabels.badge(entry(latestSeason = 5, status = FavoriteStatus.NEW_SEASON))
-        assertEquals("有新集", label)
-        assertTrue(FavoriteLabels.attention(entry(latestSeason = 5, status = FavoriteStatus.NEW_SEASON)))
+    fun aSingleSeasonShowStatesOnlyTheEpisodeCount() {
+        // 单季短剧没有季号：只说更新到多少集
+        val single = entry(season = 0, latestSeason = 0, latestEpisodes = 524)
+        assertEquals("更新到 524 集", FavoriteLabels.updateBadge(single))
+        assertTrue(FavoriteLabels.attention(single.copy(status = FavoriteStatus.NEW_SEASON)))
     }
 
     @Test
-    fun unknownCurrentSeasonStillReportsANewSeason() {
-        // 老收藏没有季号（season=0）但季线里有多季：以季线为准
-        assertEquals("第三季已上线", FavoriteLabels.badge(entry(season = 0, latestSeason = 3)))
+    fun seasonWithoutEpisodeCountStillStatesTheSeason() {
+        assertEquals("更新到第三季", FavoriteLabels.updateBadge(entry(season = 0, latestSeason = 3)))
+    }
+
+    @Test
+    fun nothingCheckedYetFallsBackToAHonestLabel() {
+        // "还没检查出来"才兜底：季号/集数都是 0（刚从别的设备同步过来、季线也没取到）。
+        // 已知季号时角标照旧说"更新到第几季"，检查状态不参与——卡片只说事实，不报流程状态。
+        val unknown = entry(status = FavoriteStatus.UNCHECKED, latestSeason = 0, latestEpisodes = 0)
+        assertEquals("尚未检查更新", FavoriteLabels.updateBadge(unknown))
+        assertEquals("检查失败", FavoriteLabels.updateBadge(unknown.copy(status = FavoriteStatus.FAILED)))
     }
 
     // ---------- 状态行 ----------
@@ -122,6 +131,19 @@ class CatalogLabelsTest {
             "整剧已看完",
             CatalogCards.history(finished.copy(progress = finished.progress.copy(completed = false)), watched = true).badge,
         )
+    }
+
+    @Test
+    fun cardsCarryNoTitleAndEachPageStatesItsOwnStatus() {
+        // 卡片下方不重复片名（维护者口径）：片名由预览区的大字说
+        val series = Series("1", "测试书第九季", season = 9, cover = "http://c/1.jpg")
+        assertTrue(CatalogCards.search(series).title.isEmpty())
+
+        // 继续看：季号要自己带上——那里没有预览区兜底
+        val entry = HistoryEntry(series, progress("1", updatedAt = 0L, index = 19))
+        assertEquals("第九季 · 第 20 集 · 00:01", CatalogCards.history(entry, watched = false, withSeason = true).badge)
+        // 历史页有预览区：保持短句
+        assertEquals("第 20 集 · 00:01", CatalogCards.history(entry, watched = false).badge)
     }
 
     // ---------- 设置档位 ----------

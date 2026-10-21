@@ -27,8 +27,9 @@ internal enum class PlayerSetting { SPEED, QUALITY, FRAME, SLEEP, RESTART }
  * （旧实现为此写了 `onKeyListener` + `pendingFocus` 两处补丁）。这里只是播放页里的一层覆盖，
  * 焦点图、焦点记忆、按键表全部照用。
  *
- * 集数格复用 `EpisodePages`（20 列 × 5 行 = 100 集/页）与 S5 的 `PagerRow`：
- * 详情页与侧栏看到的是**同一种格子**，300 集的剧在两处都是翻 3 页。
+ * 集数格复用 `EpisodePages` 的同一份算术、侧栏自己的参数（10 列 × 5 行 = 50 集/页，
+ * 维护者口径：画面外只留一小块侧栏，格不能太密）与 S5 的 `PagerRow`：
+ * 详情页与侧栏看到的是**同一种格子**，352 集的剧在详情页翻 4 页、在侧栏翻 8 页。
  */
 internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callbacks) {
 
@@ -56,6 +57,9 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
     )
 
     private val tokens: Tokens = ui.tokens
+
+    /** 侧栏的分页口径：一行 10 格，一页 5 行 = 50 集。 */
+    private val pagination = EpisodePages.SIDEBAR
 
     var mode: Mode = Mode.EPISODES
         private set
@@ -210,11 +214,11 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
         statusView.text = model.status
         if (model.total > 0 && lastCurrent != model.current) {
             // 换集（含片尾自动连播）之后，侧栏要翻到当前集所在的那一组
-            page = EpisodePages.pageOf(model.current)
+            page = pagination.pageOf(model.current)
             builtPage = -1
         }
         lastCurrent = model.current
-        page = page.coerceIn(0, EpisodePages.pages(model.total) - 1)
+        page = page.coerceIn(0, pagination.pages(model.total) - 1)
 
         modeButton.label(if (mode == Mode.EPISODES) "播放设置" else "返回选集")
         jumpButton.label(if (mode == Mode.JUMP) "定位" else "跳转集数")
@@ -237,8 +241,8 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
     }
 
     private fun bindEpisodes(model: Model) {
-        val pages = EpisodePages.pages(model.total)
-        val range = EpisodePages.page(model.total, page)
+        val pages = pagination.pages(model.total)
+        val range = pagination.page(model.total, page)
         if (builtPage != page || builtTotal != model.total) {
             buildGrid(range, model)
             builtPage = page
@@ -258,7 +262,7 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
         val built = mutableListOf<TvButton>()
         val indexes = mutableListOf<Int>()
         val gap = ui.dp(tokens.metrics.episodeCellGap)
-        range.chunked(EpisodePages.COLUMNS).forEach { rowIndexes ->
+        range.chunked(pagination.columns).forEach { rowIndexes ->
             val row = ui.rowTop()
             rowIndexes.forEachIndexed { position, index ->
                 val cell = ui.button(
@@ -276,8 +280,8 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
                 built += cell
                 indexes += index
             }
-            // 末行补空格：缺格会让最后几个集数被拉宽，20 列的视觉对齐就断了
-            repeat(EpisodePages.COLUMNS - rowIndexes.size) {
+            // 末行补空格：缺格会让最后几个集数被拉宽，10 列的视觉对齐就断了
+            repeat(pagination.columns - rowIndexes.size) {
                 row.addView(Space(ui.context), LinearLayout.LayoutParams(0, 1, 1f))
             }
             gridHost.addView(
@@ -304,7 +308,7 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
 
     private fun goPage(delta: Int) {
         val model = model ?: return
-        val pages = EpisodePages.pages(model.total)
+        val pages = pagination.pages(model.total)
         val next = (page + delta).coerceIn(0, pages - 1)
         if (next == page) return
         page = next
@@ -401,7 +405,7 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
             listOf(
                 FocusSections.section(actionKeys, actionKeys.size),
                 FocusSections.section(pagerKeys, pagerKeys.size),
-                FocusSections.section(gridKeys, EpisodePages.COLUMNS),
+                FocusSections.section(gridKeys, pagination.columns),
                 FocusSections.section(settingKeys, 1),
                 FocusSections.section(keypadKeys, JUMP_COLUMNS),
             ),

@@ -25,6 +25,8 @@ internal object SeriesCodec {
         .put("createTime", 0L)
         .put("isComic", false)
         .put("season", series.season)
+        // 收藏卡"更新到多少集"的数据来源；旧盘没有这个键，读回 0（等下次检查更新/搜索补上）
+        .put("episodeCnt", series.episodeCount)
 
     fun fromJson(o: JSONObject): Series = Series(
         id = o.str("id"),
@@ -35,6 +37,7 @@ internal object SeriesCodec {
         tags = o.str("tags"),
         season = o.optInt("season", 0),
         released = o.str("badge") != SeriesBadge.UNRELEASED,
+        episodeCount = o.optInt("episodeCnt", 0),
     )
 
     /** 坏行跳过、不拖垮整个分区；调用方需要感知时给 onCorrupt。 */

@@ -272,6 +272,32 @@ class PrefsLibraryTest {
     }
 
     @Test
+    fun latestEpisodesComeFromTheLatestReleasedSeason() = runTest {
+        // 收藏卡"更新到多少集"：读季线里最新已上线季的集数，未上线季不算
+        val lib = PrefsLibrary(store("favoriteSeries" to "{}"))
+        lib.toggle(Series("9", "测试书第九季", season = 9))
+        lib.rememberSeasonLine(
+            "测试书",
+            SeasonLine(
+                listOf(
+                    Series("9", "测试书第九季", season = 9, episodeCount = 60),
+                    Series("10", "测试书第十季", season = 10, released = false, episodeCount = 0),
+                ),
+            ),
+        )
+        assertEquals(60, lib.entry("测试书")!!.latestEpisodes)
+    }
+
+    @Test
+    fun aSingleSeasonFavoriteFallsBackToTheUpdateRecord() = runTest {
+        // 单季剧没有季线：集数退回检查更新记录的 total
+        val lib = PrefsLibrary(store("favoriteSeries" to "{}"))
+        lib.toggle(Series("1", "单季剧"))
+        lib.acknowledge("1", totalEpisodes = 524, at = 1_000L)
+        assertEquals(524, lib.entry("单季剧")!!.latestEpisodes)
+    }
+
+    @Test
     fun favoriteEntryExposesItsKeyAndLastCheckTime() = runTest {
         val lib = PrefsLibrary(store("favoriteSeries" to "{}"), clock = { 5_000L })
         lib.toggle(Series("1", "凡人测试书第二季"))

@@ -50,16 +50,24 @@ internal abstract class DetailPage(
      *
      * [preferred] 为 null 时用**本页上次的光标**（`host.lastFocus`）——页面换目标销毁重建后，
      * 这是"回来还在原处"的唯一来源。
+     *
+     * [ladder] 是页面的落焦阶梯（例如"主操作"）：加载中的二次刷新没有显式目标、也没有记忆，
+     * 没有阶梯就会回退到焦点图首项——那是「返回」按钮，光标被扔到页头（维护者实测）。
      */
-    protected fun submitPlan(sections: List<FocusSection?>, views: Map<FocusKey, View>, preferred: FocusKey? = null) {
+    protected fun submitPlan(
+        sections: List<FocusSection?>,
+        views: Map<FocusKey, View>,
+        preferred: FocusKey? = null,
+        ladder: List<FocusKey> = emptyList(),
+    ) {
         val plan = FocusSections.plan(sections) ?: return
         focus.bind(plan, views)
-        requestFocus(preferred ?: host.lastFocus[pageKey])
+        requestFocus(preferred ?: host.lastFocus[pageKey], ladder)
     }
 
-    private fun requestFocus(preferred: FocusKey?) {
-        if (focus.request(preferred)) return
+    private fun requestFocus(preferred: FocusKey?, ladder: List<FocusKey>) {
+        if (focus.request(preferred, ladder)) return
         // 视图还没挂上窗口时一定失败：等一次 post 再要，别让光标留在页外
-        scaffold.post { focus.request(preferred) }
+        scaffold.post { focus.request(preferred, ladder) }
     }
 }

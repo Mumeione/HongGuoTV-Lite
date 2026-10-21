@@ -33,6 +33,18 @@ object TvText {
     /** 「第七季」；无季号返回空串（单季剧不写季号）。 */
     fun season(n: Int): String = if (n > 0) "第${chineseNumber(n)}季" else ""
 
+    /**
+     * 「更新到第九季 · 20集」——收藏/追剧追番的进度，一句话回答"现在到哪了"。
+     * 多季剧带季名；单季剧（[season] = 0）只说集数。两个数都不知道时返回空串，
+     * 由调用方决定要不要换一句（例如"尚未检查更新"）。
+     */
+    fun updateProgress(season: Int, episodes: Int): String = when {
+        season > 0 && episodes > 0 -> "更新到${season(season)} · ${episodes}集"
+        season > 0 -> "更新到${season(season)}"
+        episodes > 0 -> "更新到 $episodes 集"
+        else -> ""
+    }
+
     /** `mm:ss`。手写补零，不用 `String.format`——它按默认 Locale 出数字，可能变成别的字符。 */
     fun clock(millis: Long): String {
         val seconds = millis.coerceAtLeast(0) / 1000

@@ -113,6 +113,6 @@ internal object DetailText {
     /** 季线只在已收藏时才有意义：未收藏的剧不必为空标题写占位。 */
     fun seasonLineTitle(seasonCount: Int): String = if (seasonCount >= 2) "所有季 · 共 $seasonCount 季" else "所有季"
 
-    /** 系列页页脚：解释"换一季不会冲掉别的季的记录"（旧行为，用户常问）。 */
-    const val SEASON_FOOTER: String = "各季进度分别保存，继续播放会回到最近看的那一季"
+    /** 系列页右栏说明：解释"换一季不会冲掉别的季的记录"（旧行为，用户常问）。逗号后分行——一句两个主语挤一行读起来费劲。 */
+    const val SEASON_FOOTER: String = "各季进度分别保存，\n继续播放会回到最近看的那一季"
 }

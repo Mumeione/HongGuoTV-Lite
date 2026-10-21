@@ -13,6 +13,7 @@ import android.widget.Toast
 import com.hongguotv.core.model.ContentFilter
 import com.hongguotv.core.model.HistoryEntry
 import com.hongguotv.core.model.SeasonKeys
+import com.hongguotv.core.model.Series
 import com.hongguotv.core.model.Settings
 import com.hongguotv.core.model.Suggestion
 import com.hongguotv.core.port.UpstreamError
@@ -337,12 +338,22 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         )
     }
 
+    /** 搜索卡那一行收藏状态：收藏了就说"更新到哪里"（与收藏页同一口径），没收藏留空。 */
+    private fun favoriteBadgeOf(series: Series): String {
+        val key = SeasonKeys.seasonKey(series.title)
+        if (key.isBlank() || !host.favorites.isFavorite(key)) return ""
+        val entry = host.favorites.entry(key) ?: return "已收藏"
+        return FavoriteLabels.updateBadge(entry)
+    }
+
     private fun previewHistory(item: CardItem) {
         val entry = continueEntries.firstOrNull { it.series.id == item.id } ?: return
+        // 继续看的剧也可能是收藏的整个 IP：预览的信息栏要一并说出来
+        val favorite = host.favorites.isFavorite(SeasonKeys.seasonKey(entry.series.title))
         preview.show(
             title = entry.series.title,
             status = CatalogText.previewStatus(
-                favorite = false,
+                favorite = favorite,
                 season = entry.series.season,
                 progress = entry.progress,
                 watched = host.progress.isWatched(entry.series.id),
@@ -378,11 +389,12 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         // 视口还没量到时不夹（保持比例）；量到之后由布局回调再走一遍 render
         applyCardLimit()
         continueRendered = if (showContinue) {
-            continueGrid.render(continueEntries.map { CatalogCards.history(it, host.progress.isWatched(it.series.id)) })
+            // 继续看的卡不带片名也不带预览兜底：季号自己带上，"第九季 · 第 20 集 · 05:00"
+            continueGrid.render(continueEntries.map { CatalogCards.history(it, host.progress.isWatched(it.series.id), withSeason = true) })
         } else {
             null
         }
-        rendered = if (showResult) resultGrid.render(model.items.map(CatalogCards::search)) else null
+        rendered = if (showResult) resultGrid.render(model.items.map { CatalogCards.search(it, favoriteBadgeOf(it)) }) else null
 
         if (!showContinue && !showResult) preview.show("", "", "")
         applyFocus()

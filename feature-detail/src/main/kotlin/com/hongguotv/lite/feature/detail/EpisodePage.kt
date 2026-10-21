@@ -55,6 +55,9 @@ internal class EpisodePage(
     private var pageIndex = 0
     private var introExpanded = false
 
+    /** 分页算术：一行 20 格 × 5 行 = 100 集一页（与播放侧栏的 10×50 各是各的口径）。 */
+    private val pagination = EpisodePages.DETAIL
+
     /** 首屏加载完成后光标落在主操作上：用户进来是要看剧，不是要看「返回」。 */
     private var preferredOnRender: FocusKey? = null
     private val episodeCells = LinkedHashMap<String, TvButton>()
@@ -118,7 +121,7 @@ internal class EpisodePage(
             // 用户已经看到这一季现在的集数了：清掉"新增集"角标（非收藏系列端口自己忽略）
             host.favorites.acknowledge(loaded.series.id, loaded.episodes.size, System.currentTimeMillis())
             target = ResumePoint.of(loaded.episodes, host.progress.progressOf(loaded.series.id))
-            pageIndex = EpisodePages.pageOf(target.index)
+            pageIndex = pagination.pageOf(target.index)
             // 从历史/「继续看」进来：要的是画面，不是先看一眼详情页再跳
             if (resumeRecording) {
                 openPlayer(loaded)
@@ -200,15 +203,15 @@ internal class EpisodePage(
 
     private fun renderEpisodes(data: Detail) {
         val total = data.episodes.size
-        val pages = EpisodePages.pages(total)
+        val pages = pagination.pages(total)
         pageIndex = pageIndex.coerceIn(0, pages - 1)
-        val range = EpisodePages.page(total, pageIndex)
+        val range = pagination.page(total, pageIndex)
         val watchedUpTo = host.progress.watchedUpTo(data.series.id)
         val gap = ui.dp(tokens.metrics.episodeCellGap)
 
         episodeHost.removeAllViews()
         episodeCells.clear()
-        range.chunked(EpisodePages.COLUMNS).forEach { indices ->
+        range.chunked(pagination.columns).forEach { indices ->
             val row = ui.rowTop()
             indices.forEachIndexed { position, index ->
                 val cell = ui.button(
@@ -226,7 +229,7 @@ internal class EpisodePage(
                 data.episodes.getOrNull(index)?.let { episodeCells[episodeKey(it.vid)] = cell }
             }
             // 末行补空格：缺格会让最后几个集数被拉宽，20 列的视觉对齐就断了
-            repeat(EpisodePages.COLUMNS - indices.size) {
+            repeat(pagination.columns - indices.size) {
                 row.addView(Space(ui.context), LinearLayout.LayoutParams(0, 1, 1f))
             }
             episodeHost.addView(
@@ -299,12 +302,12 @@ internal class EpisodePage(
 
     private fun goPage(delta: Int) {
         val data = detail ?: return
-        val pages = EpisodePages.pages(data.episodes.size)
+        val pages = pagination.pages(data.episodes.size)
         val next = (pageIndex + delta).coerceIn(0, pages - 1)
         if (next == pageIndex) return
         pageIndex = next
         renderEpisodes(data)
-        val first = EpisodePages.page(data.episodes.size, pageIndex).first
+        val first = pagination.page(data.episodes.size, pageIndex).first
         applyFocus(data.episodes.getOrNull(first)?.let { FocusKey(episodeKey(it.vid)) })
     }
 
@@ -339,6 +342,9 @@ internal class EpisodePage(
             if (introButton.visibility == View.VISIBLE) {
                 views[KEY_INTRO] = introButton
                 actionKeys += KEY_INTRO
+                // 简介滚动框是动作行的最后一列：右移一格进来，上下键在框里滚简介
+                views[KEY_INTRO_BOX] = hero.introBox
+                actionKeys += KEY_INTRO_BOX
             }
         }
         val pagerKeys = mutableListOf<FocusKey>()
@@ -361,10 +367,12 @@ internal class EpisodePage(
                 if (retryButton.visibility == View.VISIBLE) FocusSections.section(listOf(KEY_RETRY), 1) else null,
                 FocusSections.section(actionKeys, actionKeys.size),
                 FocusSections.section(pagerKeys, pagerKeys.size),
-                FocusSections.section(episodeKeys, EpisodePages.COLUMNS),
+                FocusSections.section(episodeKeys, pagination.columns),
             ),
             views = views,
             preferred = wanted,
+            // 没有显式目标也没有记忆时落主操作：进这页是要看剧，不是要看「返回」
+            ladder = if (loaded) listOf(KEY_PLAY) else emptyList(),
         )
     }
 
@@ -374,6 +382,7 @@ internal class EpisodePage(
         val KEY_PLAY = FocusKey("detail:play")
         val KEY_FAVORITE = FocusKey("detail:favorite")
         val KEY_INTRO = FocusKey("detail:intro")
+        val KEY_INTRO_BOX = FocusKey("detail:introbox")
         val KEY_PREV = FocusKey("detail:prev")
         val KEY_NEXT = FocusKey("detail:next")
 

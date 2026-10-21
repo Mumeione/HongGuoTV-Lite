@@ -16,6 +16,11 @@ data class Series(
     val season: Int = 0,
     /** false = 未上线季（episode_cnt=0）：保留在季线中但不可点击、不参与连播。 */
     val released: Boolean = true,
+    /**
+     * 该季现在的集数（上游 episode_cnt）。收藏页要回答"更新到多少集"，
+     * 靠解析 badge 文案太脆，把它作为数据带出来。
+     */
+    val episodeCount: Int = 0,
 )
 
 data class Episode(
@@ -78,6 +83,12 @@ data class FavoriteEntry(
     val seriesKey: String,
     /** 季线里的最新季号；0 = 未知。 */
     val latestSeason: Int = 0,
+    /**
+     * 最新（或当前）一季现在有多少集；0 = 未知。
+     * 多季剧取季线里最新已上线季的集数，单季剧取检查更新时的详情集数——
+     * 收藏卡片的"更新到多少集"靠它，不再显示"已是最新"这种没有信息量的状态。
+     */
+    val latestEpisodes: Int = 0,
     /** 最近一次「检查更新」的时间；0 = 从未检查。1 小时有效期用它判断。 */
     val checkedAt: Long = 0,
 )

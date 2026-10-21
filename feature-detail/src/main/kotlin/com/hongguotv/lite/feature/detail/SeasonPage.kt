@@ -107,13 +107,13 @@ internal class SeasonPage(
             visibility = View.GONE
             setPadding(0, ui.dp(tokens.space.m), 0, ui.dp(tokens.space.s))
         }
-        // 一行三段：季数（左）→ 翻组 → 排序（右）。排序与翻组都是按钮、同高，
-        // 不做成小号文字链接——同一行里两种尺寸的控件会显得没对齐
+        // 一行贴左排开：季数 → 翻组 → 排序。三个控件都管下面这排季，
+        // 紧跟在"所有季"后面比贴着屏幕右边缘更像一组（维护者口径："所有季的右侧"）。
+        // 排序与翻组都是按钮、同高，不做成小号文字链接。
         seasonCountView = ui.text("", tokens.type.subtitle, tokens.colors.text).apply {
             setTypeface(null, android.graphics.Typeface.BOLD)
         }
-        seasonHeader.addView(seasonCountView)
-        seasonHeader.addView(View(ui.context), ui.params(width = 0, weight = 1f))
+        seasonHeader.addView(seasonCountView, ui.params().apply { rightMargin = ui.dp(tokens.space.m) })
         pager = PagerRow(ui, fillWidth = false).apply { onPage = { delta -> goPage(delta) } }
         seasonHeader.addView(pager.view)
         sortButton = ui.button("倒序") { toggleSort() }
@@ -225,13 +225,18 @@ internal class SeasonPage(
     private fun renderHero(series: Series) {
         val progress = latestProgress()
         val target = SeasonTargets.of(line, progress, anchor)
+        val entryRow = entry
 
         hero.show(
             coverUrl = series.cover,
             title = titleText(series),
             meta = DetailText.seriesMeta(series, line?.seasons?.size ?: 1, favorite = entry != null),
-            // 记录所属的季不在季线里时，退回"收藏的那一季"的季号，别报成最新季
-            status = DetailText.seriesStatus(progress, line, entry?.series?.season ?: 0),
+            // 状态行两件事：上次看到哪（有记录时）+ 更新到哪（收藏 = 追剧追番的进度），
+            // 后者来自季线/检查记录，检查更新一完成就跟着变
+            status = listOf(
+                DetailText.seriesStatus(progress, line, entry?.series?.season ?: 0),
+                entryRow?.let { TvText.updateProgress(it.latestSeason, it.latestEpisodes) },
+            ).filterNotNull().filter { it.isNotBlank() }.joinToString(" · "),
             // 没有简介就把"各季进度分别保存"放进右栏：这句说明正好填上右栏空白，
             // 比另起一页脚（会被屏幕边界切掉半行）更省高度
             intro = series.intro.ifBlank { DetailText.SEASON_FOOTER },
@@ -439,6 +444,9 @@ internal class SeasonPage(
             if (introButton.visibility == View.VISIBLE) {
                 views[KEY_INTRO] = introButton
                 actionKeys += KEY_INTRO
+                // 简介滚动框是动作行的最后一列：右移一格进来，上下键在框里滚简介
+                views[KEY_INTRO_BOX] = hero.introBox
+                actionKeys += KEY_INTRO_BOX
             }
         }
         if (retryButton.visibility == View.VISIBLE) views[KEY_RETRY] = retryButton
@@ -446,15 +454,16 @@ internal class SeasonPage(
         if (seasonHeader.visibility == View.VISIBLE) views[KEY_SORT] = sortButton
         seasonCards.forEach { (id, card) -> views[FocusKey(seasonKey(id))] = card }
 
-        val pagerKeys = mutableListOf<FocusKey>()
+        val headerKeys = mutableListOf<FocusKey>()
+        if (seasonHeader.visibility == View.VISIBLE) headerKeys += KEY_SORT
         if (pager.view.visibility == View.VISIBLE) {
             if (pager.prev.isEnabled) {
                 views[KEY_PREV] = pager.prev
-                pagerKeys += KEY_PREV
+                headerKeys += KEY_PREV
             }
             if (pager.next.isEnabled) {
                 views[KEY_NEXT] = pager.next
-                pagerKeys += KEY_NEXT
+                headerKeys += KEY_NEXT
             }
         }
 
@@ -464,12 +473,14 @@ internal class SeasonPage(
                 if (retryButton.visibility == View.VISIBLE) FocusSections.section(listOf(KEY_RETRY), 1) else null,
                 if (detailOnlyButton.visibility == View.VISIBLE) FocusSections.section(listOf(KEY_DETAIL), 1) else null,
                 FocusSections.section(actionKeys, actionKeys.size),
-                if (seasonHeader.visibility == View.VISIBLE) FocusSections.section(listOf(KEY_SORT), 1) else null,
+                // 翻组与排序在同一行（"所有季"右侧）：一段焦点图按视觉顺序给它们
+                if (headerKeys.isNotEmpty()) FocusSections.section(headerKeys, headerKeys.size) else null,
                 FocusSections.section(seasonCards.keys.map { FocusKey(seasonKey(it)) }, SEASON_COLUMNS),
-                FocusSections.section(pagerKeys, pagerKeys.size),
             ),
             views = views,
             preferred = wanted,
+            // 没有显式目标也没有记忆时落主操作：进这页是要接着看，不是要看「返回」
+            ladder = if (series != null) listOf(KEY_PLAY) else emptyList(),
         )
     }
 
@@ -491,6 +502,7 @@ internal class SeasonPage(
         val KEY_PICK = FocusKey("series:pick")
         val KEY_FAVORITE = FocusKey("series:favorite")
         val KEY_INTRO = FocusKey("series:intro")
+        val KEY_INTRO_BOX = FocusKey("series:introbox")
         val KEY_SORT = FocusKey("series:sort")
         val KEY_PREV = FocusKey("series:prev")
         val KEY_NEXT = FocusKey("series:next")

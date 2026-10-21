@@ -3,6 +3,7 @@ package com.hongguotv.lite.feature.player
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Handler
@@ -12,6 +13,7 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.TextView
 import android.widget.Toast
 import com.hongguotv.core.model.Detail
 import com.hongguotv.core.model.FrameMode
@@ -91,12 +93,41 @@ internal class PlayerPage(
         notice = PlayerNotice(ui) { action -> runNoticeAction(action) }
         notice.attachTo(root)
         buildSidebar()
+        buildOperationHint()
         root.viewTreeObserver.addOnGlobalFocusChangeListener { oldFocus, newFocus -> focus.onFocusChanged(oldFocus, newFocus) }
         handler.postDelayed(tick, TICK_MS)
         loadDetail()
     }
 
     // ---------- 视图 ----------
+
+    /** 画面底部的操作提示。侧栏开着时不显示（侧栏有自己的按键提示），提示卡在场时也让位。 */
+    private lateinit var operationHint: TextView
+
+    private fun buildOperationHint() {
+        operationHint = ui.text(PlayerText.OPERATION_HINT, tokens.type.caption, tokens.colors.muted).apply {
+            background = GradientDrawable().apply {
+                setColor(tokens.colors.surface)
+                cornerRadius = ui.dp(tokens.shapes.small).toFloat()
+            }
+            // 半透明面板压在画面上：内容要读得清，又不能像一块实心板子把画面切走
+            background.alpha = 216
+            setPadding(ui.dp(tokens.space.l), ui.dp(tokens.space.xs), ui.dp(tokens.space.l), ui.dp(tokens.space.xs))
+            visibility = View.GONE
+        }
+        root.addView(
+            operationHint,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.START,
+            ).apply {
+                val margin = ui.dp(tokens.space.xl)
+                leftMargin = margin
+                bottomMargin = margin
+            },
+        )
+    }
 
     private fun buildSidebar() {
         sidebar = PlayerSidebar(
@@ -186,6 +217,8 @@ internal class PlayerPage(
         if (!::session.isInitialized || !::notice.isInitialized || !::sidebar.isInitialized) return
         notice.render(session.state, loadFailure, sidebar.visible, lowerQuality())
         if (sidebar.visible) sidebarModel()?.let { sidebar.bind(it) }
+        // 操作提示只在"画面上没有别的板子"时出现：侧栏与提示卡都有自己更具体的说明
+        operationHint.visibility = if (sidebar.visible || notice.view.visibility == View.VISIBLE) View.GONE else View.VISIBLE
         syncFocus()
     }
 

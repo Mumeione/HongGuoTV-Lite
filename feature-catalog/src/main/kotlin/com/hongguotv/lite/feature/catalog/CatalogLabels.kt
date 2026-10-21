@@ -23,16 +23,16 @@ internal object FavoriteLabels {
     fun hasNewerSeason(entry: FavoriteEntry): Boolean =
         entry.latestSeason > 0 && entry.latestSeason > entry.series.season
 
-    fun badge(entry: FavoriteEntry): String = when {
-        hasNewerSeason(entry) -> "${TvText.season(entry.latestSeason)}已上线"
-        // NEW_SEASON 是"集数增长"的既有状态名：单季短剧也会每日加集，不能说成"新一季"。
-        entry.status == FavoriteStatus.NEW_SEASON -> "有新集"
-        entry.status == FavoriteStatus.UP_TO_DATE -> "已是最新"
-        entry.status == FavoriteStatus.FAILED -> "检查失败"
-        else -> "尚未检查更新"
-    }
+    /**
+     * 收藏卡片的角标：直接说"更新到哪里"，不说"已是最新"——
+     * 用户要的是"现在到第几季第几集"这个事实，"没变化"不用说（维护者口径）。
+     * 句子在 [TvText.updateProgress]，这里只补"还没检查出来"的兜底。
+     */
+    fun updateBadge(entry: FavoriteEntry): String =
+        TvText.updateProgress(entry.latestSeason, entry.latestEpisodes)
+            .ifBlank { if (entry.status == FavoriteStatus.FAILED) "检查失败" else "尚未检查更新" }
 
-    /** 只有"有新内容"才需要用户注意（白字加粗）；"已是最新/尚未检查"是普通说明。 */
+    /** 只有"有新内容"才需要用户注意（白字加粗）；普通的更新进度是说明文字。 */
     fun attention(entry: FavoriteEntry): Boolean =
         hasNewerSeason(entry) || entry.status == FavoriteStatus.NEW_SEASON
 

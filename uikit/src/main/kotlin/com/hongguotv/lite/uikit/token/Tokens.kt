@@ -55,8 +55,11 @@ data class Type(
     val subtitle: Float = 17f,
     /** 顶栏导航、卡片组标题。 */
     val title: Float = 19f,
-    /** 带返回的页头。 */
-    val heading: Float = 24f,
+    /**
+     * 带返回的页头。比主视觉的片名（[display]）只小一档：页头是这一页的"招牌"，
+     * 与下面的大字片名差太多会显得头轻脚重（维护者实测"片名太大、标题太小，不和谐"）。
+     */
+    val heading: Float = 26f,
     /** 页面主标题。 */
     val display: Float = 27f,
     /** 预览区标题（目录页聚焦剧集那块）。 */
@@ -168,6 +171,9 @@ data class Metrics(
     val heroCoverGap: Int = 22,
     /** 主视觉左栏（信息）与右栏（简介）之间的间距。 */
     val heroIntroGap: Int = 32,
+    /** 主视觉简介滚动框的高度：收起约四行正文，展开档给到能一屏读完大多数简介。 */
+    val introMaxHeight: Int = 96,
+    val introExpandedHeight: Int = 300,
     /** 分集格：格高、左右内边距（20 列时三位数也放得下）、格间距。 */
     val episodeCellHeight: Int = 40,
     val episodeCellPaddingH: Int = 2,

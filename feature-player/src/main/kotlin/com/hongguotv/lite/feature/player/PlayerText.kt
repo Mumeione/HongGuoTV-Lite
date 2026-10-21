@@ -118,6 +118,14 @@ object PlayerText {
 
     const val FAST_FORWARD: String = "2 倍速快进"
 
+    /**
+     * 播放画面底部的常驻操作提示（维护者口径：底部要写清怎么操作）。
+     * 每一段与 `PlayerKeys` 的命令一一对应：左右 10 秒、长按→ 2 倍速、上下切集、
+     * 确定暂停/继续、菜单选集与设置、返回退出。
+     */
+    const val OPERATION_HINT: String =
+        "左右 快退/快进　长按→ 2倍快进　上下 切集　确定 暂停/继续　菜单 选集·播放设置　返回 退出"
+
     private const val DECODE_HINT: String = "低清晰度更容易解码，代价是画面变糊。"
     private const val NETWORK_HINT: String = "网络抖动时先重试通常就够。"
 

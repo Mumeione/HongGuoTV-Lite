@@ -58,6 +58,7 @@ internal object Parsers {
             // 这时必须退到后者，否则卡片预览的分类会时有时无（维护者实测）。
             tags = cardTags(o),
             season = SeasonKeys.seasonNumber(title),
+            episodeCount = count,
         )
         return Card(series, isComic = celebs == null || celebs.length() == 0)
     }
@@ -167,6 +168,7 @@ internal object Parsers {
                 tags = cardTags(o),
                 season = n,
                 released = count > 0,
+                episodeCount = count,
             )
         }
         return seasons
