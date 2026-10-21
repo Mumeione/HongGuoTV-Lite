@@ -80,6 +80,12 @@ class PageHeader internal constructor(ui: UiKit, title: String, onBack: (() -> U
     val titleView: TextView
     val actions: LinearLayout
 
+    /**
+     * 标题右侧、推到页面右边之前的一块区域（「检查更新」这类与标题同属一组的动作）。
+     * 与 [actions] 的区别：这里贴着标题，不会被弹性空隙推到右边缘。
+     */
+    private val leadRow: LinearLayout
+
     init {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
@@ -101,13 +107,41 @@ class PageHeader internal constructor(ui: UiKit, title: String, onBack: (() -> U
             setTypeface(null, Typeface.BOLD)
             setPadding(dp(tokens.space.m), 0, dp(tokens.space.m), 0)
         }
-        addView(titleView, LayoutParams(0, dp(tokens.metrics.headerMinHeight), 1f))
+        // 标题不再吃满剩余宽度：后面紧跟一块「贴身动作」区，再用弹性空隙把右侧动作推边。
+        addView(titleView, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(tokens.metrics.headerMinHeight)))
+
+        leadRow = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            // 与标题拉开一档：贴太紧会让动作看着像标题的一部分
+            setPadding(dp(tokens.space.m), 0, 0, 0)
+        }
+        addView(leadRow, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
+        addView(View(context), LayoutParams(0, 1, 1f))
 
         actions = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
         addView(actions, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+    }
+
+    /** 标题旁边的动作区：顺序就是视觉顺序（例如「检查更新」→ 说明文字）。 */
+    fun lead(): LinearLayout = leadRow
+
+    /** 标题旁边的小字说明（例如检查更新的结果）。 */
+    fun leadNote(value: String = ""): TextView = TextView(context).apply {
+        text = value
+        textSize = tokens.type.label
+        setTextColor(tokens.colors.muted)
+        includeFontPadding = false
+        maxLines = 1
+        ellipsize = android.text.TextUtils.TruncateAt.END
+        // 说明文字与按钮之间的留白比按钮与标题之间大一档：三件事（标题 / 动作 / 结果）
+        // 要在一条线上读出层次，不能挤成一句
+        setPadding(dp(tokens.space.l), 0, 0, 0)
+        leadRow.addView(this)
     }
 
     fun title(value: String) {
@@ -195,7 +229,11 @@ class PageScaffold internal constructor(private val ui: UiKit) : FrameLayout(ui.
         }
         container.addView(footerSlot, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-        bodyContent = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        bodyContent = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            // 焦点缩放允许轻微出界：不让容器把白框/圆角切掉，裁切交给滚动视口
+            clipChildren = false
+        }
     }
 
     fun showTopBar(brand: String, items: List<TopBarItem>, selected: Int): TopBar {

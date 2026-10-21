@@ -12,7 +12,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.hongguotv.core.port.ArtworkSpec
 import com.hongguotv.lite.uikit.internal.bindFocus
-import com.hongguotv.lite.uikit.internal.cardShape
+import com.hongguotv.lite.uikit.internal.Stroke
 import com.hongguotv.lite.uikit.internal.dp
 import com.hongguotv.lite.uikit.internal.shape
 import com.hongguotv.lite.uikit.layout.CardFit
@@ -123,6 +123,8 @@ class PosterCard internal constructor(
 
         titleView.textSize = tokens.type.compact
         titleView.setTextColor(tokens.colors.text)
+        // 中等字重：卡面是图，标题再用常规字重在电视观看距离下会显得发虚
+        titleView.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL))
         titleView.includeFontPadding = false
         titleView.maxLines = TITLE_LINES
         titleView.minLines = TITLE_LINES
@@ -169,10 +171,14 @@ class PosterCard internal constructor(
         cornerView.text = item.corner
         cornerView.visibility = if (item.corner.isEmpty()) View.GONE else View.VISIBLE
         badgeView.text = item.badge
-        badgeView.setTextColor(if (item.badgeAttention) tokens.colors.focus else tokens.colors.muted)
-        badgeView.setTypeface(null, if (item.badgeAttention) Typeface.BOLD else Typeface.NORMAL)
         coverUrl = item.coverUrl
         if (coverUrl.isEmpty()) image.setImageDrawable(null) else syncCover()
+        paintCard(focused)
+    }
+
+    /** 选中态变化（"当前季"）要换底色与文字色，不能等下一次焦点变化才重画。 */
+    override fun setSelected(selected: Boolean) {
+        super.setSelected(selected)
         paintCard(focused)
     }
 
@@ -207,10 +213,29 @@ class PosterCard internal constructor(
         minArtworkHeightPx = dp(tokens.metrics.artworkMinHeight),
     )
 
-    /** 焦点是白描边（卡面是图，白底会把图盖掉）；选中态卡片不用，见 `cardShape` 的注释。 */
+    /**
+     * 卡片底与文字色。
+     *
+     * - **焦点 = 白底深字**：封面图在卡片上层，白色底只露在封面下面那条信息区——
+     *   视觉上就是"封面下层的背景变白、字变黑"。全屏唯一的白色填充就是这里。
+     * - **选中（当前季）= 白描边**，不填充：白色填充只留给光标，否则一页会有两块白。
+     */
     private fun paintCard(isFocused: Boolean) {
-        val fill = if (isFocused) tokens.colors.raised else tokens.colors.surface
-        background = cardShape(tokens, fill, tokens.shapes.card, focused = isFocused)
+        val chosen = isSelected
+        val fill = if (isFocused) tokens.colors.focus else tokens.colors.surface
+        val stroke = if (chosen && !isFocused) Stroke(tokens.colors.focus, tokens.shapes.stroke) else null
+        background = shape(fill, tokens.shapes.card, stroke)
+
+        titleView.setTextColor(if (isFocused) tokens.colors.onFocus else tokens.colors.text)
+        val attention = item?.badgeAttention == true
+        badgeView.setTextColor(
+            when {
+                isFocused -> tokens.colors.onFocus
+                attention || chosen -> tokens.colors.focus
+                else -> tokens.colors.muted
+            },
+        )
+        badgeView.setTypeface(null, if (attention || chosen) Typeface.BOLD else Typeface.NORMAL)
     }
 
     /**

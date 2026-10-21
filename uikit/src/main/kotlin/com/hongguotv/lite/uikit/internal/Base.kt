@@ -36,21 +36,11 @@ internal fun View.shape(fill: Int, radiusDp: Int, stroke: Stroke? = null): Gradi
  *   这样一页里只会有一块真正的白色填充——光标所在的那块。
  *
  * 底色由各控件自己给（按钮有"已看过/主操作"两档，导航项未选中时透明）。
- * 封面卡是唯一例外，它走 [cardShape]：卡面是图，白底会把图盖掉。
+ * 封面卡也是"焦点白底"：封面图在卡片上层，白底只露在封面下面那条信息区，
+ * 视觉上就是"封面下层的背景变白、文字变黑"（见 `PosterCard.paintCard`）。
  */
 internal fun View.stateShape(tokens: Tokens, fill: Int, radiusDp: Int, selected: Boolean, focused: Boolean): GradientDrawable {
     val stroke = if (selected && !focused) Stroke(tokens.colors.focus, tokens.shapes.stroke) else null
-    return shape(fill, radiusDp, stroke)
-}
-
-/**
- * 封面卡的边框：**焦点用白描边**，因为卡面是封面图，把整张卡刷白等于把图盖掉。
- *
- * 这是"焦点 = 白底"的唯一例外，所以单独成一个函数而不是在 [stateShape] 里加分支——
- * 加分支会让"要不要白底"变成一个隐式参数，下一个人不知道该传什么。
- */
-internal fun View.cardShape(tokens: Tokens, fill: Int, radiusDp: Int, focused: Boolean): GradientDrawable {
-    val stroke = if (focused) Stroke(tokens.colors.focus, tokens.shapes.stroke) else null
     return shape(fill, radiusDp, stroke)
 }
 
@@ -76,9 +66,22 @@ abstract class FocusControl(
     /** 焦点变化回调。控件自己已经画完了，调用方只做副作用（例如更新预览区）。 */
     var onFocused: ((Boolean) -> Unit)? = null
 
+    /**
+     * 聚焦时是否放大。
+     *
+     * 密集格子（分集格一行 20 个）必须关掉：格间距只有几 dp，1.03 倍就压到邻居身上，
+     * 白框的圆角被后绘制的邻居吃掉一条边——看起来就成了"长方形"（维护者实测）。
+     */
+    protected open val scalesOnFocus: Boolean get() = true
+
     init {
         includeFontPadding = false
-        bindFocus(tokens, paint = { paintState(it) }, onChange = { onFocused?.invoke(it) })
+        bindFocus(
+            tokens = tokens,
+            paint = { paintState(it) },
+            scale = { scalesOnFocus },
+            onChange = { onFocused?.invoke(it) },
+        )
         // 不在这里画首帧：子类的状态属性（选中、图标）在自己的构造函数里才就位，
         // 子类 init 末尾调用 repaint() 完成首帧。
     }
@@ -98,6 +101,7 @@ abstract class FocusControl(
 internal fun View.bindFocus(
     tokens: Tokens,
     paint: (focused: Boolean) -> Unit,
+    scale: () -> Boolean = { true },
     onChange: ((focused: Boolean) -> Unit)? = null,
 ) {
     id = View.generateViewId()
@@ -105,15 +109,30 @@ internal fun View.bindFocus(
     isFocusableInTouchMode = true
     setOnFocusChangeListener { view, focused ->
         paint(focused)
-        view.animateFocus(tokens, focused)
+        view.animateFocus(tokens, focused, scale())
+        view.raiseOnFocus(focused)
         onChange?.invoke(focused)
     }
     paint(false)
 }
 
 /** 动效只改绘制，不参与几何：焦点图与滚动补偿一律用未缩放的边界。 */
-internal fun View.animateFocus(tokens: Tokens, focused: Boolean) {
+internal fun View.animateFocus(tokens: Tokens, focused: Boolean, scale: Boolean = true) {
     if (!tokens.motion.enabled) return
-    val scale = if (focused) tokens.motion.focusScale else 1f
-    animate().scaleX(scale).scaleY(scale).setDuration(tokens.motion.durationMs).start()
+    val target = if (focused && scale) tokens.motion.focusScale else 1f
+    animate().scaleX(target).scaleY(target).setDuration(tokens.motion.durationMs).start()
+}
+
+/**
+ * 聚焦项画在兄弟之上。
+ *
+ * 焦点缩放会让相邻控件**几何重叠**，而 Android 按添加顺序绘制子视图：后加的邻居
+ * 会把先加的焦点项盖掉一条边（分集格最明显）。`translationZ` 让这一项参与 Z 排序
+ * （API 21+），白框与圆角才能完整。
+ *
+ * 同时清掉 outline：电视界面不需要投影，"浮起"只表达层级，不表达光。
+ */
+internal fun View.raiseOnFocus(focused: Boolean) {
+    outlineProvider = null
+    translationZ = if (focused) context.dp(4).toFloat() else 0f
 }

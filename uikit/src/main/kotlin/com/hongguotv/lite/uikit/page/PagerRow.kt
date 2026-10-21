@@ -21,6 +21,11 @@ class PagerRow(
     ui: UiKit,
     prevLabel: String = "‹ 上一组",
     nextLabel: String = "下一组 ›",
+    /**
+     * 是否撑满一行。`false` 用于"翻组与标题同行"的场合（季线页空间紧张）：
+     * 这时范围文字不能吃 weight，否则父行按 wrap 测量时它会算成 0 宽。
+     */
+    fillWidth: Boolean = true,
 ) {
 
     private val tokens: Tokens = ui.tokens
@@ -37,9 +42,16 @@ class PagerRow(
 
     val view: LinearLayout = ui.row().apply {
         visibility = View.GONE
-        setPadding(0, ui.dp(tokens.space.s), 0, ui.dp(tokens.space.s))
+        // 上下留白只要一档：翻组是辅助控件，不能比它所翻的内容更占地方
+        setPadding(0, ui.dp(tokens.space.xs), 0, ui.dp(tokens.space.xs))
         addView(prev)
-        addView(rangeView, ui.params(width = 0, weight = 1f))
+        if (fillWidth) {
+            addView(rangeView, ui.params(width = 0, weight = 1f))
+        } else {
+            // 固定最小宽度：可用/不可用两种状态之间文字长度不同，不留宽就会左右抖
+            rangeView.minWidth = ui.dp(RANGE_MIN_WIDTH)
+            addView(rangeView)
+        }
         addView(next)
     }
 
@@ -62,5 +74,6 @@ class PagerRow(
 
     private companion object {
         const val DISABLED_ALPHA = 0.4f
+        const val RANGE_MIN_WIDTH = 104
     }
 }

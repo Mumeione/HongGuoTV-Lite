@@ -49,15 +49,30 @@ class UiKit(
     fun row(): LinearLayout = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
+        allowFocusOverflow()
     }
 
     /** 顶部对齐的行：卡片行用它，避免高度不齐时卡片被垂直居中。 */
     fun rowTop(): LinearLayout = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.TOP
+        allowFocusOverflow()
     }
 
-    fun column(): LinearLayout = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+    fun column(): LinearLayout = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        allowFocusOverflow()
+    }
+
+    /**
+     * 焦点缩放会轻微超出控件边界（1.03 倍）：父容器默认 `clipChildren = true`，
+     * 会把白框/圆角切掉一条边。行与列是排布容器，不负责遮挡，统一放开。
+     * 真正的裁切交给滚动视口负责。
+     */
+    private fun ViewGroup.allowFocusOverflow() {
+        clipChildren = false
+        clipToPadding = false
+    }
 
     fun text(value: String = "", size: Float = tokens.type.body, color: Int = tokens.colors.text): TextView =
         TextView(context).apply {

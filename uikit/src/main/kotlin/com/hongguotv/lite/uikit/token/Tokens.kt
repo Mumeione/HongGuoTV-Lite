@@ -44,25 +44,25 @@ data class Colors(
  */
 data class Type(
     /** 卡角标、次要说明。 */
-    val caption: Float = 12f,
+    val caption: Float = 13f,
     /** 状态行、小字按钮（正序/倒序这类）。 */
-    val label: Float = 13f,
+    val label: Float = 14f,
     /** 卡片标题、胶囊筛选。 */
-    val compact: Float = 14f,
+    val compact: Float = 15f,
     /** 常规按钮、面板正文。 */
-    val body: Float = 15f,
+    val body: Float = 16f,
     /** 输入框、分组标题。 */
-    val subtitle: Float = 16f,
+    val subtitle: Float = 17f,
     /** 顶栏导航、卡片组标题。 */
-    val title: Float = 18f,
+    val title: Float = 19f,
     /** 带返回的页头。 */
-    val heading: Float = 22f,
+    val heading: Float = 24f,
     /** 页面主标题。 */
-    val display: Float = 25f,
+    val display: Float = 27f,
     /** 预览区标题（目录页聚焦剧集那块）。 */
-    val preview: Float = 27f,
+    val preview: Float = 28f,
     /** 顶栏品牌字。只此一处用，独立成档免得调用点写 `heading + 1`。 */
-    val brand: Float = 23f,
+    val brand: Float = 25f,
     /** 多行正文的行距倍数。 */
     val lineSpacing: Float = 1.12f,
 )
@@ -166,10 +166,13 @@ data class Metrics(
     val heroCoverWidth: Int = 98,
     val heroCoverHeight: Int = 140,
     val heroCoverGap: Int = 22,
+    /** 主视觉左栏（信息）与右栏（简介）之间的间距。 */
+    val heroIntroGap: Int = 32,
     /** 分集格：格高、左右内边距（20 列时三位数也放得下）、格间距。 */
     val episodeCellHeight: Int = 40,
     val episodeCellPaddingH: Int = 2,
-    val episodeCellGap: Int = 5,
+    /** 格间距：白底焦点格与邻居之间要留出可见的分隔，5dp 时两块几乎贴在一起。 */
+    val episodeCellGap: Int = 8,
     /**
      * 播放侧栏：宽度按屏宽比例算（右侧留白与页边距同一口径，不写像素）。
      * 85% 是"20 列格子仍然有 40dp 宽"的下限——再看窄就得减列，两侧算法就分家了。

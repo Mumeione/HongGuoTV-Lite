@@ -49,6 +49,13 @@ class TvButton internal constructor(
     private val onTap: () -> Unit,
 ) : FocusControl(context, tokens) {
 
+    /**
+     * 分集格不放大：一行 20 个时格间距只有几 dp，放大 3% 就会压到邻居，
+     * 白框的圆角被后绘制的格子吃掉一条边（维护者实测"变成长方形"）。
+     * 白底本身已经是足够强的焦点信号，不需要再叠一层缩放。
+     */
+    override val scalesOnFocus: Boolean get() = variant != ButtonVariant.CELL
+
     init {
         text = label
         // 形态只有两种尺寸口径（紧凑格 / 其余），先摊成两个布尔，别在四处重复比同一个枚举
@@ -83,13 +90,21 @@ class TvButton internal constructor(
     override fun paintState(focused: Boolean) {
         val colors = tokens.colors
         val chosen = isSelected
+        // 全屏只有一处白色填充，就是光标所在的那一项（维护者口径）。
+        // 焦点 = 白底深字；选中 = 白框白字（不填充）。
         val fill = when {
             focused -> colors.focus
             watched -> colors.watched
             variant == ButtonVariant.PRIMARY -> colors.raised
             else -> colors.surface
         }
-        background = stateShape(tokens, fill, tokens.shapes.card, selected = chosen, focused = focused)
+        background = stateShape(
+            tokens = tokens,
+            fill = fill,
+            radiusDp = tokens.shapes.card,
+            selected = chosen,
+            focused = focused,
+        )
         val color = when {
             focused -> colors.onFocus
             chosen -> colors.focus
