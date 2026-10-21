@@ -19,7 +19,8 @@ import kotlinx.coroutines.Job
  */
 internal abstract class DetailPage(
     protected val host: DetailFeature,
-    page: String,
+    /** 页面标识（`"detail:<id>"` / `"series:<key>"`）：焦点记忆的隔离键。 */
+    protected val pageKey: String,
 ) {
 
     protected val ui: UiKit = host.ui
@@ -30,7 +31,7 @@ internal abstract class DetailPage(
     private val jobs = Job()
     protected val scope: CoroutineScope = CoroutineScope(host.scope.coroutineContext + jobs)
 
-    protected val focus: FocusSession = scaffold.focusSession(page)
+    protected val focus: FocusSession = scaffold.focusSession(pageKey)
 
     fun view(): View = scaffold
 
@@ -38,17 +39,22 @@ internal abstract class DetailPage(
     abstract fun build()
 
     fun release() {
+        // 先把光标交给 feature 再取消作用域：页面重建（返回再进来、切组再回来）要按它落点
+        focus.remembered()?.let { host.lastFocus[pageKey] = it }
         jobs.cancel()
     }
 
     /**
      * 提交焦点结构。空的段（失败态的重试、单页时的分页行）整段丢弃；
      * 一个可聚焦项都没有时不动现有结构（页面还在加载）。
+     *
+     * [preferred] 为 null 时用**本页上次的光标**（`host.lastFocus`）——页面换目标销毁重建后，
+     * 这是"回来还在原处"的唯一来源。
      */
     protected fun submitPlan(sections: List<FocusSection?>, views: Map<FocusKey, View>, preferred: FocusKey? = null) {
         val plan = FocusSections.plan(sections) ?: return
         focus.bind(plan, views)
-        requestFocus(preferred)
+        requestFocus(preferred ?: host.lastFocus[pageKey])
     }
 
     private fun requestFocus(preferred: FocusKey?) {

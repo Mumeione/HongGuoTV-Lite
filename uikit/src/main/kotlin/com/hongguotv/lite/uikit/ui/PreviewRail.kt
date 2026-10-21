@@ -26,7 +26,13 @@ class PreviewRail internal constructor(private val ui: UiKit) : LinearLayout(ui.
 
     init {
         orientation = VERTICAL
-        setPadding(0, dp(tokens.metrics.cardTitlePaddingTop), 0, dp(tokens.space.m))
+        // 它常驻在网格上方：每 1dp 都是从首屏卡片那里拿走的，所以留白比卡片标题还紧一档
+        setPadding(
+            0,
+            dp(tokens.metrics.previewRailPaddingTop),
+            0,
+            dp(tokens.metrics.previewRailPaddingBottom),
+        )
         addView(titleView)
         addView(statusView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(tokens.space.xs) })
         addView(metaView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(tokens.space.xxs) })

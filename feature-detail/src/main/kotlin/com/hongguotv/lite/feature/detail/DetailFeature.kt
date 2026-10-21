@@ -8,6 +8,7 @@ import com.hongguotv.core.port.FavoritesPort
 import com.hongguotv.core.port.Navigator
 import com.hongguotv.core.port.ProgressPort
 import com.hongguotv.core.port.SettingsPort
+import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.ui.UiKit
 import kotlinx.coroutines.CoroutineScope
 
@@ -33,6 +34,15 @@ class DetailFeature(
 
     private val container = FrameLayout(ui.context)
     private var page: DetailPage? = null
+
+    /**
+     * 每个详情类页面最后一次的光标 key（按页面标识隔离）。
+     *
+     * 页面换目标即销毁重建，焦点记忆跟着页面实例一起没了；但"从详情返回再进来"、
+     * "翻到第二组季再返回"这些场景要求光标还在原处（见 `docs/specs/2026-10-21-ui-polish.md`
+     * 的 story 10）。与 `CatalogFeature.lastFocus` 同型：**记忆归 feature，不归页面**。
+     */
+    internal val lastFocus: MutableMap<String, FocusKey> = HashMap()
 
     /** 容器。未调用 `show*` 时是空的（S7 每次都先 `show*` 再取视图）。 */
     fun view(): View = container

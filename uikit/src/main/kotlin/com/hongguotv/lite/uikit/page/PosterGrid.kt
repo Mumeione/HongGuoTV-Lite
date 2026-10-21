@@ -50,6 +50,15 @@ class PosterGrid internal constructor(
     /** 是否允许封面落盘：只有收藏/历史页值得占电视存储。 */
     var persistCovers: Boolean = false
 
+    /**
+     * 整张卡的高度上限（像素，0 = 不限制）。首屏只放得下一行卡的页面（搜索结果）给这个值，
+     * 卡片据此夹短封面，保证标题与角标也在屏内。
+     *
+     * 变**不**触发重建：卡片就地改封面高度（[PosterCard.heightLimit]），焦点不受影响——
+     * 首屏量到真实视口时正好会改一次，那时重建会把光标弄丢。
+     */
+    var cardHeightLimit: Int = 0
+
     init {
         orientation = VERTICAL
     }
@@ -74,6 +83,7 @@ class PosterGrid internal constructor(
         if (reusable) {
             limited.forEach { item ->
                 cards[item.id]?.let { card ->
+                    card.heightLimit(cardHeightLimit)
                     card.persistCover(persistCovers)
                     card.bind(item)
                 }
@@ -91,6 +101,10 @@ class PosterGrid internal constructor(
     }
 
     private fun rebuild(limited: List<CardItem>, columns: Int, cardWidth: Int, gap: Int) {
+        // 重建会换掉一批 View 实例：先把"哪一张正被聚焦"记下来，建完立刻要回去。
+        // 不这么做的话，框架会把焦点交给页面里第一个可聚焦项（顶栏），而那次变化会被
+        // 焦点记忆记下来——「切完 tab / 搜索完成后光标跑到顶上」就是这么来的。
+        val focusedId = cards.entries.firstOrNull { it.value.isFocused }?.key
         if (cardWidth != lastCardWidth) cards.clear()
         val keep = limited.mapTo(HashSet(limited.size)) { it.id }
         val iterator = cards.entries.iterator()
@@ -115,9 +129,11 @@ class PosterGrid internal constructor(
             }
             addView(row, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
+        // 同一张卡还在就回到它；否则交给页面的焦点阶梯（它会在 render 结束后请求）
+        if (focusedId != null) cards[focusedId]?.requestFocus()
     }
 
-    private fun newCard(widthPx: Int): PosterCard = PosterCard(ui, widthPx).apply {
+    private fun newCard(widthPx: Int): PosterCard = PosterCard(ui, widthPx, cardHeightLimit).apply {
         onFocused = { item -> onCardFocused?.invoke(item) }
         onActivated = { item -> onCardActivated?.invoke(item) }
     }

@@ -30,10 +30,10 @@ enum class ButtonVariant {
 }
 
 /**
- * 按钮。三种状态各只有一种画法：
- * - 选中 = 白底深字（当前集 / 当前项）；
- * - 已看过 = 略亮一档的底；
- * - 聚焦 = 白描边；白底上聚焦改用深描边（白描边画在白底上看不见）。
+ * 按钮。三种状态各只有一种画法（S9 语义）：
+ * - **焦点 = 白底深字**（当前按确认会执行的那个）；
+ * - **选中 = 白框白字**（当前集 / 当前项，没有填充）；
+ * - **已看过 = 略亮一档的底**（只在没焦点也没选中时显出来）。
  *
  * 选中态走 Android 自己的 `isSelected`（[setSelected]）：这是视图状态的既有语义，
  * 没必要再发明一个 `checked` 之类的同义词。
@@ -84,19 +84,23 @@ class TvButton internal constructor(
         val colors = tokens.colors
         val chosen = isSelected
         val fill = when {
-            chosen -> colors.focus
+            focused -> colors.focus
             watched -> colors.watched
             variant == ButtonVariant.PRIMARY -> colors.raised
-            focused -> colors.raised
             else -> colors.surface
         }
         background = stateShape(tokens, fill, tokens.shapes.card, selected = chosen, focused = focused)
-        setTextColor(if (chosen) colors.onFocus else colors.text)
-        setTypeface(null, if (chosen || variant == ButtonVariant.PRIMARY) Typeface.BOLD else Typeface.NORMAL)
+        val color = when {
+            focused -> colors.onFocus
+            chosen -> colors.focus
+            else -> colors.text
+        }
+        setTextColor(color)
+        setTypeface(null, if (focused || chosen || variant == ButtonVariant.PRIMARY) Typeface.BOLD else Typeface.NORMAL)
     }
 }
 
-/** 胶囊筛选 / 次级切换：比导航和主操作轻一档，靠描边与底色区分选中与聚焦。 */
+/** 胶囊筛选 / 次级切换：焦点白底深字，选中白框白字，其余暗底弱化字。 */
 @SuppressLint("ViewConstructor")
 class TvChip internal constructor(
     context: Context,
@@ -131,15 +135,16 @@ class TvChip internal constructor(
     override fun paintState(focused: Boolean) {
         val colors = tokens.colors
         val chosen = isSelected
-        val fill = when {
-            chosen -> colors.focus
-            focused -> colors.raised
-            else -> colors.surface
-        }
-        background = stateShape(tokens, fill, tokens.shapes.chip, selected = chosen, focused = focused)
+        background = stateShape(
+            tokens = tokens,
+            fill = if (focused) colors.focus else colors.surface,
+            radiusDp = tokens.shapes.chip,
+            selected = chosen,
+            focused = focused,
+        )
         val color = when {
-            chosen -> colors.onFocus
-            focused -> colors.focus
+            focused -> colors.onFocus
+            chosen -> colors.focus
             else -> colors.muted
         }
         setTextColor(color)
@@ -149,8 +154,8 @@ class TvChip internal constructor(
 }
 
 /**
- * 顶栏导航项：图标 + 文字。当前页 = 白底深字，聚焦 = 白框，其余弱化色。
- * 顶栏只有"当前页"与"光标所在"两块会亮，未选中未聚焦时底色透明。
+ * 顶栏导航项：图标 + 文字。
+ * 当前页 = 白框白字（选中），光标所在 = 白底深字（焦点），其余弱化色并透明底。
  */
 @SuppressLint("ViewConstructor")
 class TvNavItem internal constructor(
@@ -181,15 +186,16 @@ class TvNavItem internal constructor(
     override fun paintState(focused: Boolean) {
         val colors = tokens.colors
         val chosen = isSelected
-        val fill = when {
-            chosen -> colors.focus
-            focused -> colors.raised
-            else -> android.graphics.Color.TRANSPARENT
-        }
-        background = stateShape(tokens, fill, tokens.shapes.card, selected = chosen, focused = focused)
+        background = stateShape(
+            tokens = tokens,
+            fill = if (focused) colors.focus else android.graphics.Color.TRANSPARENT,
+            radiusDp = tokens.shapes.card,
+            selected = chosen,
+            focused = focused,
+        )
         val color = when {
-            chosen -> colors.onFocus
-            focused -> colors.focus
+            focused -> colors.onFocus
+            chosen -> colors.focus
             else -> colors.muted
         }
         setTextColor(color)
@@ -224,12 +230,12 @@ class TvLink internal constructor(
         val colors = tokens.colors
         background = stateShape(
             tokens = tokens,
-            fill = if (focused) colors.raised else android.graphics.Color.TRANSPARENT,
+            fill = if (focused) colors.focus else android.graphics.Color.TRANSPARENT,
             radiusDp = tokens.shapes.small,
             selected = false,
             focused = focused,
         )
-        setTextColor(if (focused) colors.focus else colors.muted)
+        setTextColor(if (focused) colors.onFocus else colors.muted)
         setTypeface(null, if (focused) Typeface.BOLD else Typeface.NORMAL)
     }
 }

@@ -91,7 +91,7 @@ internal class PlayerPage(
         notice = PlayerNotice(ui) { action -> runNoticeAction(action) }
         notice.attachTo(root)
         buildSidebar()
-        root.viewTreeObserver.addOnGlobalFocusChangeListener { _, view -> focus.onFocusChanged(view) }
+        root.viewTreeObserver.addOnGlobalFocusChangeListener { oldFocus, newFocus -> focus.onFocusChanged(oldFocus, newFocus) }
         handler.postDelayed(tick, TICK_MS)
         loadDetail()
     }

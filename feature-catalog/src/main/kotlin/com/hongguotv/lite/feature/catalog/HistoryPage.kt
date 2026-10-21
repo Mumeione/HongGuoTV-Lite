@@ -9,6 +9,7 @@ import android.widget.Toast
 import com.hongguotv.core.model.HistoryEntry
 import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.focus.FocusSections
+import com.hongguotv.lite.uikit.page.ContentPane
 import com.hongguotv.lite.uikit.page.GridRendered
 import com.hongguotv.lite.uikit.page.PosterGrid
 import com.hongguotv.lite.uikit.page.TwoStepConfirm
@@ -27,7 +28,7 @@ import kotlinx.coroutines.launch
 internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.HISTORY) {
 
     private lateinit var preview: PreviewRail
-    private lateinit var emptyView: TextView
+    private lateinit var pane: ContentPane
     private lateinit var grid: PosterGrid
     private lateinit var manageButton: TvButton
     private lateinit var footer: LinearLayout
@@ -50,26 +51,19 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
         header.actions.addView(manageButton)
 
         val body = scaffold.body()
-        preview = ui.preview()
+        preview = ui.preview().apply { visibility = View.GONE }
         body.addView(preview)
 
-        val content = ui.column()
-        val scroll = ui.scroll(content)
-        ui.keepFocusVisible(scroll)
-        body.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-
-        emptyView = ui.text("播放过的剧集会自动保存在这里", tokens.type.subtitle, tokens.colors.muted).apply {
-            setPadding(0, ui.dp(tokens.space.xxl), 0, ui.dp(tokens.space.xl))
-            visibility = View.GONE
-        }
-        content.addView(emptyView)
+        pane = ui.contentPane()
+        body.addView(pane, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        pane.empty.show("播放过的剧集会自动保存在这里")
 
         grid = ui.grid("history").apply {
             persistCovers = true
             onCardFocused = { item -> onCardFocused(item.id) }
             onCardActivated = { item -> host.navigator.toDetail(item.id, resumeRecording = true) }
         }
-        content.addView(grid)
+        pane.content.addView(grid)
 
         footer = scaffold.footer()
         footer.visibility = View.GONE
@@ -108,14 +102,17 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
 
     private fun render() {
         val isEmpty = entries.isEmpty()
-        emptyView.visibility = if (isEmpty) View.VISIBLE else View.GONE
-        grid.visibility = if (isEmpty) View.GONE else View.VISIBLE
         manageButton.visibility = if (isEmpty) View.GONE else View.VISIBLE
         rendered = if (isEmpty) null else grid.render(entries.map { CatalogCards.history(it, host.progress.isWatched(it.series.id)) })
         if (isEmpty) {
+            pane.showEmpty("播放过的剧集会自动保存在这里")
+            preview.visibility = View.GONE
             managing = false
             footer.visibility = View.GONE
             preview.show("", "", "")
+        } else {
+            pane.showContent()
+            preview.visibility = View.VISIBLE
         }
         updateFooter()
         applyFocus()
@@ -186,6 +183,10 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
     }
 
     // ---------- 焦点 ----------
+
+    /** 首焦：第一条历史 → 当前导航项（空历史时停在「历史」上）。 */
+    override fun startFocus(): List<FocusKey> =
+        listOfNotNull(rendered?.keys?.firstOrNull(), FocusKey("nav:${CatalogTab.HISTORY.ordinal}"))
 
     private fun applyFocus() {
         val views = LinkedHashMap<FocusKey, View>()

@@ -9,7 +9,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
 import android.widget.LinearLayout
-import android.widget.TextView
 import android.widget.Toast
 import com.hongguotv.core.model.ContentFilter
 import com.hongguotv.core.model.HistoryEntry
@@ -19,6 +18,7 @@ import com.hongguotv.core.model.Suggestion
 import com.hongguotv.core.port.UpstreamError
 import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.focus.FocusSections
+import com.hongguotv.lite.uikit.page.ContentPane
 import com.hongguotv.lite.uikit.page.GridRendered
 import com.hongguotv.lite.uikit.page.PosterGrid
 import com.hongguotv.lite.uikit.text.TvText
@@ -36,8 +36,14 @@ import kotlinx.coroutines.launch
 /**
  * 搜索页。
  *
- * 从上到下：顶栏 → 片库筛选 → 输入行 → 联想 → 预览 → 结果网格（或"继续看"/空态）。
- * 筛选、输入行、联想都固定在上方（不随结果滚动）；预览固定，网格单独滚。
+ * 从上到下：顶栏 → 片库筛选 → 输入行 → 联想（有才占位）→ 预览（有卡片才占位）→ 内容区。
+ * 筛选、输入行固定在上方；内容区（继续看 / 结果网格 / 空态）吃掉剩余高度。
+ *
+ * 两条 S9 的排版口径：
+ * - **固定留白只在有内容时占位**：没有联想词时不保留一整行，没有卡片时不摆那块三行预览区，
+ *   首屏高度要还给卡片（维护者原话：「不能看见卡片标题，这是现在的显著问题」）；
+ * - **卡片高度按内容区视口夹取**：只放得下一行卡时，封面按 `CardFit` 夹短，
+ *   保证「封面 + 两行标题 + 角标」都在首屏内。
  */
 internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.SEARCH) {
 
@@ -49,7 +55,7 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
     private lateinit var suggestRow: LinearLayout
     private val suggestChips = mutableListOf<TvButton>()
     private lateinit var preview: PreviewRail
-    private lateinit var stateView: TextView
+    private lateinit var pane: ContentPane
     private lateinit var retry: TvButton
     private lateinit var continueHeader: LinearLayout
     private lateinit var continueGrid: PosterGrid
@@ -60,6 +66,9 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
     private var continueEntries: List<HistoryEntry> = emptyList()
     private var suggestJob: Job? = null
     private var searchJob: Job? = null
+
+    /** 内容区视口高（像素）：夹取卡片高度用。首次布局前是 0（不夹，保持比例）。 */
+    private var viewport = 0
 
     override fun onBuild() {
         val body = scaffold.body()
@@ -104,27 +113,25 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         searchRow.addView(sortChip)
         body.addView(searchRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-        // 联想：固定高度的一行，出现/消失时下面不会整体跳一下
-        suggestRow = ui.row().apply { gravity = Gravity.CENTER }
-        body.addView(suggestRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ui.dp(tokens.metrics.inputHeight)))
-
-        preview = ui.preview()
-        body.addView(preview)
-
-        val content = ui.column()
-        val scroll = ui.scroll(content)
-        ui.keepFocusVisible(scroll)
-        body.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-
-        stateView = ui.text("", tokens.type.subtitle, tokens.colors.muted).apply {
-            setPadding(0, ui.dp(tokens.space.xxl), 0, ui.dp(tokens.space.xl))
+        // 联想：只在真的有联想词时占位——没有词还留 44dp 空白，首屏就少半张卡
+        suggestRow = ui.row().apply {
+            gravity = Gravity.CENTER
             visibility = View.GONE
         }
-        content.addView(stateView)
+        body.addView(suggestRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ui.dp(tokens.metrics.inputHeight)))
+
+        // 预览：只在有卡片可聚焦时占位（空态/加载中/出错时把高度还给提示文字）
+        preview = ui.preview().apply { visibility = View.GONE }
+        body.addView(preview)
+
+        // 内容区：滚动网格 + 居中空态，二态互斥
+        pane = ui.contentPane()
+        body.addView(pane, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        val content = pane.content
 
         retry = ui.button("重试") { if (model.keyword.isNotBlank()) runSearch(model.keyword) }
         retry.visibility = View.GONE
-        content.addView(retry)
+        pane.empty.actions.addView(retry)
 
         continueHeader = ui.row().apply {
             setPadding(0, ui.dp(tokens.space.s), 0, ui.dp(tokens.space.m))
@@ -149,6 +156,17 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
             onCardActivated = { item -> openResult(item) }
         }
         content.addView(resultGrid)
+
+        // 内容区按真实视口夹一次卡片高度：布局前量不到，只能先按比例画一帧，
+        // 首帧之后（下一次布局）再来一次——卡片就地改高度，不重建视图，焦点不受影响
+        pane.addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
+            val height = view.height
+            if (height <= 0 || height == viewport) return@addOnLayoutChangeListener
+            view.post {
+                viewport = height
+                render()
+            }
+        }
 
         if (model.keyword.isBlank()) continueEntries = host.progress.history(limit = CONTINUE_LIMIT)
         render()
@@ -192,6 +210,8 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
                 val result = host.content.search(clean, filter)
                 if (model.keyword != clean) return@launch
                 model.apply(result, settings().seasonSortAsc)
+                // 结果到手就把光标交给第一张卡：用户按确认是要看结果，不是要回到搜索框
+                preferredOnRender = model.items.firstOrNull()?.let { resultGrid.keyOf(it.id) }
             } catch (error: UpstreamError) {
                 if (model.keyword != clean) return@launch
                 model.error = error
@@ -242,13 +262,22 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
             })
             suggestChips += chip
         }
+        suggestRow.visibility = if (suggestChips.isEmpty()) View.GONE else View.VISIBLE
         applyFocus()
     }
 
     private fun clearSuggestions() {
-        if (suggestChips.isEmpty() && suggestRow.childCount == 0) return
+        if (suggestChips.isEmpty() && suggestRow.childCount == 0) {
+            suggestRow.visibility = View.GONE
+            return
+        }
+        // 联想里正被聚焦的那一项马上要被删掉：先把光标交回输入框，
+        // 否则框架会自己把它扔到某个位置（通常是顶栏），并被焦点记忆钉住
+        val hadFocus = suggestChips.any { it.isFocused }
         suggestChips.clear()
         suggestRow.removeAllViews()
+        suggestRow.visibility = View.GONE
+        if (hadFocus) preferredOnRender = FocusKey("search:input")
         applyFocus()
     }
 
@@ -321,20 +350,22 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         val error = model.error
         val showContinue = model.keyword.isBlank() && error == null && continueEntries.isNotEmpty()
         val showResult = error == null && model.items.isNotEmpty()
-        val showState = model.loading || error != null || (!showContinue && !showResult)
-
-        stateView.visibility = if (showState) View.VISIBLE else View.GONE
-        stateView.text = when {
+        val stateText = when {
             model.loading -> "正在搜索…"
             error != null -> TvText.error(error)
-            showContinue || showResult -> ""
+            showContinue || showResult -> null
             else -> CatalogText.emptySearch(model.keyword, current.filter)
         }
+
+        if (stateText == null) pane.showContent() else pane.showEmpty(stateText)
         retry.visibility = if (error != null) View.VISIBLE else View.GONE
+        preview.visibility = if (showContinue || showResult) View.VISIBLE else View.GONE
         continueHeader.visibility = if (showContinue) View.VISIBLE else View.GONE
         continueGrid.visibility = if (showContinue) View.VISIBLE else View.GONE
         resultGrid.visibility = if (showResult) View.VISIBLE else View.GONE
 
+        // 视口还没量到时不夹（保持比例）；量到之后由布局回调再走一遍 render
+        applyCardLimit()
         continueRendered = if (showContinue) {
             continueGrid.render(continueEntries.map { CatalogCards.history(it, host.progress.isWatched(it.series.id)) })
         } else {
@@ -346,9 +377,29 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         applyFocus()
     }
 
+    /**
+     * 把内容区视口高度交给两个网格：首屏只放得下一行卡时，封面按它夹短。
+     *
+     * 「继续看」上方还有一行小标题，那一块要从可用高度里扣掉；首帧量不到它的高度时先不扣，
+     * 下一次布局会按实测值重算（卡片就地改高度，不重建、不丢焦点）。
+     */
+    private fun applyCardLimit() {
+        if (viewport <= 0) return
+        resultGrid.cardHeightLimit = viewport
+        val header = if (continueHeader.visibility == View.VISIBLE) continueHeader.height else 0
+        continueGrid.cardHeightLimit = (viewport - header).coerceAtLeast(0)
+    }
+
     private fun syncFilterChips(selected: ContentFilter) {
         filterChips.forEachIndexed { index, chip -> chip.isSelected = ContentFilter.entries[index] == selected }
     }
+
+    /**
+     * 首焦：第一张结果卡 → 搜索框。
+     * 搜索完成、切回本页、页面重建都按这条走，不再落回顶栏（UI-02/03）。
+     */
+    override fun startFocus(): List<FocusKey> =
+        listOfNotNull(rendered?.keys?.firstOrNull() ?: continueRendered?.keys?.firstOrNull(), FocusKey("search:input"))
 
     private fun applyFocus() {
         val views = LinkedHashMap<FocusKey, View>()

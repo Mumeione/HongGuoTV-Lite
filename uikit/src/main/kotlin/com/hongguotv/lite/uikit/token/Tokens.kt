@@ -15,7 +15,12 @@ package com.hongguotv.lite.uikit.token
 
 /**
  * 全应用只有一种强调色：白色。
- * 「选中」= 白底深字（[focus] 填充 + [onFocus] 字色），「聚焦」= 白描边。
+ *
+ * S9 定的语义（**焦点唯一**）：
+ * - **焦点**（光标所在）= 白底深字（[focus] 填充 + [onFocus] 字色）——全页只有这一处白色填充；
+ * - **选中**（当前 tab / 当前筛选 / 当前集 / 当前季）= 白描边 + 白字，**不填充**；
+ * - 封面卡的焦点是白描边（卡面是图片，白底会把图盖掉），见 `PosterCard`。
+ *
  * 不要引入第二强调色——旧版曾经有过，结果是同一个页面上两种"重点"互相打架。
  */
 data class Colors(
@@ -118,12 +123,23 @@ data class Metrics(
     val cardPadding: Int = 4,
     /** 卡片标题与角标之间的间距。 */
     val cardTitlePaddingTop: Int = 7,
+    /**
+     * 预览区（聚焦项的标题/状态/分类三行）的上下留白。
+     * 它固定占在网格上方，每多 1dp 就是从首屏卡片那里拿走 1dp——S9 收紧了这两档。
+     */
+    val previewRailPaddingTop: Int = 4,
+    val previewRailPaddingBottom: Int = 6,
     val cardGap: Int = 14,
     /** 卡片内封面左右各让出的宽度（旧实现 `width - dp(8)`）。 */
     val cardArtworkInset: Int = 8,
     val badgeHeight: Int = 19,
     /** 封面宽高比（宽/高）。 */
     val posterAspect: Float = 0.7f,
+    /**
+     * 视口不足时封面的保底高度：再夹下去就成了一条缝，看不清是什么剧。
+     * 宁可让卡片略微超出视口（滚动一点点），也不给一张看不清的图。
+     */
+    val artworkMinHeight: Int = 96,
     /** 目标卡宽：列数由可用宽度除以它得出，1080p/6 列时约等于现值。 */
     val gridTargetCardWidth: Int = 150,
     val gridMinColumns: Int = 3,

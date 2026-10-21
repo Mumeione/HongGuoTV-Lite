@@ -11,6 +11,7 @@ import com.hongguotv.core.port.ArtworkPort
 import com.hongguotv.lite.uikit.R
 import com.hongguotv.lite.uikit.internal.dp
 import com.hongguotv.lite.uikit.internal.shape
+import com.hongguotv.lite.uikit.page.ContentPane
 import com.hongguotv.lite.uikit.page.PageScaffold
 import com.hongguotv.lite.uikit.page.PosterGrid
 import com.hongguotv.lite.uikit.page.ScrollFocusKeeper
@@ -135,6 +136,12 @@ class UiKit(
     // ---------- 页面与网格 ----------
 
     fun page(): PageScaffold = PageScaffold(this)
+
+    /**
+     * 内容区：可滚动列表 + 居中空态，二态互斥。
+     * 页面把它塞进页体并给 `height = 0, weight = 1`，它就会吃掉页头以下的全部空间。
+     */
+    fun contentPane(): ContentPane = ContentPane(this)
 
     fun grid(section: String = "card"): PosterGrid = PosterGrid(this, section)
 

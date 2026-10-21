@@ -12,8 +12,10 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.hongguotv.core.port.ArtworkSpec
 import com.hongguotv.lite.uikit.internal.bindFocus
+import com.hongguotv.lite.uikit.internal.cardShape
 import com.hongguotv.lite.uikit.internal.dp
-import com.hongguotv.lite.uikit.internal.stateShape
+import com.hongguotv.lite.uikit.internal.shape
+import com.hongguotv.lite.uikit.layout.CardFit
 
 /**
  * 一张海报卡要显示的全部内容。**只有字符串，没有领域模型**——
@@ -49,11 +51,15 @@ data class CardItem(
  *
  * 标题固定两行（`minLines = 2`），光标在行内移动时下面的内容不会被撑开——
  * 这是旧版验证过的取舍，不是疏忽。
+ *
+ * [maxHeightPx] 是**整张卡的高度上限**（0 = 不限制）。首屏只放得下一行卡时，
+ * 由调用方给出视口高度，封面按 [CardFit] 夹短，保证"封面 + 标题 + 角标"都在屏内。
  */
 @SuppressLint("ViewConstructor")
 class PosterCard internal constructor(
     private val ui: UiKit,
     private val widthPx: Int,
+    maxHeightPx: Int = 0,
 ) : LinearLayout(ui.context) {
 
     private val tokens = ui.tokens
@@ -63,7 +69,9 @@ class PosterCard internal constructor(
     private val titleView = TextView(ui.context)
     private val badgeView = TextView(ui.context)
 
-    private val artworkHeight: Int
+    private val artworkWidth: Int
+    private var artworkHeight: Int
+    private var heightLimit: Int = maxHeightPx
     private var coverUrl = ""
     private var coverPersist = false
     private var focused = false
@@ -82,33 +90,42 @@ class PosterCard internal constructor(
         val pad = dp(tokens.metrics.cardPadding)
         setPadding(pad, pad, pad, dp(tokens.metrics.cardGap - tokens.metrics.cardPadding))
 
-        artworkHeight = ((widthPx - dp(tokens.metrics.cardArtworkInset)) / tokens.metrics.posterAspect).toInt()
+        artworkWidth = widthPx - dp(tokens.metrics.cardArtworkInset)
+        artworkHeight = 1
         artworkView.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, artworkHeight)
         image.scaleType = ImageView.ScaleType.FIT_CENTER
         image.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         artworkView.addView(image, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
-        // 封面上角的小角标（"当前"）：白底深字，比在标题里加前缀显眼，也不占标题的两行
+        // 封面上角的小角标（"当前"）：**深底 + 白框 + 白字**。
+        // S9 之前它是白底深字，与"焦点那块白底"抢唯一的白色；现在只有框，且不能是透明底——
+        // 白字直接压在浅色封面上读不出来。
         cornerView.textSize = tokens.type.caption
         cornerView.includeFontPadding = false
         cornerView.maxLines = 1
         cornerView.minLines = 1
         cornerView.gravity = Gravity.CENTER
         cornerView.setTypeface(null, Typeface.BOLD)
-        cornerView.setTextColor(tokens.colors.onFocus)
-        cornerView.setBackgroundColor(tokens.colors.focus)
-        cornerView.setPadding(dp(tokens.space.xs), dp(tokens.space.xxs), dp(tokens.space.xs), dp(tokens.space.xxs))
+        cornerView.setTextColor(tokens.colors.focus)
+        cornerView.setBackground(shape(tokens.colors.surface, tokens.shapes.small, null).apply {
+            setStroke(dp(tokens.shapes.stroke).coerceAtLeast(1), tokens.colors.focus)
+        })
+        cornerView.setPadding(dp(tokens.space.s), dp(tokens.space.xxs), dp(tokens.space.s), dp(tokens.space.xxs))
         cornerView.visibility = View.GONE
         artworkView.addView(
             cornerView,
-            FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.START),
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.START).apply {
+                val gap = dp(tokens.space.xs)
+                leftMargin = gap
+                topMargin = gap
+            },
         )
 
         titleView.textSize = tokens.type.compact
         titleView.setTextColor(tokens.colors.text)
         titleView.includeFontPadding = false
-        titleView.maxLines = 2
-        titleView.minLines = 2
+        titleView.maxLines = TITLE_LINES
+        titleView.minLines = TITLE_LINES
         titleView.ellipsize = TextUtils.TruncateAt.END
         titleView.setPadding(dp(tokens.space.xxs), dp(tokens.metrics.cardTitlePaddingTop), dp(tokens.space.xxs), 0)
 
@@ -125,6 +142,10 @@ class PosterCard internal constructor(
         addView(artworkView)
         addView(titleView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(badgeView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+
+        // 字号与行数都就位之后才能算"文字块占多高"，否则夹取用的是默认字号的字体度量
+        artworkHeight = artworkHeightFor(maxHeightPx)
+        artworkView.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, artworkHeight)
 
         bindFocus(
             tokens = tokens,
@@ -162,9 +183,46 @@ class PosterCard internal constructor(
         syncCover()
     }
 
+    /**
+     * 更新"整张卡的高度上限"（0 = 不限制）。
+     *
+     * 就地改封面高度，**不重建卡片**：重建会换掉 View 实例，焦点随之丢掉，
+     * 页面为了把光标找回来又得额外收缩一次——首屏量到真实视口后正好会发生这件事。
+     */
+    fun heightLimit(maxHeightPx: Int) {
+        if (heightLimit == maxHeightPx) return
+        heightLimit = maxHeightPx
+        val next = artworkHeightFor(maxHeightPx)
+        if (next == artworkHeight) return
+        artworkHeight = next
+        artworkView.layoutParams = (artworkView.layoutParams as LayoutParams).apply { height = next }
+        syncCover()
+    }
+
+    private fun artworkHeightFor(limitPx: Int): Int = CardFit.artworkHeight(
+        cardWidthPx = artworkWidth,
+        aspect = tokens.metrics.posterAspect,
+        cardHeightLimitPx = limitPx,
+        textBlockHeightPx = textBlockHeight(),
+        minArtworkHeightPx = dp(tokens.metrics.artworkMinHeight),
+    )
+
+    /** 焦点是白描边（卡面是图，白底会把图盖掉）；选中态卡片不用，见 `cardShape` 的注释。 */
     private fun paintCard(isFocused: Boolean) {
         val fill = if (isFocused) tokens.colors.raised else tokens.colors.surface
-        background = stateShape(tokens, fill, tokens.shapes.card, selected = false, focused = isFocused)
+        background = cardShape(tokens, fill, tokens.shapes.card, focused = isFocused)
+    }
+
+    /**
+     * 封面以下那块文字在竖直方向占多少：夹取封面高度时要把它先扣掉，
+     * 否则"标题两行 + 角标"又会被推到视口外。
+     */
+    private fun textBlockHeight(): Int {
+        val lineHeight = (titleView.paint.fontMetrics.descent - titleView.paint.fontMetrics.ascent).toInt()
+        val padTop = dp(tokens.metrics.cardPadding)
+        val padBottom = dp(tokens.metrics.cardGap - tokens.metrics.cardPadding)
+        return padTop + dp(tokens.metrics.cardTitlePaddingTop) + lineHeight * TITLE_LINES +
+            dp(tokens.metrics.badgeHeight) + padBottom
     }
 
     private fun syncCover() {
@@ -174,11 +232,15 @@ class PosterCard internal constructor(
             host = image,
             url = coverUrl,
             spec = ArtworkSpec(
-                widthPx = widthPx - dp(tokens.metrics.cardArtworkInset),
+                widthPx = artworkWidth,
                 heightPx = artworkHeight,
                 persist = coverPersist,
                 priority = if (focused) ArtworkSpec.PRIORITY_FOCUSED else ArtworkSpec.PRIORITY_VISIBLE,
             ),
         )
+    }
+
+    private companion object {
+        const val TITLE_LINES = 2
     }
 }

@@ -24,11 +24,14 @@ object FocusBinder {
     }
 
     /**
-     * 按"显式目标 → 本页记忆 → 该页第一个焦点项"的顺序挑一个**确实存在视图**的 key 并请求焦点。
+     * 按「显式目标 → 本页记忆 → 页面阶梯 → 焦点图首项」挑一个**确实存在视图**的 key 并请求焦点。
      *
      * 之所以不直接用 [FocusGraph.resolve] 的结果：resolve 只知道 key 在不在图里，
-     * 不知道视图在不在。视图可能因为单页卡片上限被截断而不存在——那时应当落到首项，
+     * 不知道视图在不在。视图可能因为单页卡片上限被截断而不存在——那时应当落到阶梯里的下一项，
      * 而不是什么都不做（旧实现在这里的表现是"光标凭空消失"）。
+     *
+     * [ladder] 是页面声明"这一页该落在哪"（见 [FocusStart]）。不给也行，但那样就退回
+     * "焦点图首项"——顶栏，正是 S9 要消掉的行为。
      *
      * @return 是否真的把焦点给了某个视图（视图还没挂到窗口上时是 false，调用方用 post 重试）
      */
@@ -37,10 +40,16 @@ object FocusBinder {
         views: Map<FocusKey, View>,
         preferred: FocusKey? = null,
         remembered: FocusKey? = null,
+        ladder: List<FocusKey> = emptyList(),
     ): Boolean {
-        val candidates = listOfNotNull(preferred, remembered) + graph.order
-        val view = candidates.firstNotNullOfOrNull { views[it] } ?: return false
-        return view.requestFocus()
+        val key = FocusStart.pick(
+            preferred = preferred,
+            remembered = remembered,
+            ladder = ladder,
+            available = views.keys,
+            order = graph.order,
+        ) ?: return false
+        return views.getValue(key).requestFocus()
     }
 
     private fun targetId(views: Map<FocusKey, View>, key: FocusKey, self: View): Int =

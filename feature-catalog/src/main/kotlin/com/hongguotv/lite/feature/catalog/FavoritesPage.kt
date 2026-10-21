@@ -9,6 +9,7 @@ import com.hongguotv.core.usecase.FavoriteUpdateCheck
 import com.hongguotv.core.usecase.SeasonProgress
 import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.focus.FocusSections
+import com.hongguotv.lite.uikit.page.ContentPane
 import com.hongguotv.lite.uikit.page.GridRendered
 import com.hongguotv.lite.uikit.page.PosterGrid
 import com.hongguotv.lite.uikit.ui.CardItem
@@ -30,7 +31,7 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
     private lateinit var statusView: TextView
     private lateinit var checkButton: TvButton
     private lateinit var preview: PreviewRail
-    private lateinit var emptyView: TextView
+    private lateinit var pane: ContentPane
     private lateinit var grid: PosterGrid
 
     private var entries: List<FavoriteEntry> = emptyList()
@@ -46,19 +47,12 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
         header.actions.addView(checkButton)
 
         val body = scaffold.body()
-        preview = ui.preview()
+        preview = ui.preview().apply { visibility = View.GONE }
         body.addView(preview)
 
-        val content = ui.column()
-        val scroll = ui.scroll(content)
-        ui.keepFocusVisible(scroll)
-        body.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-
-        emptyView = ui.text("在剧集详情中选择收藏，喜欢的剧就会出现在这里", tokens.type.subtitle, tokens.colors.muted).apply {
-            setPadding(0, ui.dp(tokens.space.xxl), 0, ui.dp(tokens.space.xl))
-            visibility = View.GONE
-        }
-        content.addView(emptyView)
+        pane = ui.contentPane()
+        body.addView(pane, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        pane.empty.show("在剧集详情中选择收藏，喜欢的剧就会出现在这里")
 
         grid = ui.grid("favorites").apply {
             // 收藏封面值得占电视存储（旧行为）：列表稳定，复看频率高
@@ -66,7 +60,7 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
             onCardFocused = { item -> previewFavorite(item) }
             onCardActivated = { item -> openFavorite(item) }
         }
-        content.addView(grid)
+        pane.content.addView(grid)
 
         entries = host.favorites.all()
         status = FavoriteLabels.idleStatus(entries.size, dueEntries().size)
@@ -139,10 +133,15 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
 
     private fun render() {
         val isEmpty = entries.isEmpty()
-        emptyView.visibility = if (isEmpty) View.VISIBLE else View.GONE
-        grid.visibility = if (isEmpty) View.GONE else View.VISIBLE
+        if (isEmpty) {
+            pane.showEmpty("在剧集详情中选择收藏，喜欢的剧就会出现在这里")
+            preview.visibility = View.GONE
+            preview.show("", "", "")
+        } else {
+            pane.showContent()
+            preview.visibility = View.VISIBLE
+        }
         rendered = if (isEmpty) null else grid.render(entries.map(CatalogCards::favorite))
-        if (isEmpty) preview.show("", "", "")
         chrome()
         applyFocus()
     }
@@ -180,6 +179,14 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
             meta = CatalogText.meta(entry.series),
         )
     }
+
+    /**
+     * 首焦：第一张收藏卡 → 当前导航项。
+     * 空收藏时光标停在「收藏」这个导航项上（空页里没有可落的内容项），
+     * 「检查更新」往下按一下就够到，不需要抢占首焦。
+     */
+    override fun startFocus(): List<FocusKey> =
+        listOfNotNull(rendered?.keys?.firstOrNull(), FocusKey("nav:${CatalogTab.FAVORITES.ordinal}"))
 
     private fun applyFocus() {
         val views = LinkedHashMap<FocusKey, View>()

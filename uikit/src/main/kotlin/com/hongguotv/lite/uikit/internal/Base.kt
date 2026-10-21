@@ -28,21 +28,29 @@ internal fun View.shape(fill: Int, radiusDp: Int, stroke: Stroke? = null): Gradi
     context.shape(fill, radiusDp, stroke)
 
 /**
- * 选中/聚焦的**描边规则**：全应用只有这一份。
+ * 选中 / 焦点的**描边规则**：全应用只有这一份。
  *
- * - 选中且聚焦：深色描边——白描边画在白底上看不见；
- * - 仅聚焦：白色描边；
- * - 其余：不描边。
+ * - **焦点不描边**：焦点项的填充本身就是白色（`colors.focus`），再描一圈白边是浪费是其次，
+ *   主要问题是"白底 + 白边"看起来像两个状态叠在一起（S9 之前就是这样）；
+ * - **选中描白边**：当前 tab / 当前筛选 / 当前集 / 当前季只有框、没有底色，
+ *   这样一页里只会有一块真正的白色填充——光标所在的那块。
  *
- * 底色由各控件自己给（按钮有"已看过/主操作"两档，卡片有"不可用"），
- * 但"聚焦长什么样"必须一致，否则同一个页面上会出现两种焦点态。
+ * 底色由各控件自己给（按钮有"已看过/主操作"两档，导航项未选中时透明）。
+ * 封面卡是唯一例外，它走 [cardShape]：卡面是图，白底会把图盖掉。
  */
 internal fun View.stateShape(tokens: Tokens, fill: Int, radiusDp: Int, selected: Boolean, focused: Boolean): GradientDrawable {
-    val stroke = when {
-        selected && focused -> Stroke(tokens.colors.raised, tokens.shapes.stroke)
-        focused -> Stroke(tokens.colors.focus, tokens.shapes.stroke)
-        else -> null
-    }
+    val stroke = if (selected && !focused) Stroke(tokens.colors.focus, tokens.shapes.stroke) else null
+    return shape(fill, radiusDp, stroke)
+}
+
+/**
+ * 封面卡的边框：**焦点用白描边**，因为卡面是封面图，把整张卡刷白等于把图盖掉。
+ *
+ * 这是"焦点 = 白底"的唯一例外，所以单独成一个函数而不是在 [stateShape] 里加分支——
+ * 加分支会让"要不要白底"变成一个隐式参数，下一个人不知道该传什么。
+ */
+internal fun View.cardShape(tokens: Tokens, fill: Int, radiusDp: Int, focused: Boolean): GradientDrawable {
+    val stroke = if (focused) Stroke(tokens.colors.focus, tokens.shapes.stroke) else null
     return shape(fill, radiusDp, stroke)
 }
 

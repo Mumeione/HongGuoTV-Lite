@@ -81,7 +81,11 @@ class CatalogFeature(
 
     /** 离开目录（进详情/播放或宿主销毁）：取消在途请求与收藏更新检查。 */
     fun release() {
-        page?.release()
+        val current = page ?: return
+        // 先把光标存下来再丢页面：只切 tab 时存过，从详情返回这一路一直没存——
+        // 「从详情返回目录，光标还停在那张卡上」就是缺了这一行
+        current.currentFocus()?.let { lastFocus[tab] = it }
+        current.release()
         page = null
     }
 }

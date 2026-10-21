@@ -134,8 +134,11 @@ class PageHeader internal constructor(ui: UiKit, title: String, onBack: (() -> U
  * 稳定树 + 内容增量更新之后，"返回后光标还在原位"才有立足点。
  *
  * 用法（顺序无关，槽位是预先建好的）：
- * - 目录类页面：`showTopBar(...)` + `scrollBody()` + `grid(...)`
+ * - 目录类页面：`showTopBar(...)` + 自建 `ContentPane`（滚动列表 + 居中空态，S9 起）
  * - 内页：`showHeader(...)` + `scrollBody()`
+ *
+ * `scrollBody()` 只给"一定有内容"的内页用；需要空态的地方一律用 `ContentPane`，
+ * 否则空态文字又会变成每页各写一遍的内联 padding（S9 之前就是这样，而且都不居中）。
  */
 @SuppressLint("ViewConstructor")
 class PageScaffold internal constructor(private val ui: UiKit) : FrameLayout(ui.context) {
@@ -277,7 +280,7 @@ class PageScaffold internal constructor(private val ui: UiKit) : FrameLayout(ui.
         if (existing != null) return existing
         return FocusSession(page).also { created ->
             session = created
-            viewTreeObserver.addOnGlobalFocusChangeListener { _, newFocus -> session?.onFocusChanged(newFocus) }
+            viewTreeObserver.addOnGlobalFocusChangeListener { oldFocus, newFocus -> session?.onFocusChanged(oldFocus, newFocus) }
         }
     }
 }

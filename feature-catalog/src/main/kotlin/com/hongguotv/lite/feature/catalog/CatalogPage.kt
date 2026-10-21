@@ -38,6 +38,16 @@ internal abstract class CatalogPage(
     /** build 期间的目标焦点：先按它落点，而不是先落到首项再跳一次。 */
     private var preferredOnBuild: FocusKey? = null
 
+    /**
+     * **本次渲染**要落的焦点（一次性）。用于"状态变了，光标必须跟着走"的场合：
+     * 搜索出结果落到第一张卡、联想被清掉回到输入框。
+     *
+     * 为什么需要它：被聚焦的那个视图被移除时，框架会自己把焦点交给某个视图（通常是顶栏第一项），
+     * 而那次变化会被本页焦点记忆记下来——之后"记忆优先"就会把光标钉在那个意外落点上。
+     * 显式目标优先于记忆，正好解这个问题。
+     */
+    protected var preferredOnRender: FocusKey? = null
+
     fun view(): View = scaffold
 
     fun build(preferred: FocusKey?) {
@@ -49,14 +59,31 @@ internal abstract class CatalogPage(
         )
         onBuild()
         preferredOnBuild = null
-        requestFocus(preferred)
+        // 这里也要给阶梯：onBuild 里的首帧请求常常在"视图还没挂上窗口"时失败，
+        // 真正落定的往往是这一次（或它的 post 重试）——不给阶梯就又落回顶栏了
+        requestFocus(preferred, startFocus())
     }
 
     /** 搭树并装载首屏数据。只调用一次。 */
     protected abstract fun onBuild()
 
-    /** 本页当前光标，切页时保存、回来时恢复。 */
-    fun currentFocus(): FocusKey? = focus.remembered()
+    /**
+     * 本页的**首焦阶梯**：进页（或重建）后光标该落在哪，按顺序取第一个存在的。
+     *
+     * 这是 S9 新增的声明点。不给的话回退链最后会落到焦点图首项——也就是顶栏「搜索」，
+     * 那正是"无论干什么焦点都回到顶栏"的来源（见 `docs/UI/UI改进清单.md` UI-02/03）。
+     * 约定：**第一项是本页内容，顶栏只能出现在链尾**。
+     */
+    protected abstract fun startFocus(): List<FocusKey>
+
+    /**
+     * 本页当前光标，切页时保存、回来时恢复。
+     *
+     * **顶栏项不算**：光标停在导航上才能切 tab，切走那一刻它多半正停在目标 tab 的导航项上；
+     * 把它当成"上一页的光标位置"存下来，回来时就落在别人的导航项上了（S9 实测踩到）。
+     * 空页确实停在导航上，但那由 [startFocus] 的阶梯给出，不靠记忆。
+     */
+    fun currentFocus(): FocusKey? = focus.remembered()?.takeUnless { it.value.startsWith(NAV_PREFIX) }
 
     fun release() {
         jobs.cancel()
@@ -73,16 +100,21 @@ internal abstract class CatalogPage(
     protected fun applyPlan(sections: List<FocusSection?>, views: Map<FocusKey, View>) {
         val plan = FocusSections.plan(sections) ?: return
         focus.bind(plan, views)
-        requestFocus(preferredOnBuild ?: focus.remembered())
+        val wanted = preferredOnBuild ?: preferredOnRender
+        preferredOnRender = null
+        requestFocus(wanted, startFocus())
     }
 
-    private fun requestFocus(preferred: FocusKey?) {
-        if (focus.request(preferred)) return
+    private fun requestFocus(preferred: FocusKey?, ladder: List<FocusKey> = emptyList()) {
+        if (focus.request(preferred, ladder)) return
         // 视图还没挂上窗口时一定失败：等一次 post 再要，别让光标留在页外
-        scaffold.post { focus.request(preferred) }
+        scaffold.post { focus.request(preferred, ladder) }
     }
 
     private companion object {
         const val BRAND = "红果TV"
+
+        /** 顶栏焦点段的 key 前缀（见 [navSection]）。 */
+        const val NAV_PREFIX = "nav:"
     }
 }

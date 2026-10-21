@@ -168,6 +168,10 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
 
     // ---------- 焦点：两列网格 ----------
 
+    /** 首焦：第一项设置 → 当前导航项。进设置页就是要改东西，不该先按几下往下走。 */
+    override fun startFocus(): List<FocusKey> =
+        listOf(FocusKey("setting:L0"), FocusKey("nav:${CatalogTab.SETTINGS.ordinal}"))
+
     private fun applyFocus() {
         val leftRows = listOf(qualityRow, speedRow, frameRow, autoNextRow)
         val rightRows = listOf(filterRow, sortRow, clearRow, startupRow)

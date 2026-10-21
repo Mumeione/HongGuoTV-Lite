@@ -6,6 +6,7 @@ import android.text.InputFilter
 import android.text.InputType
 import android.view.Gravity
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import com.hongguotv.lite.uikit.internal.bindFocus
 import com.hongguotv.lite.uikit.internal.dp
@@ -43,8 +44,24 @@ class TvInput internal constructor(
         setPadding(horizontal, vertical, horizontal, vertical)
 
         bindFocus(tokens, paint = { focused ->
-            val fill = if (focused) tokens.colors.raised else tokens.colors.surface
-            background = stateShape(tokens, fill, tokens.shapes.chip, selected = false, focused = focused)
+            // 焦点 = 白底深字（与按钮同一套语义）：输入框是"光标所在"，整页只有它这一块白
+            background = stateShape(
+                tokens = tokens,
+                fill = if (focused) tokens.colors.focus else tokens.colors.surface,
+                radiusDp = tokens.shapes.chip,
+                selected = false,
+                focused = false,
+            )
+            setTextColor(if (focused) tokens.colors.onFocus else tokens.colors.text)
+            // 白底上的提示文字要用深色，否则（浅灰配白底）读不出来
+            setHintTextColor(if (focused) tokens.colors.outline else tokens.colors.muted)
         })
+
+        // 电视上不要"一进页就弹键盘"（清单里是 stateAlwaysHidden）：按一下确认才唤出输入法，
+        // 用带键盘的遥控器时也可以直接打字——那时焦点已经在输入框里了。
+        setOnClickListener {
+            val manager = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            manager?.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+        }
     }
 }

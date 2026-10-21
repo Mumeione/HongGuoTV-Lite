@@ -40,9 +40,19 @@ class FocusSession(
         return built
     }
 
-    /** 视图树里任意焦点变化都记到本页（由页面的全局焦点监听调用）。 */
-    fun onFocusChanged(view: View?) {
-        val key = view?.let { keyById[it.id] } ?: return
+    /**
+     * 视图树里任意焦点变化都记到本页（由页面的全局焦点监听调用）。
+     *
+     * **被动落焦不记**：旧焦点视图已经不可见（被移除、或整块被 `GONE` 收起）时，
+     * 框架会自己把焦点交给页面里第一个可聚焦项——通常是顶栏。那次变化不是用户选的，
+     * 记下来就会变成「任何操作之后光标都停在顶栏」：数据刷新把卡片重建一遍、空态把列表收起来，
+     * 记忆就指向顶栏了。
+     *
+     * @param oldFocus 变化前的焦点视图。不可见（`isShown == false`）或已脱离窗口时不记。
+     */
+    fun onFocusChanged(oldFocus: View?, newFocus: View?) {
+        val key = newFocus?.let { keyById[it.id] } ?: return
+        if (oldFocus != null && (!oldFocus.isShown || oldFocus.windowToken == null)) return
         lastFocused = key
         memory.remember(page, key)
     }
@@ -51,16 +61,19 @@ class FocusSession(
     fun remembered(): FocusKey? = memory.recall(page)
 
     /**
-     * 把光标放回本页：显式目标 → 本页记忆 → 页面首项。
+     * 把光标放回本页：显式目标 → 本页记忆 → 页面阶梯（[ladder]）→ 焦点图首项。
+     *
+     * [ladder] 由页面声明（例如"第一张结果卡 → 搜索框"），见 [FocusStart]。
      * @return 是否成功（视图还没挂上窗口时会失败，调用方 `post` 一次即可）
      */
-    fun request(preferred: FocusKey? = null): Boolean {
+    fun request(preferred: FocusKey? = null, ladder: List<FocusKey> = emptyList()): Boolean {
         val currentGraph = graph ?: return false
         return FocusBinder.request(
             graph = currentGraph,
             views = views,
             preferred = preferred,
             remembered = remembered(),
+            ladder = ladder,
         )
     }
 }
