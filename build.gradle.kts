@@ -48,3 +48,33 @@ gradle.projectsEvaluated {
         )
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CI 的唯一入口。本地与流水线跑同一条命令：
+//
+//     ./gradlew verify --console=plain
+//
+// 它把"每个阶段的验收项"固定成一条依赖图：全模块单测 + 六个 Android 模块 lint +
+// debug 包构建。`:core:test` 会让 `verifyJvmApiLevel` 先跑（API 23 字节码守卫），
+// 所以不需要单独再挂一次。
+// ─────────────────────────────────────────────────────────────────────────────
+tasks.register("verify") {
+    group = "verification"
+    description = "全模块单测 + 全仓 lint + assembleDebug（CI 入口）"
+    dependsOn(
+        ":core:test",
+        ":data:testDebugUnitTest",
+        ":uikit:testDebugUnitTest",
+        ":feature-catalog:testDebugUnitTest",
+        ":feature-detail:testDebugUnitTest",
+        ":feature-player:testDebugUnitTest",
+        ":app:testDebugUnitTest",
+        ":data:lintDebug",
+        ":uikit:lintDebug",
+        ":feature-catalog:lintDebug",
+        ":feature-detail:lintDebug",
+        ":feature-player:lintDebug",
+        ":app:lintDebug",
+        ":app:assembleDebug",
+    )
+}
