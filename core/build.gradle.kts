@@ -91,3 +91,44 @@ tasks.named("test") { dependsOn(verifyJvmApiLevel) }
 // Android 模块经 project 依赖消费 core 时触发的是 :core:jar（而非 test）——
 // 挂上它，任何产物构建都会先过一遍守卫。
 tasks.named("jar") { dependsOn(verifyJvmApiLevel) }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 产物守卫：kotlin_module 门面表
+//
+// 2026-10-21 实测：构建缓存（本机 gradle.properties 开了 org.gradle.caching=true）
+// 存过一份坏的 core 产物——META-INF/core.kotlin_module 是 24 字节空表
+// （正常是"包名 → XxxKt"门面清单，约 140 字节）。症状极有迷惑性：
+// 下游类全部解析得到、**顶层函数全部 Unresolved**；clean 也没用，
+// 因为坏条目会被缓存原样还原（:core:compileKotlin FROM-CACHE）。
+//
+// 这条守卫在 jar 阶段拦住它：门面表里没有任何 Kt 门面 = 编译产物坏了，直接报错，
+// 不等下游一片红。修法：./gradlew :core:compileKotlin --rerun-tasks
+// （不读缓存，重编出的好产物覆盖同名缓存条目）。
+// ─────────────────────────────────────────────────────────────────────────────
+val verifyKotlinModuleTable by tasks.registering {
+    group = "verification"
+    description = "校验 kotlin_module 门面表非空（顶层函数要能被下游解析）"
+    dependsOn(tasks.named("compileKotlin"))
+    val moduleFile = layout.buildDirectory.file("classes/kotlin/main/META-INF/core.kotlin_module")
+    doLast {
+        val file = moduleFile.get().asFile
+        if (!file.isFile) {
+            throw GradleException("core 产物缺 META-INF/core.kotlin_module，下游对顶层函数的引用会全部 Unresolved。")
+        }
+        val bytes = file.readBytes()
+        // 门面表的字符串是明文存储；空表只有包名，不含任何 "Kt" 门面名。
+        val hasFacade = bytes.indexOfAscii("Kt") >= 0
+        // 24 字节的空表之外再留一层尺寸下限：正常表至少要有几十字节的门面清单。
+        if (bytes.size < 64 || !hasFacade) {
+            throw GradleException(
+                buildString {
+                    appendLine("core.kotlin_module 是坏产物（${bytes.size} 字节，没有顶层函数的门面清单）。")
+                    appendLine("症状：下游『类都在、顶层函数 Unresolved』，clean 无效（坏条目在构建缓存里）。")
+                    appendLine("修法：./gradlew :core:compileKotlin --rerun-tasks（不读缓存，覆盖坏条目）。")
+                },
+            )
+        }
+    }
+}
+
+tasks.named("jar") { dependsOn(verifyKotlinModuleTable) }
