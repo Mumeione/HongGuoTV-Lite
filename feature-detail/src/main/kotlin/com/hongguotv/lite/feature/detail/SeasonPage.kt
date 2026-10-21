@@ -62,6 +62,9 @@ internal class SeasonPage(
     private var fetching = false
     private var singleSeason: Series? = null
     private var pageIndex = 0
+
+    /** 组别是否已按"上次那一季"归位。只在第一次渲染季线时做一次，之后翻组就是用户的选择。 */
+    private var pageRestored = false
     private var introExpanded = false
 
     /** 首屏拿到数据后光标落在主操作上：进这一页是要接着看，不是要看「返回」。 */
@@ -106,12 +109,15 @@ internal class SeasonPage(
             visibility = View.GONE
             setPadding(0, ui.dp(tokens.space.l), 0, ui.dp(tokens.space.s))
         }
-        seasonCountView = ui.text("", tokens.type.subtitle, tokens.colors.text).apply {
-            setTypeface(null, android.graphics.Typeface.BOLD)
-        }
-        seasonHeader.addView(seasonCountView, ui.params(width = 0, weight = 1f))
+        // 排序开关放在最左边：它管的是下面这一排季，离得太远（贴着右边缘）就成了另一件事。
+        // 季数标签跟在它后面，两者左对齐。
         sortLink = ui.link("倒序") { toggleSort() }
         seasonHeader.addView(sortLink)
+        seasonCountView = ui.text("", tokens.type.subtitle, tokens.colors.text).apply {
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setPadding(ui.dp(tokens.space.m), 0, 0, 0)
+        }
+        seasonHeader.addView(seasonCountView, ui.params(width = 0, weight = 1f))
         body.addView(seasonHeader)
 
         seasonHost = ui.column().apply { visibility = View.GONE }
@@ -140,7 +146,9 @@ internal class SeasonPage(
             ?: line?.seasons?.lastOrNull { it.released }
             ?: line?.seasons?.lastOrNull()
         pageIndex = 0
-        preferredOnRender = if (anchor != null) KEY_PLAY else null
+        pageRestored = false
+        // 上一轮停在哪一季，这一轮还落回那一张（含它所在的组）；没有记忆才落主操作
+        preferredOnRender = host.lastFocus[pageKey] ?: if (anchor != null) KEY_PLAY else null
         render()
         if (anchor != null && line == null) fetchLine()
     }
@@ -205,6 +213,18 @@ internal class SeasonPage(
     private fun titleText(series: Series): String = entry?.series?.title ?: SeasonKeys.seasonBase(series.title)
 
     /**
+     * 按"上次光标停在那一季"把组别翻回去：几十季的剧一页 8 张，返回时还在第一组
+     * 等于把用户刚翻的那几页丢了（story 10）。记忆里不是季卡就当没记过。
+     */
+    private fun restorePageIndex(ordered: List<Series>) {
+        val remembered = host.lastFocus[pageKey]?.value ?: return
+        if (!remembered.startsWith(SEASON_KEY_PREFIX)) return
+        val id = remembered.removePrefix(SEASON_KEY_PREFIX)
+        val position = ordered.indexOfFirst { it.id == id }
+        if (position >= 0) pageIndex = position / SEASON_COLUMNS
+    }
+
+    /**
      * 季线展示序：落库是旧→新（端口契约），展示层才反转。
      * 默认"新→旧"（最新一季在最左），用户想从头补看时切成正序——和搜索页同一个开关。
      */
@@ -243,6 +263,10 @@ internal class SeasonPage(
 
     private fun renderSeasons(seasons: SeasonLine) {
         val ordered = orderedSeasons(seasons)
+        if (!pageRestored) {
+            pageRestored = true
+            restorePageIndex(ordered)
+        }
         val pages = seasonPages(ordered.size)
         pageIndex = pageIndex.coerceIn(0, pages - 1)
         val slice = ordered.drop(pageIndex * SEASON_COLUMNS).take(SEASON_COLUMNS)
@@ -251,13 +275,14 @@ internal class SeasonPage(
         // 卡宽 = 可用宽度按 8 列均分（像素）：8 列是产品口径，不能像海报网格那样按卡宽反推列数
         val cardWidth = GridGeometry.cardWidth(ui.availableWidth(seasonHost.width), SEASON_COLUMNS, gap)
 
+        // 重建前记住"哪一季正被聚焦"：切正序/倒序之后光标要跟着那一季，别落到页面顶上
+        val focusedId = seasonCards.entries.firstOrNull { it.value.isFocused }?.key
         seasonHost.removeAllViews()
         seasonCards.clear()
         val row = ui.rowTop()
         slice.forEachIndexed { position, season ->
             val card = ui.poster(cardWidth).apply {
-                // 收藏的封面值得占电视存储（旧行为）：这一页复看频率高、条目稳定
-                persistCover(true)
+                // 这一页是详情类页面：封面**不落盘**，只按需取（落盘资格只给收藏/历史，见 S9 规格）
                 bind(
                     DetailCards.season(
                         season = season,
@@ -277,6 +302,7 @@ internal class SeasonPage(
             seasonCards[season.id] = card
         }
         seasonHost.addView(row)
+        if (focusedId != null) seasonCards[focusedId]?.requestFocus()
 
         seasonCountView.text = DetailText.seasonLineTitle(seasons.seasons.size)
         sortLink.label(if (host.settings.current().seasonSortAsc) "正序" else "倒序")
@@ -453,7 +479,10 @@ internal class SeasonPage(
 
         fun seasonPages(count: Int): Int = maxOf(1, (count + SEASON_COLUMNS - 1) / SEASON_COLUMNS)
 
-        fun seasonKey(seasonId: String): String = "season:$seasonId"
+        /** 季卡焦点 key 的前缀：`restorePageIndex` 靠它认出"上次停在某一季"。 */
+        const val SEASON_KEY_PREFIX = "season:"
+
+        fun seasonKey(seasonId: String): String = "$SEASON_KEY_PREFIX$seasonId"
 
         val KEY_BACK = FocusKey("series:back")
         val KEY_RETRY = FocusKey("series:retry")

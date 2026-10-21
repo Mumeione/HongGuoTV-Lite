@@ -11,6 +11,7 @@ import android.util.LruCache
 import android.widget.ImageView
 import com.hongguotv.core.port.ArtworkPort
 import com.hongguotv.core.port.ArtworkSpec
+import com.hongguotv.core.protocol.CoverUrls
 import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -22,9 +23,9 @@ import java.util.WeakHashMap
 import java.util.concurrent.TimeUnit
 
 /**
- * `ArtworkPort` 的实现：**S7 的最小可用版**。
+ * `ArtworkPort` 的实现（S7 起草，S9 收口落盘策略）。
  *
- * 只做三件必须做的事，其余（预取、翻页预热、按远端尺寸二次校准）留到 S8：
+ * 只做三件必须做的事，预取 / 翻页预热 / 按远端尺寸二次校准仍留给后续：
  * 1. **内存 LRU**：多页来回切时同一张封面不该重复解码，容量按 `isLowRamDevice` 分档；
  * 2. **收藏 / 历史封面落盘**：这些封面会被反复回看，落盘值得；一次性封面（搜索 / 详情）不占电视存储；
  * 3. **按目标尺寸降采样**：电视上一次解码一张 4K 海报就是一次 OOM。
@@ -32,12 +33,14 @@ import java.util.concurrent.TimeUnit
  * 线程约定：`load` / `cancelPage` 可以从任意线程调，内部会切到主线程；解码与下载在后台线程，
  * 结果回主线程贴图（贴图要求视图还在、且这一代页面还没被换掉）。
  *
- * 落盘只发生在**取图那一趟**：同一张封面若先以"不落盘"取过（搜索页），随后出现在收藏页，
- * 不会再补写盘——不为此重发一次请求。内存缓存只有 8MB，下次进收藏页基本都要重新取，
- * 那时才落盘。
+ * **落盘资格只有收藏 / 历史**（`ArtworkSpec.persist`）：这些封面会被反复回看，落盘值得；
+ * 搜索、详情、季线只记地址，看过就扔。落盘发生在两处：
+ * 1. 取图那一趟（下载完顺手写盘）；
+ * 2. **内存命中但磁盘没有**时补写一次（同一张图可能先在搜索页以不落盘的方式取过，
+ *    不补写就永远进不了磁盘——旧实现在这里删过路径，UI-06 的"封面存不住"就是它）。
  *
  * 与旧实现（337 行）的差别是删掉了没有消费者的部分：`prefetch`、按布局变化重新请求
- * （规格里尺寸是显式给的）、`refillVisible`、以及"已在内存的图补写盘"。
+ * （规格里尺寸是显式给的）、`refillVisible`。
  * 留下的骨架同型——代际号（`cancelPage`）、同键合并、超限丢弃，都是旧实现在真机上试出来的。
  */
 class ArtworkLoader(
@@ -67,6 +70,9 @@ class ArtworkLoader(
      *
      * 自带 `compareTo`（而不是给 `PriorityQueue` 传 Comparator）：
      * `PriorityQueue(Comparator)` 是 API 24 才有的构造器，minSdk 23 上会 `NoSuchMethodError`。
+     *
+     * [diskOnly] 是"只落盘"的任务：图已经在内存里（命中 LRU）但磁盘没有，补写一次盘，
+     * 不贴图、不解码。收藏/历史的封面就是靠它做到"重启后还在"。
      */
     private class Job(
         val key: Key,
@@ -74,6 +80,7 @@ class ArtworkLoader(
         var priority: Int,
         val order: Long,
         @Volatile var persist: Boolean,
+        val diskOnly: Boolean = false,
     ) : Comparable<Job> {
         val listeners = linkedSetOf<Binding>()
         @Volatile var cancelled = false
@@ -100,6 +107,9 @@ class ArtworkLoader(
     /** 数值小的先做（聚焦项最先）；同优先级按入队先后。顺序由 [Job.compareTo] 定义。 */
     private val pending = PriorityQueue<Job>()
     private val jobs = HashMap<Key, Job>()
+
+    /** 已经排了"只落盘"任务的 key：同一张图不重复补写。 */
+    private val diskWrites = HashSet<Key>()
     private val bindings = WeakHashMap<ImageView, Binding>()
 
     /** 代际号：`cancelPage` 递增。旧页排队中与在途的请求据此作废，不必逐个找回来。 */
@@ -127,10 +137,13 @@ class ArtworkLoader(
             main.post { load(view, url, spec) }
             return
         }
-        if (closed || url.isBlank()) return
+        if (closed) return
+        // HEIC 变体在 API 23 上解不了：入口处统一换成可解码的那份（老数据里存的就是 HEIC）
+        val normalized = CoverUrls.normalize(url)
+        if (normalized.isBlank()) return
 
         val previous = bindings[view]
-        if (previous != null && previous.generation == generation && previous.url == url &&
+        if (previous != null && previous.generation == generation && previous.url == normalized &&
             previous.width == spec.widthPx && previous.height == spec.heightPx
         ) {
             // 同一张图再要一次（聚焦、重渲染）：只提升优先级 / 补落盘，不动图
@@ -144,7 +157,7 @@ class ArtworkLoader(
         view.setImageDrawable(null)
         val binding = Binding(
             view = WeakReference(view),
-            url = url,
+            url = normalized,
             width = spec.widthPx,
             height = spec.heightPx,
             priority = spec.priority.coerceIn(ArtworkSpec.PRIORITY_FOCUSED, ArtworkSpec.PRIORITY_VISIBLE),
@@ -218,6 +231,10 @@ class ArtworkLoader(
         cache.get(key)?.let { bitmap ->
             view.setImageBitmap(bitmap)
             binding.applied = key
+            // 内存命中但磁盘没有：补写一次盘。
+            // 收藏/历史的封面要"重启后还在"，而同一张图可能是先在搜索页（不落盘）取过的——
+            // 不补写的话它永远进不了磁盘（S7 把这条路径删掉，UI-06 就是这么来的）。
+            if (binding.persist) persistOnlyLater(key)
             return
         }
 
@@ -249,7 +266,38 @@ class ArtworkLoader(
         job.cancelled = true
         pending.remove(job)
         if (jobs[job.key] === job) jobs.remove(job.key)
+        if (job.diskOnly) diskWrites.remove(job.key)
         job.listeners.clear()
+    }
+
+    /**
+     * 排一个"只下载不贴图"的任务，把内存里已有的图补写进磁盘。
+     *
+     * 判据只有一条：**要落盘 + 磁盘还没有 + 没排过**。同键已有任务时把那个任务的
+     * `persist` 打开就行，不另起一趟请求。
+     */
+    private fun persistOnlyLater(key: Key) {
+        if (disk.has(key.url)) return
+        synchronized(signal) {
+            if (closed || key in diskWrites) return
+            jobs[key]?.let { running ->
+                running.persist = true
+                return
+            }
+            if (pending.size >= MAX_PENDING) return
+            diskWrites += key
+            val job = Job(
+                key = key,
+                generation = generation,
+                priority = ArtworkSpec.PRIORITY_VISIBLE,
+                order = ++order,
+                persist = true,
+                diskOnly = true,
+            )
+            jobs[key] = job
+            pending += job
+            signal.notifyAll()
+        }
     }
 
     private fun detachJob(binding: Binding) {
@@ -284,18 +332,25 @@ class ArtworkLoader(
                 return
             } ?: return
 
-            val bitmap = try {
-                loadBitmap(job)
-            } catch (oom: OutOfMemoryError) {
-                // 内存已经到底了：清一次缓存，这张放弃（下次滚动回来还有机会）
-                cache.evictAll()
+            val bitmap = if (job.diskOnly) {
+                // 只落盘：不解码、不占内存缓存
+                downloadToDisk(job)
                 null
-            } catch (error: Exception) {
-                null
+            } else {
+                try {
+                    loadBitmap(job)
+                } catch (oom: OutOfMemoryError) {
+                    // 内存已经到底了：清一次缓存，这张放弃（下次滚动回来还有机会）
+                    cache.evictAll()
+                    null
+                } catch (error: Exception) {
+                    null
+                }
             }
 
             val listeners = synchronized(signal) {
                 if (jobs[job.key] === job) jobs.remove(job.key)
+                if (job.diskOnly) diskWrites.remove(job.key)
                 if (!job.cancelled && !closed && bitmap != null) cache.put(job.key, bitmap)
                 job.listeners.toList().also { job.listeners.clear() }
             }
@@ -327,6 +382,12 @@ class ArtworkLoader(
         val bytes = (if (job.persist) disk.get(job.key.url) else null) ?: download(job) ?: return null
         if (job.cancelled) return null
         return decode(bytes, job.key)
+    }
+
+    /** 只把字节写进磁盘（图已经在内存里了）。失败无所谓：下次取图还会再试。 */
+    private fun downloadToDisk(job: Job) {
+        if (job.cancelled || disk.has(job.key.url)) return
+        download(job)
     }
 
     private fun download(job: Job): ByteArray? {

@@ -5,6 +5,7 @@ import com.hongguotv.core.model.SeasonKeys
 import com.hongguotv.core.model.Series
 import com.hongguotv.core.model.SeriesIds
 import com.hongguotv.core.port.UpstreamError
+import com.hongguotv.core.protocol.CoverUrls
 import com.hongguotv.core.protocol.Fields
 import org.json.JSONArray
 import org.json.JSONObject
@@ -25,8 +26,14 @@ internal data class Card(val series: Series, val isComic: Boolean)
  */
 internal object Parsers {
 
-    fun cleanUrl(s: String): String = s.replace("\\/", "/").replace("\\u002F", "/", ignoreCase = true)
-        .replace("\\u0026", "&").replace("&amp;", "&")
+    /**
+     * 上游给的地址有两个毛病：JSON 里的转义（`\/`、`&amp;`），以及有一部分封面是 HEIC 变体
+     * （API 23 解不了，见 `CoverUrls`）。两件事都在这里一次做完——所有封面都经过这一个入口。
+     */
+    fun cleanUrl(s: String): String = CoverUrls.normalize(
+        s.replace("\\/", "/").replace("\\u002F", "/", ignoreCase = true)
+            .replace("\\u0026", "&").replace("&amp;", "&"),
+    )
 
     /**
      * 卡片：搜索结果里的条目。介质判定（实测 2026-10-18）：celebrities 空 = 漫剧，有演员 = 真人短剧，
