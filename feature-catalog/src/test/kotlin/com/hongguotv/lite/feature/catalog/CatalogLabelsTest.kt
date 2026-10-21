@@ -57,9 +57,9 @@ class CatalogLabelsTest {
 
     @Test
     fun episodeGrowthIsShownButNotAsANewSeason() {
-        // 端口用 NEW_SEASON 表达"集数增长"：既没有更新的季，就不要说"第N季已上线"
+        // 端口用 NEW_SEASON 表达"集数增长"：既没有更新的季，就说"有新集"，不要说"第N季已上线"
         val label = FavoriteLabels.badge(entry(latestSeason = 5, status = FavoriteStatus.NEW_SEASON))
-        assertEquals("已更新", label)
+        assertEquals("有新集", label)
         assertTrue(FavoriteLabels.attention(entry(latestSeason = 5, status = FavoriteStatus.NEW_SEASON)))
     }
 
@@ -73,9 +73,9 @@ class CatalogLabelsTest {
 
     @Test
     fun idleStatusExplainsWhyNothingIsHappening() {
-        assertEquals("收藏后可检查有没有新一季上线", FavoriteLabels.idleStatus(favoriteCount = 0, dueCount = 0))
+        assertEquals("收藏后可检查有没有新内容", FavoriteLabels.idleStatus(favoriteCount = 0, dueCount = 0))
         assertEquals("最近一小时检查过 · 可手动刷新", FavoriteLabels.idleStatus(favoriteCount = 3, dueCount = 0))
-        assertEquals("「检查更新」看有没有新的一季上线", FavoriteLabels.idleStatus(favoriteCount = 3, dueCount = 3))
+        assertEquals("「检查更新」看有没有新一季或新集", FavoriteLabels.idleStatus(favoriteCount = 3, dueCount = 3))
     }
 
     @Test
@@ -87,13 +87,19 @@ class CatalogLabelsTest {
 
     @Test
     fun summaryCoversEveryOutcome() {
-        assertEquals("检查失败 · 稍后联网再试", FavoriteLabels.summary(FavoriteCheckReport(0, 3, 0, true)))
-        assertEquals("检查完成 · 2 部有新一季", FavoriteLabels.summary(FavoriteCheckReport(5, 0, 2, false)))
-        assertEquals("检查完成 · 6 部已是最新 · 1 部失败", FavoriteLabels.summary(FavoriteCheckReport(6, 1, 0, false)))
-        assertEquals("检查完成 · 已是最新", FavoriteLabels.summary(FavoriteCheckReport(1, 0, 0, false)))
-        assertEquals("检查完成 · 4 部都已是最新", FavoriteLabels.summary(FavoriteCheckReport(4, 0, 0, false)))
+        assertEquals("检查失败 · 稍后联网再试", FavoriteLabels.summary(FavoriteCheckReport(0, 3, 0, 0, true)))
+        assertEquals("检查完成 · 2 部有新一季", FavoriteLabels.summary(FavoriteCheckReport(5, 0, 2, 0, false)))
+        // 单季短剧每日加集：没有新季也要说出来
+        assertEquals("检查完成 · 3 部有新集", FavoriteLabels.summary(FavoriteCheckReport(5, 0, 0, 3, false)))
+        assertEquals(
+            "检查完成 · 1 部有新一季 · 2 部有新集",
+            FavoriteLabels.summary(FavoriteCheckReport(5, 0, 1, 2, false)),
+        )
+        assertEquals("检查完成 · 6 部已是最新 · 1 部失败", FavoriteLabels.summary(FavoriteCheckReport(6, 1, 0, 0, false)))
+        assertEquals("检查完成 · 已是最新", FavoriteLabels.summary(FavoriteCheckReport(1, 0, 0, 0, false)))
+        assertEquals("检查完成 · 4 部都已是最新", FavoriteLabels.summary(FavoriteCheckReport(4, 0, 0, 0, false)))
         // 连续失败中止：不能报成"检查完成"
-        assertTrue(FavoriteLabels.summary(FavoriteCheckReport(2, 3, 1, true)).startsWith("检查中断"))
+        assertTrue(FavoriteLabels.summary(FavoriteCheckReport(2, 3, 1, 0, true)).startsWith("检查中断"))
     }
 
     // ---------- 系列进度 ----------

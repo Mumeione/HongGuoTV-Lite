@@ -42,9 +42,10 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
 
     override fun onBuild() {
         val header = scaffold.showHeader("我的收藏")
-        statusView = header.note("")
+        // 顺序按维护者口径：我的收藏 → 检查更新 → 更新说明，三者贴在一起靠左，不推到屏幕右边。
         checkButton = ui.button("检查更新") { startCheck(force = true) }
-        header.actions.addView(checkButton)
+        header.lead().addView(checkButton)
+        statusView = header.leadNote("")
 
         val body = scaffold.body()
         preview = ui.preview().apply { visibility = View.GONE }

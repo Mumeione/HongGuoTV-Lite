@@ -253,8 +253,10 @@ class PrefsLibrary(
     }
 
     private fun latestSeasonOf(base: String, current: Series): Int {
+        // 只认已上线季：季线里会保留"未上线季"占位（episode_cnt=0），
+        // 把它算进最新季，收藏角标就会写成"第十季已上线"（维护者实测）。
         val candidates = listOfNotNull(current.season.takeIf { it > 0 }) +
-            seasonLines[base].orEmpty().map { it.season }.filter { it > 0 }
+            seasonLines[base].orEmpty().filter { it.released }.map { it.season }.filter { it > 0 }
         return candidates.maxOrNull() ?: 0
     }
 

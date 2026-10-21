@@ -25,7 +25,8 @@ internal object FavoriteLabels {
 
     fun badge(entry: FavoriteEntry): String = when {
         hasNewerSeason(entry) -> "${TvText.season(entry.latestSeason)}已上线"
-        entry.status == FavoriteStatus.NEW_SEASON -> "已更新"
+        // NEW_SEASON 是"集数增长"的既有状态名：单季短剧也会每日加集，不能说成"新一季"。
+        entry.status == FavoriteStatus.NEW_SEASON -> "有新集"
         entry.status == FavoriteStatus.UP_TO_DATE -> "已是最新"
         entry.status == FavoriteStatus.FAILED -> "检查失败"
         else -> "尚未检查更新"
@@ -37,9 +38,9 @@ internal object FavoriteLabels {
 
     /** 状态行：没在检查时说什么。 */
     fun idleStatus(favoriteCount: Int, dueCount: Int): String = when {
-        favoriteCount == 0 -> "收藏后可检查有没有新一季上线"
+        favoriteCount == 0 -> "收藏后可检查有没有新内容"
         dueCount == 0 -> "最近一小时检查过 · 可手动刷新"
-        else -> "「检查更新」看有没有新的一季上线"
+        else -> "「检查更新」看有没有新一季或新集"
     }
 
     fun progressText(index: Int, total: Int, title: String): String =
@@ -50,7 +51,11 @@ internal object FavoriteLabels {
         report.checked == 0 && report.failed > 0 -> "检查失败 · 稍后联网再试"
         // 连续失败中止：别让用户以为"检查完成"
         report.stoppedEarly -> "检查中断 · 已检查 ${report.checked} 部 · 稍后联网再试"
-        report.newer > 0 -> "检查完成 · ${report.newer} 部有新一季"
+        report.newSeasons > 0 && report.newEpisodes > 0 ->
+            "检查完成 · ${report.newSeasons} 部有新一季 · ${report.newEpisodes} 部有新集"
+        report.newSeasons > 0 -> "检查完成 · ${report.newSeasons} 部有新一季"
+        // 单季短剧的日常更新：只加集、没有新季，也要如实说出来
+        report.newEpisodes > 0 -> "检查完成 · ${report.newEpisodes} 部有新集"
         report.failed > 0 -> "检查完成 · ${report.checked} 部已是最新 · ${report.failed} 部失败"
         report.checked == 1 -> "检查完成 · 已是最新"
         else -> "检查完成 · ${report.checked} 部都已是最新"

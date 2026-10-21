@@ -255,6 +255,23 @@ class PrefsLibraryTest {
     }
 
     @Test
+    fun unreleasedSeasonDoesNotBecomeTheLatestSeason() = runTest {
+        // 季线里会保留未上线季占位（episode_cnt=0）：角标不能说"第十季已上线"
+        val lib = PrefsLibrary(store("favoriteSeries" to "{}"))
+        lib.toggle(Series("9", "测试书第九季", season = 9))
+        lib.rememberSeasonLine(
+            "测试书",
+            SeasonLine(
+                listOf(
+                    Series("9", "测试书第九季", season = 9),
+                    Series("10", "测试书第十季", season = 10, released = false),
+                ),
+            ),
+        )
+        assertEquals(9, lib.entry("测试书")!!.latestSeason)
+    }
+
+    @Test
     fun favoriteEntryExposesItsKeyAndLastCheckTime() = runTest {
         val lib = PrefsLibrary(store("favoriteSeries" to "{}"), clock = { 5_000L })
         lib.toggle(Series("1", "凡人测试书第二季"))

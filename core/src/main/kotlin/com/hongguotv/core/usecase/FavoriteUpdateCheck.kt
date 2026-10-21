@@ -1,18 +1,26 @@
 package com.hongguotv.core.usecase
 
 import com.hongguotv.core.model.FavoriteEntry
+import com.hongguotv.core.model.FavoriteStatus
 import com.hongguotv.core.port.ContentPort
 import com.hongguotv.core.port.FavoritesPort
 import com.hongguotv.core.port.UpstreamError
 
-/** 一次「检查更新」的结果。页面只按这三个数拼状态行。 */
+/** 一次「检查更新」的结果。页面只按这几个数拼状态行。 */
 data class FavoriteCheckReport(
     /** 真正检查成功的部数。 */
     val checked: Int,
     /** 失败的部数（详情拿不到）。 */
     val failed: Int,
     /** 其中"有新一季"的部数。 */
-    val newer: Int,
+    val newSeasons: Int,
+    /**
+     * 其中"同一季有新集"的部数。
+     *
+     * 短剧并非都是"一次放全"（维护者实测「十八岁的二次回响」每日更新），
+     * 所以"集数增长"必须和"新季上线"分开计数，状态行不能一律说"已是最新"。
+     */
+    val newEpisodes: Int,
     /** 是否因为连续失败达上限而提前中止。 */
     val stoppedEarly: Boolean,
 )
@@ -20,8 +28,9 @@ data class FavoriteCheckReport(
 /**
  * 收藏更新检查：串行逐部问两件事——当前季现在多少集（详情接口）、服务端季线里有没有更新的季。
  *
- * 为什么放在 core 而不是页面里：三条规则（1 小时有效期、连续失败 3 次中止、"新季"看季号不看集数）
- * 是领域规则，写进页面就只能靠真机验；写成用例可以用假端口把顺序与计数钉死。
+ * 为什么放在 core 而不是页面里：四条规则（1 小时有效期、连续失败 3 次中止、
+ * "新季"看季号不看集数、"新集"看详情集数增长）是领域规则，写进页面就只能靠真机验；
+ * 写成用例可以用假端口把顺序与计数钉死。
  *
  * 页面只提供回调：进度行要跟着"第几部、哪部"变，检查完一部要刷新那张卡的角标。
  */
@@ -32,6 +41,9 @@ object FavoriteUpdateCheck {
 
     /** 连续失败上限：断网时别把整个收藏列表空转一遍。 */
     const val MAX_CONSECUTIVE_FAILURES: Int = 3
+
+    /** 一次检查的发现。两个标志互不排斥：上新季的同时也可以给当前季加集。 */
+    private data class Finding(val newSeason: Boolean, val newEpisodes: Boolean)
 
     /**
      * 这一部现在该不该检查。
@@ -72,23 +84,26 @@ object FavoriteUpdateCheck {
         onChecked: (seriesKey: String) -> Unit = {},
     ): FavoriteCheckReport {
         val pending = due(entries, clock(), force)
-        if (pending.isEmpty()) return FavoriteCheckReport(checked = 0, failed = 0, newer = 0, stoppedEarly = false)
+        if (pending.isEmpty()) {
+            return FavoriteCheckReport(checked = 0, failed = 0, newSeasons = 0, newEpisodes = 0, stoppedEarly = false)
+        }
 
         var checked = 0
         var failed = 0
-        var newer = 0
+        var newSeasons = 0
+        var newEpisodes = 0
         var streak = 0
         var stopped = false
 
         for ((index, entry) in pending.withIndex()) {
             onProgress(index, pending.size, entry.series.title)
-            // null = 这一部失败了；false = 检查成功、没有新季
-            val foundNewer: Boolean? = try {
+            // null = 这一部失败了
+            val finding: Finding? = try {
                 checkOne(entry, content, favorites, clock())
             } catch (error: UpstreamError) {
                 null
             }
-            if (foundNewer == null) {
+            if (finding == null) {
                 failed++
                 streak++
                 if (streak >= MAX_CONSECUTIVE_FAILURES) {
@@ -99,19 +114,21 @@ object FavoriteUpdateCheck {
             }
             checked++
             streak = 0
-            if (foundNewer) newer++
+            // 两个计数独立累计：一部剧可以同时上新季又给当前季加集，两边都要说出来
+            if (finding.newSeason) newSeasons++
+            if (finding.newEpisodes) newEpisodes++
             onChecked(entry.seriesKey)
         }
-        return FavoriteCheckReport(checked, failed, newer, stopped)
+        return FavoriteCheckReport(checked, failed, newSeasons, newEpisodes, stopped)
     }
 
-    /** @return 这次检查有没有发现更新的季 */
+    /** @return 这次检查各发现了什么；两个标志独立，允许同时为真 */
     private suspend fun checkOne(
         entry: FavoriteEntry,
         content: ContentPort,
         favorites: FavoritesPort,
         now: Long,
-    ): Boolean {
+    ): Finding {
         val detail = content.detail(entry.series.id)
 
         // 季线拿不到不算整部失败：当前季的集数已经拿到了，"有没有新季"留到下次
@@ -121,9 +138,13 @@ object FavoriteUpdateCheck {
             null
         }
         if (line != null && line.seasons.size >= 2) favorites.rememberSeasonLine(entry.seriesKey, line)
+        // 先落库再读状态：acknowledge 会把"集数增长"记成 NEW_SEASON，和新季共用同一行。
         favorites.acknowledge(entry.series.id, detail.episodes.size, now)
 
-        val latest = line?.seasons?.maxOfOrNull { it.season } ?: 0
-        return latest > 0 && latest > entry.series.season
+        // 未上线季不算"新季"（季线里保留占位，但用户点不进去）
+        val latest = line?.seasons?.filter { it.released }?.maxOfOrNull { it.season } ?: 0
+        val newSeason = latest > 0 && latest > entry.series.season
+        val newEpisodes = favorites.entry(entry.seriesKey)?.status == FavoriteStatus.NEW_SEASON
+        return Finding(newSeason = newSeason, newEpisodes = newEpisodes)
     }
 }
