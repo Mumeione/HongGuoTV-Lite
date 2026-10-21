@@ -22,6 +22,7 @@ import com.hongguotv.lite.uikit.page.ContentPane
 import com.hongguotv.lite.uikit.page.GridRendered
 import com.hongguotv.lite.uikit.page.PosterGrid
 import com.hongguotv.lite.uikit.text.TvText
+import com.hongguotv.lite.uikit.ui.ButtonVariant
 import com.hongguotv.lite.uikit.ui.CardItem
 import com.hongguotv.lite.uikit.ui.Icons
 import com.hongguotv.lite.uikit.ui.PreviewRail
@@ -51,6 +52,7 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
 
     private val filterChips = mutableListOf<TvChip>()
     private lateinit var input: TvInput
+    private lateinit var searchButton: TvButton
     private lateinit var sortChip: TvChip
     private lateinit var suggestRow: LinearLayout
     private val suggestChips = mutableListOf<TvButton>()
@@ -107,6 +109,15 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         }
         val inputWidth = minOf(ui.dp(tokens.metrics.inputMaxWidth), (ui.context.resources.displayMetrics.widthPixels * tokens.metrics.inputWidthRatio).toInt())
         searchRow.addView(input, LinearLayout.LayoutParams(inputWidth, ui.dp(tokens.metrics.inputHeight)).apply {
+            rightMargin = ui.dp(tokens.space.m)
+        })
+        // 遥控器/电视上没有"键盘上的回车"可依赖：给一个看得见、按得着的搜索按钮。
+        // 输入框里的 IME 搜索动作仍然保留，两种操作都能触发。
+        searchButton = ui.button("搜索", variant = ButtonVariant.PRIMARY) { submit() }
+        searchRow.addView(searchButton, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ui.dp(tokens.metrics.inputHeight),
+        ).apply {
             rightMargin = ui.dp(tokens.space.m)
         })
         sortChip = ui.chip(SettingRows.sortLabel(settings().seasonSortAsc), iconRes = Icons.SORT) { toggleSort() }
@@ -406,6 +417,7 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         views.putAll(navViews())
         filterChips.forEachIndexed { index, chip -> views[FocusKey("filter:$index")] = chip }
         views[FocusKey("search:input")] = input
+        views[FocusKey("search:go")] = searchButton
         views[FocusKey("search:sort")] = sortChip
         suggestChips.forEachIndexed { index, chip -> views[FocusKey("suggest:$index")] = chip }
         if (retry.visibility == View.VISIBLE) views[FocusKey("search:retry")] = retry
@@ -415,7 +427,10 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         val sections = listOf(
             navSection(),
             FocusSections.section(FocusSections.keys("filter", filterChips.size), filterChips.size),
-            FocusSections.section(listOf(FocusKey("search:input"), FocusKey("search:sort")), 2),
+            FocusSections.section(
+                listOf(FocusKey("search:input"), FocusKey("search:go"), FocusKey("search:sort")),
+                3,
+            ),
             FocusSections.section(FocusSections.keys("suggest", suggestChips.size), suggestChips.size),
             if (retry.visibility == View.VISIBLE) FocusSections.section(listOf(FocusKey("search:retry")), 1) else null,
             continueRendered?.let { FocusSections.section(it.keys, it.columns) },

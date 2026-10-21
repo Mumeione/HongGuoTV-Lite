@@ -46,7 +46,6 @@ internal object Parsers {
             Fields.Card.EPISODE_CNT,
             o.optJSONObject(Fields.Card.SERIES_EPISODE_INFO)?.optInt(Fields.Card.EPISODE_CNT, 0) ?: 0,
         )
-        val tags = o.optJSONArray(Fields.Card.TAGS) ?: o.optJSONArray(Fields.Card.CATEGORY_LIST) ?: JSONArray()
         val celebs = o.optJSONArray(Fields.Card.CELEBRITIES)
         val title = o.str(Fields.Card.SERIES_NAME).ifEmpty { o.str(Fields.Card.SERIES_TITLE).ifEmpty { item.str(Fields.Card.NAME) } }
         val series = Series(
@@ -55,10 +54,41 @@ internal object Parsers {
             cover = cleanUrl(o.str(Fields.Card.SERIES_COVER)),
             intro = o.str(Fields.Card.SERIES_INTRO),
             badge = o.str(Fields.Card.EPISODE_RIGHT_TEXT).ifEmpty { if (count > 0) "全 $count 集" else "" },
-            tags = (0 until minOf(tags.length(), 5)).joinToString(" · ") { tags.optJSONObject(it)?.str(Fields.Card.NAME) ?: tags.optString(it) },
+            // tags 与 category_list 是同一信息的两种形态：前者可能为空/只有 id，
+            // 这时必须退到后者，否则卡片预览的分类会时有时无（维护者实测）。
+            tags = cardTags(o),
             season = SeasonKeys.seasonNumber(title),
         )
         return Card(series, isComic = celebs == null || celebs.length() == 0)
+    }
+
+    /**
+     * 卡片分类。上游给分类有三种形态，必须按顺序试，少试一种就会丢分类：
+     * 1. `tags` 数组（可能为空 / 只有 id）；
+     * 2. `category_list` 数组（官网 SSR 用）；
+     * 3. `category_schema`——**字符串形式的 JSON 数组**（plan / 相关作品卡片用，
+     *    旧实现完全没读，于是季线卡片永远没有分类）。
+     */
+    private fun cardTags(o: JSONObject): String {
+        val names = jsonNames(o.optJSONArray(Fields.Card.TAGS))
+            .ifEmpty { jsonNames(o.optJSONArray(Fields.Card.CATEGORY_LIST)) }
+            .ifEmpty { jsonNames(schemaArray(o)) }
+        return names.distinct().take(5).joinToString(" · ")
+    }
+
+    /** `category_schema` 是 JSON 字符串：解不开就当没有分类，不让坏字段拖垮整张卡片。 */
+    private fun schemaArray(o: JSONObject): JSONArray? {
+        val raw = o.str(Fields.Card.CATEGORY_SCHEMA)
+        if (raw.isEmpty()) return null
+        return runCatching { JSONArray(raw) }.getOrNull()
+    }
+
+    private fun jsonNames(array: JSONArray?): List<String> {
+        if (array == null) return emptyList()
+        return (0 until array.length()).mapNotNull { index ->
+            val obj = array.optJSONObject(index)
+            (obj?.str(Fields.Card.NAME) ?: array.optString(index)).takeIf { it.isNotBlank() }
+        }
     }
 
     /** 脏行过滤：id 必须是纯数字、标题非空，按 id 去重。 */
@@ -133,7 +163,8 @@ internal object Parsers {
                 cover = cleanUrl(o.str(Fields.Card.COVER)),
                 intro = o.str(Fields.Card.VIDEO_DESC),
                 badge = if (count > 0) "全 $count 集" else SeriesBadge.UNRELEASED,
-                tags = "",
+                // 季线卡片自己也有分类（category_schema）；读不到时由 ContentRepository 从锚点传播
+                tags = cardTags(o),
                 season = n,
                 released = count > 0,
             )

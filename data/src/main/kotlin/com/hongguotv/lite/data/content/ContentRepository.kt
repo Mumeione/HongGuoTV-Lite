@@ -72,17 +72,48 @@ class ContentRepository(
         val rows = Parsers.valid(siteCards(keyword))
         val anchor = rows.firstOrNull { SeasonKeys.seasonKey(it.series.title) == SeasonKeys.normalizeTitle(keyword) }
             ?: return emitSearchResult(displayOf(rows, filter), emptyList(), keyword)
+        val keywordKey = SeasonKeys.normalizeTitle(keyword)
 
-        // plan 失败（网络/风控/结构）不是搜索失败：降级为官网原序，与旧行为一致
-        val line = runCatchingIo { planCells(anchor.series.id, anchor.isComic, anchor.series) }.getOrNull()
-        if (line == null || line.seasons.size < 2) return emitSearchResult(displayOf(rows, filter), emptyList(), keyword)
+        // plan 失败（网络/风控/结构）不是搜索失败：降级为官网原序，与旧行为一致。
+        // 但"第一条锚点没有相关作品"很常见（正传常常没进专辑），这时换下一条同系列候选再试，
+        // 否则搜完整剧名只会拿到官网那 10 条乱序结果（维护者实测"魏家逆子成首辅"）。
+        val found = seasonLineFor(anchor, rows, keywordKey)
+            ?: return emitSearchResult(displayOf(rows, filter), emptyList(), keyword)
+        val (line, lineAnchor) = found
 
         val lineIds = line.seasons.map { it.id }.toSet()
-        val keywordKey = SeasonKeys.normalizeTitle(keyword)
         val rest = rows.filter { it.series.id !in lineIds && SeasonKeys.normalizeTitle(it.series.title).contains(keywordKey) }
         val displayRest = Parsers.filterType(rest, filter).map { it.series }
+        // 季线卡片（plan）不一定带分类：同一系列的各季共用分类，
+        // 从可用的锚点传播过去，否则只有官网搜索那一条卡片有分类（维护者实测"时有时无"）。
+        val anchorTags = lineAnchor.series.tags
+        val displayLine = filterLine(line, filter).asReversed().map { season ->
+            if (season.tags.isBlank() && anchorTags.isNotBlank()) season.copy(tags = anchorTags) else season
+        }
         // 展示序：季线新 → 旧置顶，其余条目保持官方原序
-        return emitSearchResult(filterLine(line, filter).asReversed() + displayRest, line.seasons, keyword)
+        return emitSearchResult(displayLine + displayRest, line.seasons, keyword)
+    }
+
+    /**
+     * 找到能给出季线（≥2 季）的锚点：先试首选，再试同系列的前几条候选。
+     *
+     * 上限 [MAX_SEASON_ANCHORS] 是为了让"搜错词"这类情况不至于把 10 条候选都打一遍——
+     * 每条 plan 约 1 秒，宁可退回官网原序，也不能让搜索转半分钟。
+     */
+    private suspend fun seasonLineFor(anchor: Card, rows: List<Card>, keywordKey: String): Pair<PlanLine, Card>? {
+        val candidates = buildList {
+            add(anchor)
+            rows.asSequence()
+                .filter { it.series.id != anchor.series.id }
+                .filter { SeasonKeys.normalizeTitle(it.series.title).contains(keywordKey) }
+                .take(MAX_SEASON_ANCHORS - 1)
+                .forEach { add(it) }
+        }
+        for (candidate in candidates) {
+            val line = runCatchingIo { planCells(candidate.series.id, candidate.isComic, candidate.series) }.getOrNull()
+            if (line != null && line.seasons.size >= 2) return line to candidate
+        }
+        return null
     }
 
     /** 搜索结果的统一出口：顺手把"实际展示了几条、季线几季"记进诊断，不记搜索词原文。 */
@@ -293,6 +324,9 @@ class ContentRepository(
     private companion object {
         /** 官网请求最少间隔：补搜多季时限流的实测安全值（旧行为）。 */
         const val SITE_INTERVAL_MS = 400L
+
+        /** 季线最多试几个锚点：首选 + 2 条同系列候选。每条 plan 约 1 秒。 */
+        const val MAX_SEASON_ANCHORS = 3
     }
 }
 

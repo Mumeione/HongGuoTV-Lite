@@ -112,6 +112,70 @@ class ContentRepositoryTest {
     }
 
     @Test
+    fun seasonLineCardsInheritTheAnchorCategories() = runTest {
+        // plan 卡片没有分类字段；官网搜索命中的锚点有。同一系列的各季共用分类，
+        // 不传播的话搜索结果里只有锚点那张卡有分类（维护者实测"时有时无"）。
+        val anchor = seriesJson("1", "凡人测试书第二季", celebs = false)
+            .put("category_list", JSONArray().put(JSONObject().put("name", "古装")))
+        val repo = repository { request ->
+            route(
+                request,
+                search = searchPage(listOf(anchor)),
+                plan = planResponse(listOf(
+                    planCard("3", "凡人测试书第八季", 80, "第8季"),
+                    planCard("4", "凡人测试书第三季", 60, "第3季"),
+                )),
+            )
+        }
+        val out = repo.search("凡人测试书", ContentFilter.ALL)
+        assertEquals(listOf("3", "4", "1"), out.items.map { it.id })
+        assertTrue(out.items.all { it.tags == "古装" })
+    }
+
+    @Test
+    fun seasonLineCardsReadTheirOwnCategorySchema() = runTest {
+        // 第三个形态：category_schema 是字符串形式的 JSON 数组（plan / 相关作品用它）。
+        // 旧实现只读 tags / category_list，季线卡片因此永远没有分类。
+        val withSchema = planCard("3", "凡人测试书第八季", 80, "第8季").apply {
+            getJSONObject("video_data")
+                .put("category_schema", """[{"category_id":316,"name":"古装"},{"category_id":317,"name":"逆袭"}]""")
+        }
+        val repo = repository { request ->
+            route(
+                request,
+                search = searchPage(listOf(seriesJson("1", "凡人测试书第二季", celebs = false))),
+                plan = planResponse(listOf(withSchema, planCard("4", "凡人测试书第三季", 60, "第3季"))),
+            )
+        }
+        val out = repo.search("凡人测试书", ContentFilter.ALL)
+        val season8 = out.items.first { it.id == "3" }
+        assertEquals("古装 · 逆袭", season8.tags)
+    }
+
+    @Test
+    fun searchRetriesWithTheNextAnchorWhenTheFirstHasNoRelatedCell() = runTest {
+        // 正传常常不在「相关作品」里：第一条锚点拿不到季线时，换同系列的下一条候选再试。
+        // 不重试的话，搜完整剧名只会得到官网那 10 条乱序结果（维护器实测"搜不到季"）。
+        val repo = repository { request ->
+            val firstAnchor = request.url.contains("book_id=1")
+            route(
+                request,
+                search = searchPage(listOf(
+                    seriesJson("1", "凡人测试书", celebs = false),
+                    seriesJson("2", "凡人测试书分宗篇", celebs = false),
+                )),
+                plan = if (firstAnchor) planResponse(emptyList()) else planResponse(listOf(
+                    planCard("3", "凡人测试书第八季", 80, "第8季"),
+                )),
+            )
+        }
+        val out = repo.search("凡人测试书", ContentFilter.ALL)
+        assertEquals(2, out.seasonLine.size)
+        // 季线（第 8 季 + 第 1 季，新→旧）在前，其余官网条目在后
+        assertEquals(listOf("3", "2", "1"), out.items.map { it.id })
+    }
+
+    @Test
     fun planFailureFallsBackToWebsiteOrder() = runTest {
         val repo = repository { request ->
             route(request, search = searchPage(listOf(

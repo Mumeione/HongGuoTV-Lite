@@ -33,6 +33,12 @@ object Fields {
         const val CELEBRITIES = "celebrities"
         const val TAGS = "tags"
         const val CATEGORY_LIST = "category_list"
+
+        /**
+         * 分类的第三种形态：**字符串形式的 JSON 数组**（plan / 相关作品卡片用它）。
+         * 只读前两者会让"分类时有时无"——同一个系列，官网搜索那条有、季线卡片没有。
+         */
+        const val CATEGORY_SCHEMA = "category_schema"
         const val CREATE_TIME = "create_time"
         const val VIDEO_DATA = "video_data"
         const val NAME = "name"
