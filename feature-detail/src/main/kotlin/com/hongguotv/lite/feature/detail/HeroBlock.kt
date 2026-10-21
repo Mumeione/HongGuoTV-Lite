@@ -47,6 +47,9 @@ internal class HeroBlock(private val ui: UiKit) {
     /** 动作按钮的容器，由页面往里塞自己的按钮。 */
     val actions: LinearLayout = ui.row().apply { setPadding(0, ui.dp(tokens.space.m), 0, 0) }
 
+    /** 右栏（简介）。空简介时整栏 GONE，左栏拿回全部宽度。 */
+    private val introColumn: LinearLayout = ui.column()
+
     val view: LinearLayout = ui.rowTop().apply {
         visibility = View.GONE
         setPadding(0, ui.dp(tokens.space.m), 0, ui.dp(tokens.space.m))
@@ -58,13 +61,21 @@ internal class HeroBlock(private val ui: UiKit) {
                 rightGap = tokens.metrics.heroCoverGap,
             ),
         )
+        // 左栏：片名 + 元信息 + 上次观看 + 动作。这一栏决定头部高度。
         val info = ui.column()
-        addView(info, ui.params(width = 0, weight = 1f))
+        addView(info, ui.params(width = 0, weight = INFO_WEIGHT))
         info.addView(titleView)
         info.addView(metaView)
         info.addView(statusView)
-        info.addView(introView)
         info.addView(actions)
+
+        // 右栏：简介。放在右侧的空白里（片名通常只占半行），简介就不会再把动作行往下推——
+        // 一屏就多出一行分集格/季卡的高度。
+        addView(
+            introColumn,
+            ui.params(width = 0, weight = INTRO_WEIGHT).apply { leftMargin = ui.dp(tokens.metrics.heroIntroGap) },
+        )
+        introColumn.addView(introView)
     }
 
     /** 状态行与简介为空时整行隐藏：留着空行只会把下面的内容推远。 */
@@ -75,6 +86,7 @@ internal class HeroBlock(private val ui: UiKit) {
         statusView.text = status
         statusView.visibility = if (status.isBlank()) View.GONE else View.VISIBLE
         introView.text = intro
+        introColumn.visibility = if (intro.isBlank()) View.GONE else View.VISIBLE
         expandIntro(introExpanded)
     }
 
@@ -83,7 +95,11 @@ internal class HeroBlock(private val ui: UiKit) {
     }
 
     private companion object {
-        const val INTRO_COLLAPSED_LINES = 2
+        /** 左栏（信息）与右栏（简介）的宽度比：简介要读得进去，但不能挤到片名。 */
+        const val INFO_WEIGHT = 1.6f
+        const val INTRO_WEIGHT = 1f
+
+        const val INTRO_COLLAPSED_LINES = 4
         const val INTRO_EXPANDED_LINES = 20
     }
 }

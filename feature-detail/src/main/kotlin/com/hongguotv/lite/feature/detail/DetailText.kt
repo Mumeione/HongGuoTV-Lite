@@ -78,6 +78,27 @@ internal object DetailText {
         else -> "未观看"
     }
 
+    /** 标题里「第N季 / 第N部」的片段：季卡标题要把季号提出来，篇名留在后面。 */
+    private val SEASON_TAG = Regex("第\\s*[0-9０-９一二两三四五六七八九十]{1,3}\\s*[季部]")
+
+    private val TRIM = charArrayOf(' ', '：', ':', '·', '-', '—', '，', ',')
+
+    /**
+     * 季卡标题：只写季号（`第九季`），没有季号才退回篇名。
+     *
+     * 8 列时每张卡只有九十来 dp：写全名会被截成"魏家逆子成首辅第十…"；把季号与篇名
+     * 拆成两行又会断在词中间。剧名与篇名在主视觉和详情页都写全了，卡片上只需要
+     * 回答"这是第几季"——这一行必须一眼读完。
+     */
+    fun seasonCardTitle(season: Series, base: String): String {
+        var name = season.title
+        if (base.isNotBlank() && name.startsWith(base)) name = name.removePrefix(base)
+        name = name.trim(*TRIM)
+        val tag = SEASON_TAG.find(name)
+        val label = TvText.season(season.season).ifEmpty { tag?.value.orEmpty() }
+        return label.ifBlank { name.ifBlank { season.title } }
+    }
+
     /** 系列页第二行：收藏身份 + 季数 + 集数 + 分类。 */
     fun seriesMeta(series: Series, seasonCount: Int, favorite: Boolean): String {
         val parts = mutableListOf<String>()

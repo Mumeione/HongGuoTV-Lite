@@ -16,21 +16,37 @@ class DetailCardsTest {
 
     @Test
     fun theCurrentSeasonIsMarkedOnTheArtwork() {
-        val card = DetailCards.season(series("6", 6), current = true, progress = null, watched = false)
+        val card = DetailCards.season(series("6", 6), base = "测试书", current = true, progress = null, watched = false)
         assertEquals("当前", card.corner)
-        assertEquals("测试书第6季", card.title)
+        assertEquals("第六季", card.title)
     }
 
     @Test
     fun otherSeasonsCarryNoCorner() {
-        val card = DetailCards.season(series("7", 7), current = false, progress = null, watched = false)
+        val card = DetailCards.season(series("7", 7), base = "测试书", current = false, progress = null, watched = false)
         assertEquals("", card.corner)
+    }
+
+    /**
+     * 8 列时每张卡只有九十来 dp：标题只写季号，写全名会被截成"测试书第…"。
+     * 没有季号的条目（第 1 季常常直接叫"分宗篇"）才退回篇名。
+     */
+    @Test
+    fun theCardTitleIsJustTheSeasonNumber() {
+        val first = Series(id = "1", title = "魏家逆子成首辅分宗篇", season = 0)
+        assertEquals("分宗篇", DetailText.seasonCardTitle(first, "魏家逆子成首辅"))
+
+        val ninth = Series(id = "9", title = "魏家逆子成首辅第九季：始计篇", season = 9)
+        assertEquals("第九季", DetailText.seasonCardTitle(ninth, "魏家逆子成首辅"))
+
+        // 不知道系列基名也一样：季号直接从标题里读，不依赖前缀能不能切掉
+        assertEquals("第九季", DetailText.seasonCardTitle(ninth, ""))
     }
 
     /** 未上线季暗一档，并且角标本身就写着"未上线"——不看颜色也知道按不进去。 */
     @Test
     fun anUnreleasedSeasonIsDimmedAndLabelled() {
-        val card = DetailCards.season(series("10", 10, released = false), current = false, progress = null, watched = false)
+        val card = DetailCards.season(series("10", 10, released = false), base = "测试书", current = false, progress = null, watched = false)
         assertTrue(card.dim)
         assertEquals("第十季 · 未上线", card.badge)
     }
@@ -38,7 +54,7 @@ class DetailCardsTest {
     @Test
     fun aWatchedSeasonReadsAsFinishedInsteadOfAnEpisodeNumber() {
         val progress = Progress("6", "v1", 29, 0L, 100_000L, completed = true, updatedAt = 1L)
-        val card = DetailCards.season(series("6", 6), current = false, progress = progress, watched = false)
+        val card = DetailCards.season(series("6", 6), base = "测试书", current = false, progress = progress, watched = false)
         assertEquals("已看完", card.badge)
         assertFalse(card.dim)
     }
@@ -46,7 +62,7 @@ class DetailCardsTest {
     @Test
     fun aSeasonInProgressShowsTheEpisode() {
         val progress = Progress("6", "v9", 8, 12_000L, 100_000L, completed = false, updatedAt = 1L)
-        val card = DetailCards.season(series("6", 6), current = false, progress = progress, watched = false)
+        val card = DetailCards.season(series("6", 6), base = "测试书", current = false, progress = progress, watched = false)
         assertEquals("上次第 9 集", card.badge)
     }
 

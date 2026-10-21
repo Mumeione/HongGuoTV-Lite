@@ -92,9 +92,17 @@ object PlayerText {
         else -> null
     }
 
-    /** 失败卡下面那行说明。只在解码失败时出现：它解释的是"为什么换清晰度有用"。 */
-    fun failureHint(failure: PlaybackFailure): String? =
-        if (failure is PlaybackFailure.Decode) DECODE_HINT else NETWORK_HINT
+    /** 失败卡下面那行说明。解码失败解释"为什么换清晰度有用"；其余要分清"你的网"与"上游的渠道"。 */
+    fun failureHint(failure: PlaybackFailure): String? = when {
+        failure is PlaybackFailure.Decode -> DECODE_HINT
+        // 200 空体 / 风控码：上游根本没下发播放地址。这与"网络抖动"是两件事，
+        // 让人反复重启路由器只会浪费十分钟。
+        failure is PlaybackFailure.Unavailable && failure.cause.isChannelDown() -> CHANNEL_HINT
+        else -> NETWORK_HINT
+    }
+
+    /** 上游"有响应但不下发地址"这两类失败：换清晰度、换时段都可能不一样，但重试最快。 */
+    private fun Throwable?.isChannelDown(): Boolean = this is UpstreamError.EmptyBody || this is UpstreamError.RiskControl
 
     /** 自动重试 3 次仍失败时的说明。 */
     const val RETRY_EXHAUSTED: String = "已自动重试 3 次，仍无法播放。可手动重试或切换清晰度。"
@@ -112,4 +120,7 @@ object PlayerText {
 
     private const val DECODE_HINT: String = "低清晰度更容易解码，代价是画面变糊。"
     private const val NETWORK_HINT: String = "网络抖动时先重试通常就够。"
+
+    /** 上游没下发播放地址时的说明。不写"网络"二字——这时候用户的网是好的。 */
+    const val CHANNEL_HINT: String = "播放渠道暂时没有下发地址，过一会儿再试。"
 }

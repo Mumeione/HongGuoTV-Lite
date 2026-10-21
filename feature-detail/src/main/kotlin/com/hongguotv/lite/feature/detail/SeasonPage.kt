@@ -21,7 +21,6 @@ import com.hongguotv.lite.uikit.text.TvText
 import com.hongguotv.lite.uikit.ui.ButtonVariant
 import com.hongguotv.lite.uikit.ui.PosterCard
 import com.hongguotv.lite.uikit.ui.TvButton
-import com.hongguotv.lite.uikit.ui.TvLink
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -50,10 +49,9 @@ internal class SeasonPage(
     private lateinit var introButton: TvButton
     private lateinit var seasonHeader: LinearLayout
     private lateinit var seasonCountView: TextView
-    private lateinit var sortLink: TvLink
+    private lateinit var sortButton: TvButton
     private lateinit var seasonHost: LinearLayout
     private lateinit var pager: PagerRow
-    private lateinit var footerNote: TextView
 
     private var entry: FavoriteEntry? = null
     private var line: SeasonLine? = null
@@ -73,8 +71,8 @@ internal class SeasonPage(
     private val confirm = TwoStepConfirm()
 
     override fun build() {
-        // 季键就是系列基名，先用它顶一下；拿到收藏行后用带标点的原标题
-        header = scaffold.showHeader(seriesKey) { host.navigator.back() }
+        // 页头写页面名，剧名交给下面的主视觉：同一行标题重复两遍既占高度又显得乱
+        header = scaffold.showHeader("收藏详情") { host.navigator.back() }
         val body = scaffold.scrollBody()
 
         stateView = ui.text("", tokens.type.subtitle, tokens.colors.muted).apply {
@@ -107,30 +105,24 @@ internal class SeasonPage(
 
         seasonHeader = ui.row().apply {
             visibility = View.GONE
-            setPadding(0, ui.dp(tokens.space.l), 0, ui.dp(tokens.space.s))
+            setPadding(0, ui.dp(tokens.space.m), 0, ui.dp(tokens.space.s))
         }
-        // 排序开关放在最左边：它管的是下面这一排季，离得太远（贴着右边缘）就成了另一件事。
-        // 季数标签跟在它后面，两者左对齐。
-        sortLink = ui.link("倒序") { toggleSort() }
-        seasonHeader.addView(sortLink)
+        // 一行三段：季数（左）→ 翻组 → 排序（右）。排序与翻组都是按钮、同高，
+        // 不做成小号文字链接——同一行里两种尺寸的控件会显得没对齐
         seasonCountView = ui.text("", tokens.type.subtitle, tokens.colors.text).apply {
             setTypeface(null, android.graphics.Typeface.BOLD)
-            setPadding(ui.dp(tokens.space.m), 0, 0, 0)
         }
-        seasonHeader.addView(seasonCountView, ui.params(width = 0, weight = 1f))
+        seasonHeader.addView(seasonCountView)
+        seasonHeader.addView(View(ui.context), ui.params(width = 0, weight = 1f))
+        pager = PagerRow(ui, fillWidth = false).apply { onPage = { delta -> goPage(delta) } }
+        seasonHeader.addView(pager.view)
+        sortButton = ui.button("倒序") { toggleSort() }
+        seasonHeader.addView(sortButton, ui.params().apply { leftMargin = ui.dp(tokens.space.m) })
         body.addView(seasonHeader)
 
         seasonHost = ui.column().apply { visibility = View.GONE }
         body.addView(seasonHost)
 
-        pager = PagerRow(ui).apply { onPage = { delta -> goPage(delta) } }
-        body.addView(pager.view)
-
-        footerNote = ui.text(DetailText.SEASON_FOOTER, tokens.type.caption, tokens.colors.muted).apply {
-            visibility = View.GONE
-            setPadding(0, ui.dp(tokens.space.l), 0, 0)
-        }
-        body.addView(footerNote)
 
         load()
     }
@@ -188,14 +180,8 @@ internal class SeasonPage(
         hero.view.visibility = if (series == null) View.GONE else View.VISIBLE
         seasonHeader.visibility = if (ready) View.VISIBLE else View.GONE
         seasonHost.visibility = if (ready) View.VISIBLE else View.GONE
-        footerNote.visibility = if (ready) View.VISIBLE else View.GONE
 
-        if (series == null) {
-            header.title(seriesKey)
-        } else {
-            header.title(titleText(series))
-            renderHero(series)
-        }
+        if (series != null) renderHero(series)
 
         val seasons = line
         if (seasons == null) {
@@ -227,9 +213,14 @@ internal class SeasonPage(
     /**
      * 季线展示序：落库是旧→新（端口契约），展示层才反转。
      * 默认"新→旧"（最新一季在最左），用户想从头补看时切成正序——和搜索页同一个开关。
+     *
+     * 未上线季永远排在最后：它们点不进去（`openSeason` 会拦住），占着第一张卡只会挡路。
+     * `sortedBy` 是稳定排序，同一组内仍保持各自的新→旧 / 旧→新顺序。
      */
-    private fun orderedSeasons(seasons: SeasonLine): List<Series> =
-        if (host.settings.current().seasonSortAsc) seasons.seasons else seasons.seasons.asReversed()
+    private fun orderedSeasons(seasons: SeasonLine): List<Series> {
+        val ordered = if (host.settings.current().seasonSortAsc) seasons.seasons else seasons.seasons.asReversed()
+        return ordered.sortedBy { if (it.released) 0 else 1 }
+    }
 
     private fun renderHero(series: Series) {
         val progress = latestProgress()
@@ -241,7 +232,9 @@ internal class SeasonPage(
             meta = DetailText.seriesMeta(series, line?.seasons?.size ?: 1, favorite = entry != null),
             // 记录所属的季不在季线里时，退回"收藏的那一季"的季号，别报成最新季
             status = DetailText.seriesStatus(progress, line, entry?.series?.season ?: 0),
-            intro = series.intro.ifBlank { "选择一季开始观看" },
+            // 没有简介就把"各季进度分别保存"放进右栏：这句说明正好填上右栏空白，
+            // 比另起一页脚（会被屏幕边界切掉半行）更省高度
+            intro = series.intro.ifBlank { DetailText.SEASON_FOOTER },
             introExpanded = introExpanded,
         )
         introButton.visibility = if (series.intro.isBlank()) View.GONE else View.VISIBLE
@@ -279,18 +272,25 @@ internal class SeasonPage(
         val focusedId = seasonCards.entries.firstOrNull { it.value.isFocused }?.key
         seasonHost.removeAllViews()
         seasonCards.clear()
+        // 季卡标题去掉系列名前缀（108dp 宽的卡写全名只会截断）
+        val base = entry?.series?.title ?: anchor?.let { SeasonKeys.seasonBase(it.title) }.orEmpty()
+        val currentSeasonId = entry?.series?.id
         val row = ui.rowTop()
         slice.forEachIndexed { position, season ->
+            val current = season.id == currentSeasonId
             val card = ui.poster(cardWidth).apply {
                 // 这一页是详情类页面：封面**不落盘**，只按需取（落盘资格只给收藏/历史，见 S9 规格）
                 bind(
                     DetailCards.season(
                         season = season,
-                        current = season.id == entry?.series?.id,
+                        base = base,
+                        current = current,
                         progress = host.progress.progressOf(season.id),
                         watched = host.progress.isWatched(season.id),
                     ),
                 )
+                // 当前季 = 白底深字（与分集格同一套选中语义），封面图盖住上半部分
+                isSelected = current
                 onActivated = { openSeason(season) }
             }
             row.addView(
@@ -305,7 +305,7 @@ internal class SeasonPage(
         if (focusedId != null) seasonCards[focusedId]?.requestFocus()
 
         seasonCountView.text = DetailText.seasonLineTitle(seasons.seasons.size)
-        sortLink.label(if (host.settings.current().seasonSortAsc) "正序" else "倒序")
+        sortButton.label(if (host.settings.current().seasonSortAsc) "正序" else "倒序")
 
         if (pages > 1) {
             val label = DetailText.seasonRangeLabel(
@@ -443,7 +443,7 @@ internal class SeasonPage(
         }
         if (retryButton.visibility == View.VISIBLE) views[KEY_RETRY] = retryButton
         if (detailOnlyButton.visibility == View.VISIBLE) views[KEY_DETAIL] = detailOnlyButton
-        if (seasonHeader.visibility == View.VISIBLE) views[KEY_SORT] = sortLink
+        if (seasonHeader.visibility == View.VISIBLE) views[KEY_SORT] = sortButton
         seasonCards.forEach { (id, card) -> views[FocusKey(seasonKey(id))] = card }
 
         val pagerKeys = mutableListOf<FocusKey>()

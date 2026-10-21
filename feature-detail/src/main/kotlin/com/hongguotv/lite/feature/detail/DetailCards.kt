@@ -12,9 +12,9 @@ import com.hongguotv.lite.uikit.ui.CardItem
  */
 internal object DetailCards {
 
-    fun season(season: Series, current: Boolean, progress: Progress?, watched: Boolean): CardItem = CardItem(
+    fun season(season: Series, base: String, current: Boolean, progress: Progress?, watched: Boolean): CardItem = CardItem(
         id = season.id,
-        title = season.title,
+        title = DetailText.seasonCardTitle(season, base),
         coverUrl = season.cover,
         badge = DetailText.seasonState(season, progress, watched),
         dim = !season.released,
