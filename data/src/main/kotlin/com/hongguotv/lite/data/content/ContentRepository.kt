@@ -11,6 +11,8 @@ import com.hongguotv.core.model.SeriesIds
 import com.hongguotv.core.model.StreamInfo
 import com.hongguotv.core.model.Suggestion
 import com.hongguotv.core.port.ContentPort
+import com.hongguotv.core.port.DiagnosticsPort
+import com.hongguotv.core.port.SilentDiagnostics
 import com.hongguotv.core.port.UpstreamError
 import com.hongguotv.core.protocol.Fields
 import com.hongguotv.core.protocol.HttpMethod
@@ -18,6 +20,8 @@ import com.hongguotv.core.protocol.MediaCrypto
 import com.hongguotv.core.protocol.SignedRequest
 import com.hongguotv.core.protocol.SignerRegistry
 import com.hongguotv.core.protocol.urlEncode
+import com.hongguotv.lite.data.diagnostics.stageTimed
+import com.hongguotv.lite.data.diagnostics.stageTimedSuspend
 import com.hongguotv.lite.data.http.HttpTransport
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -38,7 +42,17 @@ import kotlin.random.Random
 class ContentRepository(
     private val http: HttpTransport,
     private val signers: SignerRegistry = SignerRegistry(),
+    private val diagnostics: DiagnosticsPort = SilentDiagnostics,
 ) : ContentPort {
+
+    /**
+     * 签名统一入口。端点 id 是日志里唯一允许出现的"请求目标"——
+     * query 与 body 含设备号/时间戳，不能进日志。
+     */
+    private fun sign(endpoint: String, values: Map<String, String>): SignedRequest =
+        diagnostics.stageTimed(DiagnosticsPort.Stage.SIGN, endpoint) {
+            signers.sign(endpoint, values)
+        }
 
     // 取流设备号：进程级复用的随机十九位（[1e18, 9e18)），与内容端点的 71332 设备常量是两套身份。
     // 混用（例如图省事拿 VendorConstants 的固定值）会被 preload 风控判成另一个客户端，返回 200 空体。
@@ -57,25 +71,36 @@ class ContentRepository(
         // 仅当搜索词恰为某系列 base（输入了完整剧名）时才走季线；否则官方原序展示。
         val rows = Parsers.valid(siteCards(keyword))
         val anchor = rows.firstOrNull { SeasonKeys.seasonKey(it.series.title) == SeasonKeys.normalizeTitle(keyword) }
-            ?: return SearchResult(displayOf(rows, filter), emptyList())
+            ?: return emitSearchResult(displayOf(rows, filter), emptyList(), keyword)
 
         // plan 失败（网络/风控/结构）不是搜索失败：降级为官网原序，与旧行为一致
         val line = runCatchingIo { planCells(anchor.series.id, anchor.isComic, anchor.series) }.getOrNull()
-        if (line == null || line.seasons.size < 2) return SearchResult(displayOf(rows, filter), emptyList())
+        if (line == null || line.seasons.size < 2) return emitSearchResult(displayOf(rows, filter), emptyList(), keyword)
 
         val lineIds = line.seasons.map { it.id }.toSet()
         val keywordKey = SeasonKeys.normalizeTitle(keyword)
         val rest = rows.filter { it.series.id !in lineIds && SeasonKeys.normalizeTitle(it.series.title).contains(keywordKey) }
         val displayRest = Parsers.filterType(rest, filter).map { it.series }
         // 展示序：季线新 → 旧置顶，其余条目保持官方原序
-        return SearchResult(filterLine(line, filter).asReversed() + displayRest, line.seasons)
+        return emitSearchResult(filterLine(line, filter).asReversed() + displayRest, line.seasons, keyword)
+    }
+
+    /** 搜索结果的统一出口：顺手把"实际展示了几条、季线几季"记进诊断，不记搜索词原文。 */
+    private fun emitSearchResult(items: List<Series>, seasons: List<Series>, keyword: String): SearchResult {
+        diagnostics.event(
+            "search.results",
+            mapOf("chars" to keyword.length, "items" to items.size, "seasons" to seasons.size),
+        )
+        return SearchResult(items, seasons)
     }
 
     private suspend fun siteCards(keyword: String): List<Card> {
         // keyword 必须经 urlEncode 再进 path 占位符——编码口径只有 core 里一个
-        val signed = signers.sign("siteSearch", mapOf("keyword" to urlEncode(keyword)))
+        val signed = sign("siteSearch", mapOf("keyword" to urlEncode(keyword)))
         val html = fetchSite(signed)
-        return Parsers.searchList(html).objects().map(Parsers::card)
+        return diagnostics.stageTimed(DiagnosticsPort.Stage.PARSE, "siteSearch") {
+            Parsers.searchList(html).objects().map(Parsers::card)
+        }
     }
 
     private suspend fun fetchSite(request: SignedRequest): String = siteGate.withLock {
@@ -104,22 +129,34 @@ class ContentRepository(
         // 联想是输入辅助，网络与解析失败静默降级为空列表，不打断输入（旧行为）。
         // 它允许不完整（实测漏个别季），不作为季数上线的事实来源——那是 plan 接口的职责。
         // 注意：sign 不在降级范围内——端点表坏了是装配错误，启动时就要炸（端口契约）。
-        val signed = signers.sign("suggest", mapOf("keyword" to keyword))
+        val signed = sign("suggest", mapOf("keyword" to keyword))
         val raw = runCatchingIo { http.text(signed) }.getOrElse { return emptyList() }
-        val data = runCatching { JSONObject(raw).optJSONObject(Fields.Envelope.DATA) }.getOrNull() ?: return emptyList()
-        val rows = data.optJSONArray(Fields.Suggest.QUERY_RESULT) ?: return emptyList()
-        return rows.objects().mapNotNull { o ->
-            val video = o.optJSONObject(Fields.Suggest.VIDEO_DATA) ?: return@mapNotNull null
-            val id = video.str(Fields.Suggest.SERIES_ID)
-            if (!SeriesIds.ID.matches(id)) return@mapNotNull null
-            val series = Series(
-                id = id,
-                title = o.str(Fields.Suggest.NAME),
-                cover = Parsers.cleanUrl(video.str(Fields.Suggest.COVER)),
-                badge = o.str(Fields.Suggest.SUG_ABSTRACT),
-            )
-            Suggestion(series.title, series)
-        }.distinctBy { it.target?.id }
+        val data = runCatching { JSONObject(raw).optJSONObject(Fields.Envelope.DATA) }.getOrElse {
+            // JSON 本身坏了是解析失败，不是"没有联想词"；仍然降级为空，但诊断要留下失败
+            diagnostics.stage(DiagnosticsPort.Stage.PARSE, false, "suggest ${it.javaClass.simpleName}")
+            return emptyList()
+        }
+        val suggestions = diagnostics.stageTimed(DiagnosticsPort.Stage.PARSE, "suggest") {
+            val rows = data?.optJSONArray(Fields.Suggest.QUERY_RESULT)
+            if (rows == null) {
+                emptyList<Suggestion>()
+            } else {
+                rows.objects().mapNotNull { o ->
+                    val video = o.optJSONObject(Fields.Suggest.VIDEO_DATA) ?: return@mapNotNull null
+                    val id = video.str(Fields.Suggest.SERIES_ID)
+                    if (!SeriesIds.ID.matches(id)) return@mapNotNull null
+                    val series = Series(
+                        id = id,
+                        title = o.str(Fields.Suggest.NAME),
+                        cover = Parsers.cleanUrl(video.str(Fields.Suggest.COVER)),
+                        badge = o.str(Fields.Suggest.SUG_ABSTRACT),
+                    )
+                    Suggestion(series.title, series)
+                }.distinctBy { it.target?.id }
+            }
+        }
+        diagnostics.event("suggest.results", mapOf("chars" to keyword.length, "count" to suggestions.size))
+        return suggestions
     }
 
     // ---------- 详情 ----------
@@ -127,29 +164,33 @@ class ContentRepository(
     override suspend fun detail(seriesId: String): Detail {
         require(SeriesIds.ID.matches(seriesId)) { "剧集 id 无效：$seriesId" }
         // 全集顺序以服务端下发为准（本地不重排）；官网详情页 2026-10 起全网 404，不再回退。
-        val signed = signers.sign("detail", mapOf("seriesId" to seriesId))
+        val signed = sign("detail", mapOf("seriesId" to seriesId))
         val raw = http.text(signed)
-        val envelope = runCatching { JSONObject(raw) }.getOrElse { throw UpstreamError.Shape("body") }
-        val code = envelope.optInt(Fields.Envelope.CODE, envelope.optInt(Fields.Envelope.CODE_CAP, 0))
-        if (code != 0) throw UpstreamError.RiskControl(code)
-        val vd = envelope.optJSONObject(Fields.Envelope.DATA)?.optJSONObject(Fields.Detail.VIDEO_DATA)
-            ?: throw UpstreamError.Shape("data.video_data")
-        val vids = (vd.optJSONArray(Fields.Detail.VIDEO_LIST)?.objects() ?: emptyList())
-            .map { it.optString(Fields.Detail.VID) }
-            .filter { SeriesIds.ID.matches(it) }
-            .distinct()
-        if (vids.isEmpty()) throw UpstreamError.Shape("data.video_data.video_list")
-        val title = vd.str(Fields.Detail.SERIES_TITLE).ifEmpty { vd.str(Fields.Detail.SERIES_NAME) }
-        val series = Series(
-            id = vd.str(Fields.Detail.SERIES_ID).ifEmpty { seriesId },
-            title = title,
-            cover = Parsers.cleanUrl(vd.str(Fields.Detail.SERIES_COVER)),
-            intro = vd.str(Fields.Detail.SERIES_INTRO),
-            badge = "全 ${vd.optInt(Fields.Detail.EPISODE_CNT, vids.size)} 集",
-            tags = Parsers.detailTags(vd),
-            season = SeasonKeys.seasonNumber(title),
-        )
-        return Detail(series, vids.mapIndexed { index, vid -> Episode(vid, index) })
+        val detail = diagnostics.stageTimed(DiagnosticsPort.Stage.PARSE, "detail") {
+            val envelope = runCatching { JSONObject(raw) }.getOrElse { throw UpstreamError.Shape("body") }
+            val code = envelope.optInt(Fields.Envelope.CODE, envelope.optInt(Fields.Envelope.CODE_CAP, 0))
+            if (code != 0) throw UpstreamError.RiskControl(code)
+            val vd = envelope.optJSONObject(Fields.Envelope.DATA)?.optJSONObject(Fields.Detail.VIDEO_DATA)
+                ?: throw UpstreamError.Shape("data.video_data")
+            val vids = (vd.optJSONArray(Fields.Detail.VIDEO_LIST)?.objects() ?: emptyList())
+                .map { it.optString(Fields.Detail.VID) }
+                .filter { SeriesIds.ID.matches(it) }
+                .distinct()
+            if (vids.isEmpty()) throw UpstreamError.Shape("data.video_data.video_list")
+            val title = vd.str(Fields.Detail.SERIES_TITLE).ifEmpty { vd.str(Fields.Detail.SERIES_NAME) }
+            val series = Series(
+                id = vd.str(Fields.Detail.SERIES_ID).ifEmpty { seriesId },
+                title = title,
+                cover = Parsers.cleanUrl(vd.str(Fields.Detail.SERIES_COVER)),
+                intro = vd.str(Fields.Detail.SERIES_INTRO),
+                badge = "全 ${vd.optInt(Fields.Detail.EPISODE_CNT, vids.size)} 集",
+                tags = Parsers.detailTags(vd),
+                season = SeasonKeys.seasonNumber(title),
+            )
+            Detail(series, vids.mapIndexed { index, vid -> Episode(vid, index) })
+        }
+        diagnostics.event("detail.loaded", mapOf("episodes" to detail.episodes.size, "season" to detail.series.season))
+        return detail
     }
 
     // ---------- 季线 ----------
@@ -166,16 +207,20 @@ class ContentRepository(
      */
     private suspend fun planCells(seriesId: String, isComic: Boolean, anchor: Series?): PlanLine {
         require(SeriesIds.ID.matches(seriesId)) { "剧集 id 无效：$seriesId" }
-        val signed = signers.sign("seasonLine", mapOf("seriesId" to seriesId))
+        val signed = sign("seasonLine", mapOf("seriesId" to seriesId))
         val raw = http.text(signed)
-        val data = runCatching { JSONObject(raw).optJSONArray(Fields.Envelope.DATA) ?: JSONArray() }
-            .getOrElse { throw UpstreamError.Shape("body") }
-        val entries = Parsers.planCell(data).toMutableList()
-        if (anchor != null && entries.none { it.second.id == anchor.id }) {
-            val n = SeasonKeys.seasonNumber(anchor.title)
-            entries += n to (if (n > 0) anchor.copy(season = n) else anchor)
+        val line = diagnostics.stageTimed(DiagnosticsPort.Stage.PARSE, "seasonLine") {
+            val data = runCatching { JSONObject(raw).optJSONArray(Fields.Envelope.DATA) ?: JSONArray() }
+                .getOrElse { throw UpstreamError.Shape("body") }
+            val entries = Parsers.planCell(data).toMutableList()
+            if (anchor != null && entries.none { it.second.id == anchor.id }) {
+                val n = SeasonKeys.seasonNumber(anchor.title)
+                entries += n to (if (n > 0) anchor.copy(season = n) else anchor)
+            }
+            PlanLine(entries.sortedBy { it.first }.map { it.second }, isComic)
         }
-        return PlanLine(entries.sortedBy { it.first }.map { it.second }, isComic)
+        diagnostics.event("seasons.loaded", mapOf("seasons" to line.seasons.size))
+        return line
     }
 
     // ---------- 取流 ----------
@@ -184,38 +229,59 @@ class ContentRepository(
         require(SeriesIds.ID.matches(vid)) { "剧集 id 无效：$vid" }
         // 旧入口 video_model / multi_video_model 2026-10 起返回 200 空体，preload 是唯一还吐数据的入口；
         // 其风控只放行 onedrama 6905554 同款简化请求（PreloadSigner 负责），设备号是本类自己的随机身份。
-        val signed = signers.sign(
+        val signed = sign(
             "preload",
             mapOf("vid" to vid, "deviceId" to streamDeviceId, "installId" to streamInstallId),
         )
         val raw = http.text(signed)
-        val envelope = runCatching { JSONObject(raw) }.getOrElse { throw UpstreamError.Shape("body") }
-        val code = envelope.optInt(Fields.Envelope.CODE_CAP, envelope.optInt(Fields.Envelope.CODE, 0))
-        if (code != 0) throw UpstreamError.RiskControl(code)
-        val data = envelope.optJSONObject(Fields.Envelope.DATA) ?: throw UpstreamError.Shape("data")
-        // preload 是批量接口：data 以 vid 为键，只认请求的那一集，不拿其他条目顶上。
-        val entry = data.optJSONObject(vid) ?: throw UpstreamError.Shape("data.$vid")
-        val fallback = Parsers.fallbackUrl(entry)
-        val info = runCatching {
-            JSONObject(http.text(SignedRequest(HttpMethod.GET, fallback, emptyMap(), null)))
-                .optJSONObject(Fields.Stream.VIDEO_INFO)?.optJSONObject(Fields.Envelope.DATA)
-        }.getOrNull() ?: throw UpstreamError.Shape("video_info.data")
-        val videoList = info.optJSONObject(Fields.Stream.VIDEO_LIST) ?: throw UpstreamError.Shape("video_list")
-
-        val rows = Parsers.qualityRows(videoList)
-        if (rows.isEmpty()) throw UpstreamError.Shape("video_list")
+        val entry = diagnostics.stageTimed(DiagnosticsPort.Stage.PARSE, "stream.preload") {
+            val envelope = runCatching { JSONObject(raw) }.getOrElse { throw UpstreamError.Shape("body") }
+            val code = envelope.optInt(Fields.Envelope.CODE_CAP, envelope.optInt(Fields.Envelope.CODE, 0))
+            if (code != 0) throw UpstreamError.RiskControl(code)
+            val data = envelope.optJSONObject(Fields.Envelope.DATA) ?: throw UpstreamError.Shape("data")
+            // preload 是批量接口：data 以 vid 为键，只认请求的那一集，不拿其他条目顶上。
+            data.optJSONObject(vid) ?: throw UpstreamError.Shape("data.$vid")
+        }
+        // 第二跳（fallback_api）是取流的解析段：慢了、换域名了、结构变了都在这里露出来。
+        // `fallbackUrl` 的结构错也算 RESOLVE：它回答的是"地址从哪来"。
+        val info = diagnostics.stageTimedSuspend(DiagnosticsPort.Stage.RESOLVE, "stream.fallback") {
+            val fallback = Parsers.fallbackUrl(entry)
+            runCatchingIo {
+                JSONObject(http.text(SignedRequest(HttpMethod.GET, fallback, emptyMap(), null)))
+                    .optJSONObject(Fields.Stream.VIDEO_INFO)?.optJSONObject(Fields.Envelope.DATA)
+            }.getOrNull() ?: throw UpstreamError.Shape("video_info.data")
+        }
+        val rows = diagnostics.stageTimed(DiagnosticsPort.Stage.PARSE, "stream.videoList") {
+            val videoList = info.optJSONObject(Fields.Stream.VIDEO_LIST) ?: throw UpstreamError.Shape("video_list")
+            Parsers.qualityRows(videoList).also { if (it.isEmpty()) throw UpstreamError.Shape("video_list") }
+        }
         // 首选不超过上限的最高清晰度；没有就退到最低档（"兼容资源"，fellBack 单独成事实）
         val selected = rows.firstOrNull { it.first <= maxHeight } ?: rows.last()
         val item = selected.third
         var url = Parsers.cleanUrl(item.str(Fields.Stream.MAIN_URL))
         val seed = info.str(Fields.Stream.KEY_SEED)
         if (seed.isNotEmpty()) {
-            url = runCatching { MediaCrypto.decryptUrl(url, seed) }.getOrElse { throw UpstreamError.Decrypt("url") }
+            url = diagnostics.stageTimed(DiagnosticsPort.Stage.DECRYPT, "stream.url") {
+                runCatching { MediaCrypto.decryptUrl(url, seed) }.getOrElse { throw UpstreamError.Decrypt("url") }
+            }
         }
-        if (!url.startsWith("https://") && !url.startsWith("http://")) throw UpstreamError.Shape("main_url")
+        diagnostics.stageTimed(DiagnosticsPort.Stage.PARSE, "stream.mainUrl") {
+            if (!url.startsWith("https://") && !url.startsWith("http://")) throw UpstreamError.Shape("main_url")
+        }
         val key = item.str(Fields.Stream.SPADE_A).takeIf { it.isNotEmpty() }?.let { seedValue ->
-            runCatching { MediaCrypto.deriveKey(seedValue) }.getOrElse { throw UpstreamError.Decrypt("key") }
+            diagnostics.stageTimed(DiagnosticsPort.Stage.DECRYPT, "stream.key") {
+                runCatching { MediaCrypto.deriveKey(seedValue) }.getOrElse { throw UpstreamError.Decrypt("key") }
+            }
         }
+        diagnostics.event(
+            "stream.selected",
+            mapOf(
+                "height" to selected.first,
+                "fellBack" to (selected.first > maxHeight),
+                "encrypted" to (key != null),
+                "qualities" to rows.size,
+            ),
+        )
         return StreamInfo(
             url = url,
             key = key,

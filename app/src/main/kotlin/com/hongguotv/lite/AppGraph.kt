@@ -6,6 +6,7 @@ import com.hongguotv.core.port.MediaPort
 import com.hongguotv.core.port.Navigator
 import com.hongguotv.lite.data.artwork.ArtworkLoader
 import com.hongguotv.lite.data.content.ContentRepository
+import com.hongguotv.lite.data.diagnostics.LogcatDiagnostics
 import com.hongguotv.lite.data.http.OkHttpTransport
 import com.hongguotv.lite.data.library.PrefsLibrary
 import com.hongguotv.lite.data.library.SharedPreferencesStore
@@ -45,13 +46,19 @@ internal class AppGraph(
     private val http: OkHttpClient = OkHttpTransport.defaultClient()
     private val artworkHttp: OkHttpClient = ArtworkLoader.defaultClient()
 
+    /** 诊断端口：五段探针与关键事件进 logcat（`adb logcat -s HongGuoTV`）。 */
+    private val diagnostics = LogcatDiagnostics()
+
     /** 本地库：进度 / 收藏 / 设置三个端口的同一份事实（prefs 文件名 `native-library-v1` 不许改）。 */
     private val library: PrefsLibrary = PrefsLibrary(SharedPreferencesStore(context))
 
-    private val content: ContentPort = ContentRepository(OkHttpTransport(http))
+    private val content: ContentPort = ContentRepository(
+        http = OkHttpTransport(http, diagnostics),
+        diagnostics = diagnostics,
+    )
 
     /** 取流：`ContentPort.stream` + Range 分段 + CENC 逐样本解密，播放器只拿到一条可读流。 */
-    private val media: MediaPort = StreamTransport.of(content, http)
+    private val media: MediaPort = StreamTransport.of(content, http, diagnostics)
 
     /** 封面端口。宿主在 `onTrimMemory` / 换路由时直接驱动它（`trim` / `cancelPage`）。 */
     val artwork: ArtworkLoader = ArtworkLoader(context, artworkHttp)

@@ -133,6 +133,17 @@ interface DiagnosticsPort {
     enum class Stage { SIGN, CONNECT, PARSE, RESOLVE, DECRYPT }
 }
 
+/**
+ * 不记任何东西。测试与"组装层还没接诊断"的场合用它，避免每个构造点写判空分支。
+ *
+ * 注意：**不要在 [DiagnosticsPort] 里给默认空实现**——那会让"忘了接诊断"变成静默通过；
+ * 默认值应该是一个显式的对象，谁在构造时用了一目了然。
+ */
+object SilentDiagnostics : DiagnosticsPort {
+    override fun stage(stage: DiagnosticsPort.Stage, ok: Boolean, detail: String) = Unit
+    override fun event(name: String, fields: Map<String, Any?>) = Unit
+}
+
 /** 失败分类：UI 只按类型映射文案，不再匹配中文字符串。 */
 sealed class UpstreamError(message: String, cause: Throwable? = null) : Exception(message, cause) {
     class Network(cause: Throwable) : UpstreamError("network", cause)

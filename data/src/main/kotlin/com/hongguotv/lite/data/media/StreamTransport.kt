@@ -1,10 +1,13 @@
 package com.hongguotv.lite.data.media
 
 import com.hongguotv.core.port.ContentPort
+import com.hongguotv.core.port.DiagnosticsPort
 import com.hongguotv.core.port.MediaPort
 import com.hongguotv.core.port.MediaStream
+import com.hongguotv.core.port.SilentDiagnostics
 import com.hongguotv.core.port.UpstreamError
 import com.hongguotv.core.protocol.MediaCrypto
+import com.hongguotv.lite.data.diagnostics.stageTimed
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -25,18 +28,24 @@ class StreamTransport(
     private val content: ContentPort,
     /** 为一条播放地址造分段读取器。测试注入假实现，生产注入 [HttpRangeReader]。 */
     private val readerFor: (url: String) -> RangeReader,
+    private val diagnostics: DiagnosticsPort = SilentDiagnostics,
 ) : MediaPort {
 
     override suspend fun open(vid: String, maxHeight: Int): MediaStream = withContext(Dispatchers.IO) {
         val info = content.stream(vid, maxHeight)
         // 预热（拉头 + 解索引）放在 open 里：它慢，但不该慢在播放器的读取线程上
-        Session(readerFor(info.url), info.key)
+        val session = Session(readerFor(info.url), info.key, diagnostics)
+        diagnostics.event("stream.open", mapOf("length" to session.length, "encrypted" to (info.key != null)))
+        session
     }
 
     companion object {
         /** 生产组装：`app`（S7）用它把 `MediaPort` 塞进端口表。 */
-        fun of(content: ContentPort, http: OkHttpClient): StreamTransport =
-            StreamTransport(content) { url -> HttpRangeReader(http, url) }
+        fun of(
+            content: ContentPort,
+            http: OkHttpClient,
+            diagnostics: DiagnosticsPort = SilentDiagnostics,
+        ): StreamTransport = StreamTransport(content, { url -> HttpRangeReader(http, url) }, diagnostics)
     }
 
     /**
@@ -46,6 +55,7 @@ class StreamTransport(
     private class Session(
         private val reader: RangeReader,
         private val key: ByteArray?,
+        private val diagnostics: DiagnosticsPort,
     ) : MediaStream {
 
         override var length: Long = 0L
@@ -76,20 +86,28 @@ class StreamTransport(
             val first = readOrFail(0L, PREFIX_BYTES - 1L)
             length = first.total
             var cache = first.bytes
-            val headerEnd = try {
-                MediaCrypto.headerEnd(cache, length)
-            } catch (error: IOException) {
-                throw UpstreamError.Decrypt("index")
+            val headerEnd = diagnostics.stageTimed(DiagnosticsPort.Stage.DECRYPT, "stream.header") {
+                try {
+                    MediaCrypto.headerEnd(cache, length)
+                } catch (error: IOException) {
+                    throw UpstreamError.Decrypt("index")
+                }
             }
             if (headerEnd > cache.size) {
                 cache += readOrFail(cache.size.toLong(), headerEnd - 1L).bytes
             }
-            val index = try {
-                MediaCrypto.prepare(cache.copyOf(headerEnd), key)
-            } catch (error: IOException) {
-                throw UpstreamError.Decrypt("index")
+            val index = diagnostics.stageTimed(DiagnosticsPort.Stage.DECRYPT, "stream.index") {
+                try {
+                    MediaCrypto.prepare(cache.copyOf(headerEnd), key)
+                } catch (error: IOException) {
+                    throw UpstreamError.Decrypt("index")
+                }
             }
             if (index.samples.any { it.end > length }) throw UpstreamError.Decrypt("index")
+            diagnostics.event(
+                "stream.index",
+                mapOf("samples" to index.samples.size, "encrypted" to (key != null), "length" to length),
+            )
             Prepared(index, cache)
         } catch (error: Throwable) {
             reader.close()

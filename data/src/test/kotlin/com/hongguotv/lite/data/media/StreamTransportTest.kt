@@ -87,7 +87,7 @@ class StreamTransportTest {
     ): Pair<StreamTransport, FakeReader> {
         val reader = FakeReader(source)
         val content = FakeContent(StreamInfo(url = "https://v.example/x.mp4", key = key, height = 720, fellBack = false))
-        return StreamTransport(content) { reader } to reader
+        return StreamTransport(content, readerFor = { reader }) to reader
     }
 
     // ---------- 用例 ----------
@@ -103,7 +103,7 @@ class StreamTransportTest {
     fun theQualityAndVidArePassedThroughToThePort() = runTest {
         val reader = FakeReader(fakeFile())
         val content = FakeContent(StreamInfo("https://v.example/x.mp4", null, 480, fellBack = true))
-        val transport = StreamTransport(content) { reader }
+        val transport = StreamTransport(content, readerFor = { reader })
         transport.open("vid-9", 480)
         assertEquals("vid-9", content.vidAsked)
         assertEquals(480, content.qualityAsked)
