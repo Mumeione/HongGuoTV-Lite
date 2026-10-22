@@ -28,33 +28,38 @@ internal object CatalogCards {
         badge = favoriteBadge,
         // 未上线季：暗一档。是否拦点击由页面决定（旧版是点进去再提示，那是产品文案）
         dim = !series.released,
+        artworkTitle = series.title,
     )
 
-    /** 收藏卡：封面 + 更新进度（`更新到第九季 · 20集`）。 */
+    /** 收藏卡：封面 + 更新进度（`更新到第九季第108集`）。 */
     fun favorite(entry: FavoriteEntry): CardItem = CardItem(
         id = entry.series.id,
         title = "",
         coverUrl = entry.series.cover,
         badge = FavoriteLabels.updateBadge(entry),
         badgeAttention = FavoriteLabels.attention(entry),
+        artworkTitle = entry.series.title,
     )
 
     /**
-     * 历史卡片：封面 + 观看位置。角标先说"看完"，再说"看到哪"——
+     * 历史卡片：封面 + 观看位置（`第九季第20集 · 05:00`）。角标先说"看完"，再说"看到哪"——
      * 一条 `completed = true` 或手动标记过已看的记录，停在"第 30 集 · 00:00"既没用也不准确。
      *
-     * [withSeason] 给首页的「继续看」用：那里没有预览区兜底季名，多季剧必须自己带上
-     * `第九季 · 第 20 集 · 05:00`；历史页有预览区，保持一行短句。
+     * 季号**总是**带上：多季剧的历史记录散在各季里，不写季名就分不清看的是哪一季
+     * （维护者口径：收藏一季 = 收藏整个 IP，历史页也要看得出是全 IP 的哪一季）。
+     *
+     * [withClock] = false 给首页「继续看」：那里用户刚看过，时间没有信息量，
+     * 只需要"第几季第几集"（维护者口径）。
      */
-    fun history(entry: HistoryEntry, watched: Boolean, withSeason: Boolean = false): CardItem {
+    fun history(entry: HistoryEntry, watched: Boolean, withClock: Boolean = true): CardItem {
         val finished = watched || entry.progress.completed
-        val position = if (finished) "整剧已看完" else TvText.progress(entry.progress.episodeIndex, entry.progress.positionMs)
-        val season = TvText.season(entry.series.season)
         return CardItem(
             id = entry.series.id,
             title = "",
             coverUrl = entry.series.cover,
-            badge = if (withSeason && season.isNotBlank() && !finished) "$season · $position" else position,
+            badge = if (finished) "整剧已看完"
+            else TvText.cardProgress(entry.series.season, entry.progress.episodeIndex, entry.progress.positionMs, withClock),
+            artworkTitle = entry.series.title,
         )
     }
 }

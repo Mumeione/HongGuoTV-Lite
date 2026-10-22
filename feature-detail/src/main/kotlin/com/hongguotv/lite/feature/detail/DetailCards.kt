@@ -18,6 +18,8 @@ internal object DetailCards {
         coverUrl = season.cover,
         badge = DetailText.seasonState(season, progress, watched),
         dim = !season.released,
+        // 取不到封面时露出剧名，免得季卡变成一个认不出是谁的黑块
+        artworkTitle = season.title,
         // "当前"写在封面上角：标题只有两行，塞进标题里会挤掉季名
         corner = if (current) "当前" else "",
     )

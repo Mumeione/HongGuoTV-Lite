@@ -15,8 +15,17 @@ import com.hongguotv.lite.uikit.text.TvText
  */
 internal object CatalogText {
 
-    /** 预览第三行：分类与集数。上游的 `" · "` 分隔改成 `" / "`，与集数分隔区分开。 */
-    fun meta(series: Series): String = listOf(series.badge, series.tags.replace(" · ", " / "))
+    /**
+     * 预览第三行：这部剧本身的属性——收藏的更新进度、集数、分类。
+     *
+     * 三个来源分开排：**我的状态**（收藏没收藏、看到哪）走 [previewStatus]，
+     * **它的状态**（更新到哪、共几集、什么分类）走这一行。混在一行会变成
+     * "已收藏 · 上次看到第九季 第 20 集 · 05:00 · 更新到第九季第352集" 这种一长串，
+     * 中间还夹着两种写法（维护者实测"这行文字的排列也不美观"）。
+     *
+     * 上游的 `" · "` 分隔改成 `" / "`，与行间的 `"  ·  "` 区分开。
+     */
+    fun meta(series: Series, update: String = ""): String = listOf(update, series.badge, series.tags.replace(" · ", " / "))
         .filter { it.isNotBlank() }
         .joinToString("  ·  ")
 

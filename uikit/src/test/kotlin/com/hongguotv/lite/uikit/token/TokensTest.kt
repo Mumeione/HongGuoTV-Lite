@@ -42,13 +42,16 @@ class TokensTest {
     }
 
     @Test
-    fun `type scale is ordered from caption to preview title`() {
+    fun `type scale is ordered from caption to display title`() {
         val type = Tokens.Default.type
+        // 序即视觉层级：页头（heading）必须大于聚焦片名（preview），
+        // 否则同一屏上会出现两个"主标题"（维护者实测"片名太大，标题太小"）。
         val scale = listOf(
             type.caption, type.label, type.compact, type.body,
-            type.subtitle, type.title, type.heading, type.display, type.preview,
+            type.subtitle, type.title, type.preview, type.heading, type.display,
         )
         assertEquals("字号刻度必须单调递增", scale.sorted(), scale)
+        assertTrue("页头要比聚焦片名大", type.heading > type.preview)
     }
 
     @Test

@@ -162,7 +162,7 @@ class PageHeader internal constructor(ui: UiKit, title: String, onBack: (() -> U
 }
 
 /**
- * 页面骨架：顶栏 / 分隔线 / 页头 / 内容槽 / 页脚，**一次搭好后不再重建**。
+ * 页面骨架：顶栏 / 页头 / （页头下的）分隔线 / 内容槽 / 页脚，**一次搭好后不再重建**。
  *
  * 旧实现每次刷新都 `root.removeAllViews()` 重建整棵树，焦点随之丢失；
  * 稳定树 + 内容增量更新之后，"返回后光标还在原位"才有立足点。
@@ -180,7 +180,6 @@ class PageScaffold internal constructor(private val ui: UiKit) : FrameLayout(ui.
     private val tokens = ui.tokens
     private val container: LinearLayout
     private val topBarSlot: FrameLayout
-    private val dividerSlot: LinearLayout
     private val headerSlot: FrameLayout
     private val headerDivider: LinearLayout
     private val bodySlot: FrameLayout
@@ -209,13 +208,8 @@ class PageScaffold internal constructor(private val ui: UiKit) : FrameLayout(ui.
         topBarSlot = FrameLayout(context).apply { visibility = View.GONE }
         container.addView(topBarSlot, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-        dividerSlot = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-            addView(ui.divider())
-            addView(ui.spacer(tokens.metrics.dividerGap))
-        }
-        container.addView(dividerSlot, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        // 顶栏与内容之间**不画分隔线**：维护者口径是"标题下方才需要那条线"。
+        // 顶栏靠留白和字号站住自己的位置，再加一条线会把页面切成两半，显得零碎。
 
         headerSlot = FrameLayout(context).apply { visibility = View.GONE }
         container.addView(headerSlot, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -258,7 +252,6 @@ class PageScaffold internal constructor(private val ui: UiKit) : FrameLayout(ui.
         bar.select(selected)
         topBarSlot.addView(bar, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(tokens.metrics.topBarHeight)))
         topBarSlot.visibility = View.VISIBLE
-        dividerSlot.visibility = View.VISIBLE
         _topBar = bar
         return bar
     }

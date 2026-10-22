@@ -34,14 +34,18 @@ object TvText {
     fun season(n: Int): String = if (n > 0) "第${chineseNumber(n)}季" else ""
 
     /**
-     * 「更新到第九季 · 20集」——收藏/追剧追番的进度，一句话回答"现在到哪了"。
-     * 多季剧带季名；单季剧（[season] = 0）只说集数。两个数都不知道时返回空串，
-     * 由调用方决定要不要换一句（例如"尚未检查更新"）。
+     * 「更新到第九季第108集」——收藏/追剧追番的进度，一句话回答"现在到哪了"。
+     *
+     * 季与集写成**一个短语**（不带"· "分隔）：它们回答的是同一个问题，
+     * 拆成两段会被读成两件事（上一版就是「更新到第九季 · 108集」，还被维护者抓到
+     * 单季写成「更新到 100 集」、多季写成「108集」，两种句式并存）。
+     * 两个数都不知道时返回空串，由调用方决定要不要换一句（例如"尚未检查更新"）。
      */
     fun updateProgress(season: Int, episodes: Int): String = when {
-        season > 0 && episodes > 0 -> "更新到${season(season)} · ${episodes}集"
+        // 中日韩字符可以出现在 Kotlin 标识符里：`$episodes集` 会被读成名为 `episodes集` 的变量
+        season > 0 && episodes > 0 -> "更新到${season(season)}第${episodes}集"
         season > 0 -> "更新到${season(season)}"
-        episodes > 0 -> "更新到 $episodes 集"
+        episodes > 0 -> "更新到第${episodes}集"
         else -> ""
     }
 
@@ -53,6 +57,19 @@ object TvText {
 
     /** 「第 9 集 · 12:34」。 */
     fun progress(index: Int, positionMs: Long): String = "第 ${index + 1} 集 · ${clock(positionMs)}"
+
+    /**
+     * 卡片上的一行观看位置：`第九季第20集 · 05:00`。
+     *
+     * 卡片只有一张封面那么宽，季与集必须写成一个短语才放得下；预览区/详情页那种成句的地方
+     * 仍用 [progress]（带空格的「第 20 集」读起来更像正文）。季号为 0 时只写集。
+     *
+     * [withClock] = false 时不带时间（首页「继续看」：用户刚看过，只关心"第几季第几集"）。
+     */
+    fun cardProgress(season: Int, index: Int, positionMs: Long, withClock: Boolean = true): String {
+        val position = "${season(season)}第${index + 1}集"
+        return if (withClock) "$position · ${clock(positionMs)}" else position
+    }
 
     /** `1×` / `1.25×`。`Float.toString()` 的 `1.0` 要去掉尾巴，不能写出"1.0×"。 */
     fun speed(value: Float): String = value.toString().removeSuffix(".0") + "×"

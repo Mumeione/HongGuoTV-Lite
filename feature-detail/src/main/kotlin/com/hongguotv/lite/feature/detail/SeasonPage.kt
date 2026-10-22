@@ -230,13 +230,16 @@ internal class SeasonPage(
         hero.show(
             coverUrl = series.cover,
             title = titleText(series),
-            meta = DetailText.seriesMeta(series, line?.seasons?.size ?: 1, favorite = entry != null),
-            // 状态行两件事：上次看到哪（有记录时）+ 更新到哪（收藏 = 追剧追番的进度），
-            // 后者来自季线/检查记录，检查更新一完成就跟着变
-            status = listOf(
-                DetailText.seriesStatus(progress, line, entry?.series?.season ?: 0),
-                entryRow?.let { TvText.updateProgress(it.latestSeason, it.latestEpisodes) },
-            ).filterNotNull().filter { it.isNotBlank() }.joinToString(" · "),
+            // 第二行只说"这部剧"：收藏身份、季数、更新到哪、集数、分类。
+            // "上次看到…"（我自己的状态）留给第三行——两件事混在一行会变成一长串，
+            // 中间还夹着「第九季 第 20 集」与「更新到第九季第352集」两种写法。
+            meta = DetailText.seriesMeta(
+                series = series,
+                seasonCount = line?.seasons?.size ?: 1,
+                favorite = entry != null,
+                update = entryRow?.let { TvText.updateProgress(it.latestSeason, it.latestEpisodes) }.orEmpty(),
+            ),
+            status = DetailText.seriesStatus(progress, line, entryRow?.series?.season ?: 0),
             // 没有简介就把"各季进度分别保存"放进右栏：这句说明正好填上右栏空白，
             // 比另起一页脚（会被屏幕边界切掉半行）更省高度
             intro = series.intro.ifBlank { DetailText.SEASON_FOOTER },

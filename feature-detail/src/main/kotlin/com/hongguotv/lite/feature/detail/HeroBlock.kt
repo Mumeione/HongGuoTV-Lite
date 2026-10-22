@@ -55,24 +55,28 @@ internal class HeroBlock(private val ui: UiKit) {
      * 遥控器的方向键（按一下焦点就飞走），而 ScrollView 的方向键滚动是原生能力，
      * 滚到顶/底再把键交回焦点系统。焦点画在框上（提亮一档底色，不是白底深字——
      * 这里是大段正文，白底太刺眼），只表达"简介现在归你滚"。
+     *
+     * **框底常驻 + `clipToOutline`**：嵌套在外层滚动区里时，`clipChildren` 挡不住
+     * 超出高度的正文——实测 92dp 的框把 289dp 的文字整段画到了分集格上（截图比对过）。
+     * 靠轮廓裁切（background + clipToOutline）才真的截住，顺带让"这里可以滚"看得出来。
      */
     private val introView: ScrollView = ScrollView(ui.context).apply {
         clipToPadding = false
         isVerticalScrollBarEnabled = false
         isFocusable = true
         isFocusableInTouchMode = true
+        background = boxBackground(tokens.colors.surface)
+        clipToOutline = true
         addView(introText, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         setOnFocusChangeListener { _, focused ->
-            background = if (focused) {
-                GradientDrawable().apply {
-                    setColor(tokens.colors.raised)
-                    cornerRadius = ui.dp(tokens.shapes.small).toFloat()
-                }
-            } else {
-                null
-            }
+            background = boxBackground(if (focused) tokens.colors.raised else tokens.colors.surface)
             introText.setTextColor(if (focused) tokens.colors.text else tokens.colors.muted)
         }
+    }
+
+    private fun boxBackground(color: Int): GradientDrawable = GradientDrawable().apply {
+        setColor(color)
+        cornerRadius = ui.dp(tokens.shapes.small).toFloat()
     }
 
     /** 动作按钮的容器，由页面往里塞自己的按钮。 */

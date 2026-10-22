@@ -44,13 +44,23 @@ data class CardItem(
      * 与 [badge] 分工：角标说"它是什么"（当前季 / 已看完），[badge] 说"它的状态"。
      */
     val corner: String = "",
+    /**
+     * 封面取不到时**在封面位置**显示的名字。
+     *
+     * 卡片下方已经不写片名了（维护者口径），于是一张取不到图的卡就成了无名黑块——
+     * 上游确实存在给不出图的情况（2026-10-21 实测有一条 hash 只有 21 位的坏地址）。
+     * 这段文字画在图片**下层**：图正常时被完全盖住，取不到时才露出来当占位。
+     */
+    val artworkTitle: String = "",
 )
 
 /**
- * 海报卡：封面 + 两行标题 + 一行角标。
+ * 海报卡：封面（贴边）+ 可选一行标题 + 一行角标。
  *
- * 标题固定两行（`minLines = 2`），光标在行内移动时下面的内容不会被撑开——
- * 这是旧版验证过的取舍，不是疏忽。
+ * 版式是 2026-10-21 第三轮定的：**封面铺满卡片上半部分**，文字区在下面。
+ * 上一版四周各留 4dp，聚焦时整张卡变成白底、封面像拍立得一样浮在白框里，
+ * 一屏五张卡就有五块白框；现在白色只露在封面下方的信息条上（正是"焦点=白底深字"的本意），
+ * 封面与卡片同宽、圆角由卡片轮廓裁切。
  *
  * [maxHeightPx] 是**整张卡的高度上限**（0 = 不限制）。首屏只放得下一行卡时，
  * 由调用方给出视口高度，封面按 [CardFit] 夹短，保证"封面 + 标题 + 角标"都在屏内。
@@ -64,6 +74,8 @@ class PosterCard internal constructor(
 
     private val tokens = ui.tokens
     private val artworkView = FrameLayout(ui.context)
+    /** 封面取不到时的占位（画在图片下层，见 [CardItem.artworkTitle]）。 */
+    private val artworkTitleView = TextView(ui.context)
     private val image = ImageView(ui.context)
     private val cornerView = TextView(ui.context)
     private val titleView = TextView(ui.context)
@@ -87,12 +99,27 @@ class PosterCard internal constructor(
 
     init {
         orientation = VERTICAL
-        val pad = dp(tokens.metrics.cardPadding)
-        setPadding(pad, pad, pad, dp(tokens.metrics.cardGap - tokens.metrics.cardPadding))
+        // 外框不留白：封面贴边，留白交给信息区（见类注释）
+        setPadding(0, 0, 0, 0)
+        // 卡片背景是圆角矩形，把封面按同一个轮廓裁掉四角——API 21+ 的 outline 裁切
+        clipToOutline = true
 
-        artworkWidth = widthPx - dp(tokens.metrics.cardArtworkInset)
+        artworkWidth = widthPx
         artworkHeight = 1
         artworkView.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, artworkHeight)
+        // 先加占位文本、再加图片：图片在上层，正常时把文字整块盖住
+        artworkTitleView.apply {
+            textSize = tokens.type.compact
+            setTextColor(tokens.colors.muted)
+            includeFontPadding = false
+            gravity = Gravity.CENTER
+            maxLines = 3
+            ellipsize = TextUtils.TruncateAt.END
+            val pad = dp(tokens.space.m)
+            setPadding(pad, pad, pad, pad)
+            visibility = View.GONE
+        }
+        artworkView.addView(artworkTitleView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         image.scaleType = ImageView.ScaleType.FIT_CENTER
         image.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         artworkView.addView(image, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -126,10 +153,16 @@ class PosterCard internal constructor(
         // 中等字重：卡面是图，标题再用常规字重在电视观看距离下会显得发虚
         titleView.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL))
         titleView.includeFontPadding = false
+        // 只占实际行数（季卡写「第九季」一行就够）：`minLines = 2` 会在标题与角标之间
+        // 留出一整行空白，季卡看着像"上下两块被拉开了"
         titleView.maxLines = TITLE_LINES
-        titleView.minLines = TITLE_LINES
         titleView.ellipsize = TextUtils.TruncateAt.END
-        titleView.setPadding(dp(tokens.space.xxs), dp(tokens.metrics.cardTitlePaddingTop), dp(tokens.space.xxs), 0)
+        titleView.setPadding(
+            dp(tokens.metrics.cardPadding),
+            dp(tokens.metrics.cardTitlePaddingTop),
+            dp(tokens.metrics.cardPadding),
+            0,
+        )
 
         badgeView.textSize = tokens.type.caption
         badgeView.includeFontPadding = false
@@ -137,7 +170,12 @@ class PosterCard internal constructor(
         badgeView.minLines = 1
         badgeView.minHeight = dp(tokens.metrics.badgeHeight)
         badgeView.ellipsize = TextUtils.TruncateAt.END
-        badgeView.setPadding(dp(tokens.space.xxs), 0, 0, 0)
+        badgeView.setPadding(
+            dp(tokens.metrics.cardPadding),
+            0,
+            dp(tokens.metrics.cardPadding),
+            dp(tokens.metrics.cardPaddingBottom),
+        )
         // 集数/时间用等宽数字，数字变化时不会左右抖。
         badgeView.fontFeatureSettings = "tnum"
 
@@ -174,12 +212,19 @@ class PosterCard internal constructor(
         //（维护者口径：卡片太小，片名太长不美观）。空标题整行收起。
         val hasTitle = item.title.isNotEmpty()
         titleView.visibility = if (hasTitle) View.VISIBLE else View.GONE
-        // 标题行收起后角标直接贴着封面：把原本标题的顶部留白挪给角标，别挤在一起
-        badgeView.setPadding(dp(tokens.space.xxs), if (hasTitle) 0 else dp(tokens.metrics.cardTitlePaddingTop), 0, 0)
+        // 标题行收起后角标直接贴着封面：把原本标题与封面之间的留白挪给角标，别挤在一起
+        badgeView.setPadding(
+            dp(tokens.metrics.cardPadding),
+            if (hasTitle) 0 else dp(tokens.metrics.cardTitlePaddingTop),
+            dp(tokens.metrics.cardPadding),
+            dp(tokens.metrics.cardPaddingBottom),
+        )
         alpha = if (item.dim) tokens.metrics.dimAlpha else 1f
         cornerView.text = item.corner
         cornerView.visibility = if (item.corner.isEmpty()) View.GONE else View.VISIBLE
         badgeView.text = item.badge
+        artworkTitleView.text = item.artworkTitle
+        artworkTitleView.visibility = if (item.artworkTitle.isEmpty()) View.GONE else View.VISIBLE
         // 文字块高度随"有没有标题"变了：夹取过的封面要按新口径重算一次
         applyHeightLimit()
         coverUrl = item.coverUrl
@@ -230,17 +275,23 @@ class PosterCard internal constructor(
     )
 
     /**
-     * 卡片底与文字色。
+     * 卡片底色、白框与文字色。
      *
-     * - **焦点 = 白底深字**：封面图在卡片上层，白色底只露在封面下面那条信息区——
-     *   视觉上就是"封面下层的背景变白、字变黑"。全屏唯一的白色填充就是这里。
-     * - **选中（当前季）= 白描边**，不填充：白色填充只留给光标，否则一页会有两块白。
+     * - **焦点 = 白底深字**：封面贴边，白色底只露在封面下面那条信息区——
+     *   视觉上就是"封面下层的背景变白、文字变黑"。全屏唯一的白色填充就是这里。
+     * - **白框画在前景**：封面铺满上半部分，画在背景上的描边会被图整条盖住。
+     * - **选中（当前季）= 白框**，不填充：白色填充只留给光标，否则一页会有两块白。
      */
     private fun paintCard(isFocused: Boolean) {
         val chosen = isSelected
         val fill = if (isFocused) tokens.colors.focus else tokens.colors.surface
-        val stroke = if (chosen && !isFocused) Stroke(tokens.colors.focus, tokens.shapes.stroke) else null
-        background = shape(fill, tokens.shapes.card, stroke)
+        // 背景只负责底色（会被封面盖住大半），框交给前景
+        background = shape(fill, tokens.shapes.card, null)
+        foreground = if (isFocused || chosen) {
+            shape(android.graphics.Color.TRANSPARENT, tokens.shapes.card, Stroke(tokens.colors.focus, tokens.shapes.stroke))
+        } else {
+            null
+        }
 
         titleView.setTextColor(if (isFocused) tokens.colors.onFocus else tokens.colors.text)
         val attention = item?.badgeAttention == true
@@ -256,15 +307,15 @@ class PosterCard internal constructor(
 
     /**
      * 封面以下那块文字在竖直方向占多少：夹取封面高度时要把它先扣掉，
-     * 否则"标题两行 + 角标"又会被推到视口外。标题行收起时只算角标。
+     * 否则"标题 + 角标"又会被推到视口外。标题行收起时只算角标。
      */
     private fun textBlockHeight(): Int {
         val lineHeight = (titleView.paint.fontMetrics.descent - titleView.paint.fontMetrics.ascent).toInt()
-        val titleLines = if (item?.title?.isNotEmpty() == true) TITLE_LINES else 0
-        val padTop = dp(tokens.metrics.cardPadding)
-        val padBottom = dp(tokens.metrics.cardGap - tokens.metrics.cardPadding)
-        return padTop + (if (titleLines > 0) dp(tokens.metrics.cardTitlePaddingTop) + lineHeight * titleLines else 0) +
-            dp(tokens.metrics.badgeHeight) + padBottom
+        val hasTitle = item?.title?.isNotEmpty() == true
+        // 两种情况都要先让开封面与文字之间那一档：有标题时是标题的上内边距，没有时是角标的
+        val gap = dp(tokens.metrics.cardTitlePaddingTop)
+        val titlePart = if (hasTitle) lineHeight else 0
+        return gap + titlePart + dp(tokens.metrics.badgeHeight) + dp(tokens.metrics.cardPaddingBottom)
     }
 
     private fun syncCover() {
@@ -283,6 +334,12 @@ class PosterCard internal constructor(
     }
 
     private companion object {
-        const val TITLE_LINES = 2
+        /**
+         * 标题只占一行。
+         *
+         * 目录类页面压根不传标题（片名由预览区说）；传标题的只有季卡，内容是「第九季」这种
+         * 一眼读完的短词。占两行会在标题与角标之间留一整行空白（维护者实测"上下两块被拉开了"）。
+         */
+        const val TITLE_LINES = 1
     }
 }

@@ -41,6 +41,12 @@ data class Colors(
 /**
  * 字号刻度。旧实现从 11 到 27 有十来个互不相关的取值，这里按"用途"定档，
  * 新增文字先找用途，找不到再讨论要不要加档。
+ *
+ * 2026-10-21 第三轮：整条刻度重排过一次。上一版把**聚焦项片名**（`preview` 28）放在
+ * 页面标题（`heading` 26）之上，于是在「观看历史」「我的收藏」这类页面上，
+ * 卡片片名比页面标题还大一号——维护者原话"片名太大，标题太小，一点都不和谐"。
+ * 现在的次序是：页头（24）> 片名（21）> 分组标题（17）> 正文（16），
+ * 一眼能看出"这是哪一页、这是哪一部剧"。
  */
 data class Type(
     /** 卡角标、次要说明。 */
@@ -51,21 +57,23 @@ data class Type(
     val compact: Float = 15f,
     /** 常规按钮、面板正文。 */
     val body: Float = 16f,
-    /** 输入框、分组标题。 */
+    /** 输入框、分组标题（继续看 / 所有季）。 */
     val subtitle: Float = 17f,
-    /** 顶栏导航、卡片组标题。 */
-    val title: Float = 19f,
+    /** 顶栏导航。比正文大一档就够：导航靠图标与常驻加粗区分，不靠字号。 */
+    val title: Float = 18f,
     /**
-     * 带返回的页头。比主视觉的片名（[display]）只小一档：页头是这一页的"招牌"，
-     * 与下面的大字片名差太多会显得头轻脚重（维护者实测"片名太大、标题太小，不和谐"）。
+     * 预览区标题（目录页聚焦的那部剧）。
+     *
+     * 它属于**当前光标那一项**，不是页面标题：比 `heading` 小一档，
+     * 否则同一屏上会出现两个"主标题"（见本类开头的重排说明）。
      */
-    val heading: Float = 26f,
-    /** 页面主标题。 */
-    val display: Float = 27f,
-    /** 预览区标题（目录页聚焦剧集那块）。 */
-    val preview: Float = 28f,
-    /** 顶栏品牌字。只此一处用，独立成档免得调用点写 `heading + 1`。 */
-    val brand: Float = 25f,
+    val preview: Float = 21f,
+    /** 带返回的页头（我的收藏 / 观看历史 / 剧集详情）。 */
+    val heading: Float = 24f,
+    /** 详情类页面的片名（主视觉那块）。一页只有一处，比页头大一档。 */
+    val display: Float = 26f,
+    /** 顶栏品牌字。独立成档免得调用点写 `heading - 2`。 */
+    val brand: Float = 22f,
     /** 多行正文的行距倍数。 */
     val lineSpacing: Float = 1.12f,
 )
@@ -108,13 +116,14 @@ data class Motion(
 data class Metrics(
     /** 页面左右留白：屏幕宽度的比例（旧实现 5%）。上下留白同比例。 */
     val pageInsetRatio: Float = 0.05f,
-    val topBarHeight: Int = 50,
-    val navHeight: Int = 46,
+    /** 顶栏高度。顶栏下**不画**分隔线（维护者口径）：靠留白与字号分层次，不靠一条线切。 */
+    val topBarHeight: Int = 48,
+    val navHeight: Int = 40,
     val navGap: Int = 12,
     val dividerHeight: Int = 1,
     val dividerGap: Int = 6,
     /** 内页页头（返回 + 标题）的最小高度。 */
-    val headerMinHeight: Int = 44,
+    val headerMinHeight: Int = 40,
     val controlMinHeight: Int = 42,
     val chipMinHeight: Int = 36,
     val linkMinHeight: Int = 32,
@@ -123,9 +132,12 @@ data class Metrics(
     /** 输入框最大宽度，以及不宽于屏宽的比例：太长显得空，两边留白反而更聚焦。 */
     val inputMaxWidth: Int = 520,
     val inputWidthRatio: Float = 0.52f,
-    val cardPadding: Int = 4,
-    /** 卡片标题与角标之间的间距。 */
-    val cardTitlePaddingTop: Int = 7,
+    /** 卡片信息区的左右内边距：封面贴边，文字不能也贴边。 */
+    val cardPadding: Int = 8,
+    /** 封面下沿与标题之间的间距。 */
+    val cardTitlePaddingTop: Int = 6,
+    /** 卡片信息区的下内边距。 */
+    val cardPaddingBottom: Int = 8,
     /**
      * 预览区（聚焦项的标题/状态/分类三行）的上下留白。
      * 它固定占在网格上方，每多 1dp 就是从首屏卡片那里拿走 1dp——S9 收紧了这两档。
@@ -133,20 +145,24 @@ data class Metrics(
     val previewRailPaddingTop: Int = 4,
     val previewRailPaddingBottom: Int = 6,
     val cardGap: Int = 14,
-    /** 卡片内封面左右各让出的宽度（旧实现 `width - dp(8)`）。 */
-    val cardArtworkInset: Int = 8,
     val badgeHeight: Int = 19,
-    /** 封面宽高比（宽/高）。 */
+    /** 封面宽高比（宽/高）。上游正版封面是 640×914，0.7 时不用留黑边。 */
     val posterAspect: Float = 0.7f,
     /**
      * 视口不足时封面的保底高度：再夹下去就成了一条缝，看不清是什么剧。
      * 宁可让卡片略微超出视口（滚动一点点），也不给一张看不清的图。
      */
     val artworkMinHeight: Int = 96,
-    /** 目标卡宽：列数由可用宽度除以它得出，1080p/6 列时约等于现值。 */
+    /**
+     * 目标卡宽：列数由可用宽度除以它得出。
+     *
+     * 150dp 在 1080p（960dp 宽）上是 **5 列、每张约 161dp**。
+     * 试过 6 列（134dp）：卡上那行「第九季第20集 · 05:00」就差 15dp 放不下，
+     * 角标被截成「…05....」——卡片现在只有这一行字，截断等于没写。
+     */
     val gridTargetCardWidth: Int = 150,
     val gridMinColumns: Int = 3,
-    /** 上限 6：保留现有"六列海报"的视觉，列数是算出来的但不会越算越多。 */
+    /** 上限 6：列数是算出来的，但不会越算越多。 */
     val gridMaxColumns: Int = 6,
     /** 滚动补偿时项与视口边缘之间保留的余量。 */
     val scrollMargin: Int = 8,
@@ -166,24 +182,30 @@ data class Metrics(
     /** 不可点击的卡片（未上线季）整体透明度：暗一档，一看就知道按不进去。 */
     val dimAlpha: Float = 0.55f,
     /** 详情页大封面：宽 / 高 / 与右侧信息的间距。 */
-    val heroCoverWidth: Int = 98,
-    val heroCoverHeight: Int = 140,
-    val heroCoverGap: Int = 22,
+    val heroCoverWidth: Int = 88,
+    val heroCoverHeight: Int = 124,
+    val heroCoverGap: Int = 20,
     /** 主视觉左栏（信息）与右栏（简介）之间的间距。 */
-    val heroIntroGap: Int = 32,
+    val heroIntroGap: Int = 28,
     /** 主视觉简介滚动框的高度：收起约四行正文，展开档给到能一屏读完大多数简介。 */
-    val introMaxHeight: Int = 96,
+    val introMaxHeight: Int = 92,
     val introExpandedHeight: Int = 300,
-    /** 分集格：格高、左右内边距（20 列时三位数也放得下）、格间距。 */
-    val episodeCellHeight: Int = 40,
+    /**
+     * 分集格：格高、左右内边距（20 列时三位数也放得下）、格间距。
+     *
+     * 高度从 40 收到 34 是为了让「20 列 × 5 行 = 100 集」**连主视觉一屏放下**：
+     * 一屏放不下时，光标走到最后一行会把整页顶上去（维护者实测"焦点移动到底部页面会上移"）。
+     */
+    val episodeCellHeight: Int = 34,
     val episodeCellPaddingH: Int = 2,
-    /** 格间距：白底焦点格与邻居之间要留出可见的分隔，5dp 时两块几乎贴在一起。 */
-    val episodeCellGap: Int = 8,
+    /** 格间距：白底焦点格与邻居之间要留出可见的分隔，太小两块几乎贴在一起。 */
+    val episodeCellGap: Int = 6,
     /**
      * 播放侧栏：宽度按屏宽比例算（右侧留白与页边距同一口径，不写像素）。
-     * 85% 是"20 列格子仍然有 40dp 宽"的下限——再看窄就得减列，两侧算法就分家了。
+     * 侧栏是覆盖层，画面必须还能看：62% 时 10 列格子仍有 55dp 宽，
+     * 85% 那一版几乎把画面整个盖住（维护者口径"太大了，没有以前简洁"）。
      */
-    val sidebarWidthRatio: Float = 0.85f,
+    val sidebarWidthRatio: Float = 0.62f,
     val sidebarPaddingH: Int = 18,
     val sidebarPaddingV: Int = 14,
     /** 侧栏内块与块之间的间距。 */

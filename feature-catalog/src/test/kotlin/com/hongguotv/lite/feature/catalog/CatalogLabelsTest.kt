@@ -44,15 +44,15 @@ class CatalogLabelsTest {
 
     @Test
     fun theBadgeStatesWhereTheUpdatesAre() {
-        // 多季剧：更新到第几季 · 几集
-        assertEquals("更新到第十三季 · 80集", FavoriteLabels.updateBadge(entry(season = 5, latestSeason = 13, latestEpisodes = 80)))
+        // 多季剧：季与集写成一个短语（"更新到第九季第80集"）
+        assertEquals("更新到第十三季第80集", FavoriteLabels.updateBadge(entry(season = 5, latestSeason = 13, latestEpisodes = 80)))
         assertTrue(FavoriteLabels.attention(entry(season = 5, latestSeason = 13)))
     }
 
     @Test
     fun theBadgeNeverSaysUpToDate() {
         // 维护者口径："已是最新"没有信息量，卡片直接说现在更新到哪里
-        assertEquals("更新到第五季 · 56集", FavoriteLabels.updateBadge(entry(latestSeason = 5, latestEpisodes = 56)))
+        assertEquals("更新到第五季第56集", FavoriteLabels.updateBadge(entry(latestSeason = 5, latestEpisodes = 56)))
         assertFalse(FavoriteLabels.attention(entry(latestSeason = 5, latestEpisodes = 56)))
     }
 
@@ -60,7 +60,7 @@ class CatalogLabelsTest {
     fun aSingleSeasonShowStatesOnlyTheEpisodeCount() {
         // 单季短剧没有季号：只说更新到多少集
         val single = entry(season = 0, latestSeason = 0, latestEpisodes = 524)
-        assertEquals("更新到 524 集", FavoriteLabels.updateBadge(single))
+        assertEquals("更新到第524集", FavoriteLabels.updateBadge(single))
         assertTrue(FavoriteLabels.attention(single.copy(status = FavoriteStatus.NEW_SEASON)))
     }
 
@@ -121,10 +121,10 @@ class CatalogLabelsTest {
             series = Series("1", "测试书"),
             progress = progress("1", updatedAt = 0L).copy(completed = true),
         )
-        // 看完的一季停在"第 1 集 · 00:01"既没用也不准确
+        // 看完的一季停在"第1集 · 00:01"既没用也不准确
         assertEquals("整剧已看完", CatalogCards.history(finished, watched = false).badge)
         assertEquals(
-            "第 1 集 · 00:01",
+            "第1集 · 00:01",
             CatalogCards.history(finished.copy(progress = finished.progress.copy(completed = false)), watched = false).badge,
         )
         assertEquals(
@@ -139,11 +139,11 @@ class CatalogLabelsTest {
         val series = Series("1", "测试书第九季", season = 9, cover = "http://c/1.jpg")
         assertTrue(CatalogCards.search(series).title.isEmpty())
 
-        // 继续看：季号要自己带上——那里没有预览区兜底
+        // 季号必须自己带上：历史记录散在各季里，不写季名就分不清是哪一季
         val entry = HistoryEntry(series, progress("1", updatedAt = 0L, index = 19))
-        assertEquals("第九季 · 第 20 集 · 00:01", CatalogCards.history(entry, watched = false, withSeason = true).badge)
-        // 历史页有预览区：保持短句
-        assertEquals("第 20 集 · 00:01", CatalogCards.history(entry, watched = false).badge)
+        assertEquals("第九季第20集 · 00:01", CatalogCards.history(entry, watched = false).badge)
+        // 首页「继续看」不要时间：用户刚看过，时间没有信息量
+        assertEquals("第九季第20集", CatalogCards.history(entry, watched = false, withClock = false).badge)
     }
 
     // ---------- 设置档位 ----------

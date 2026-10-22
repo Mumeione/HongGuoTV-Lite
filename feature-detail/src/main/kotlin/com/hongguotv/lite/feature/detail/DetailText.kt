@@ -18,8 +18,9 @@ import com.hongguotv.lite.uikit.text.TvText
 internal object DetailText {
 
     /** 详情页第二行：集数与分类。上游的 `" · "` 分隔换成 `" / "`，与行内的分隔符区分开。 */
-    fun heroMeta(series: Series, episodeCount: Int): String {
+    fun heroMeta(series: Series, episodeCount: Int, update: String = ""): String {
         val parts = mutableListOf<String>()
+        if (update.isNotBlank()) parts += update
         if (episodeCount > 0) parts += "全 $episodeCount 集" else if (series.badge.isNotBlank()) parts += series.badge
         val tags = series.tags.replace(" · ", " / ")
         if (tags.isNotBlank()) parts += tags
@@ -99,11 +100,12 @@ internal object DetailText {
         return label.ifBlank { name.ifBlank { season.title } }
     }
 
-    /** 系列页第二行：收藏身份 + 季数 + 集数 + 分类。 */
-    fun seriesMeta(series: Series, seasonCount: Int, favorite: Boolean): String {
+    /** 系列页第二行：收藏身份 + 季数 + 集数 + 分类 + 更新进度（都属于"这部剧"）。 */
+    fun seriesMeta(series: Series, seasonCount: Int, favorite: Boolean, update: String = ""): String {
         val parts = mutableListOf<String>()
         if (favorite) parts += "收藏的剧"
         if (seasonCount >= 2) parts += "共 $seasonCount 季"
+        if (update.isNotBlank()) parts += update
         if (series.badge.isNotBlank()) parts += series.badge
         val tags = series.tags.replace(" · ", "/")
         if (tags.isNotBlank()) parts += tags

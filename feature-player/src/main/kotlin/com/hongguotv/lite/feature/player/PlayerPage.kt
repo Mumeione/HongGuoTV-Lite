@@ -156,11 +156,11 @@ internal class PlayerPage(
         )
         val width = (ui.context.resources.displayMetrics.widthPixels * tokens.metrics.sidebarWidthRatio).toInt()
         val margin = ui.dp(tokens.space.xl)
+        // 高度按内容走（wrap），不铺满整屏：侧栏是压在画面上的覆盖层，
+        // 一页 50 格本来就不需要半个屏幕的空板子（维护者口径"不得占用太多屏幕空间"）。
         root.addView(
             sidebar.view,
-            FrameLayout.LayoutParams(width, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END).apply {
-                topMargin = margin
-                bottomMargin = margin
+            FrameLayout.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.END or Gravity.CENTER_VERTICAL).apply {
                 rightMargin = margin
             },
         )

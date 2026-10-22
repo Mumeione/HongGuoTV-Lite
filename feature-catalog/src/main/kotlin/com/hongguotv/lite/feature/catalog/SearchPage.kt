@@ -11,6 +11,7 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.LinearLayout
 import android.widget.Toast
 import com.hongguotv.core.model.ContentFilter
+import com.hongguotv.core.model.FavoriteEntry
 import com.hongguotv.core.model.HistoryEntry
 import com.hongguotv.core.model.SeasonKeys
 import com.hongguotv.core.model.Series
@@ -38,14 +39,16 @@ import kotlinx.coroutines.launch
 /**
  * 搜索页。
  *
- * 从上到下：顶栏 → 片库筛选 → 输入行 → 联想（有才占位）→ 预览（有卡片才占位）→ 内容区。
+ * 从上到下：顶栏 → 标题与说明 → 输入行 → 片库 tag → 候选词（有才占位）→ 内容区。
  * 筛选、输入行固定在上方；内容区（继续看 / 结果网格 / 空态）吃掉剩余高度。
  *
- * 两条 S9 的排版口径：
- * - **固定留白只在有内容时占位**：没有联想词时不保留一整行，没有卡片时不摆那块三行预览区，
+ * 三条排版口径：
+ * - **顶部四件事各有各的位置**：标题 / 说明 / tag / 候选词。以前这里放的是聚焦卡片的
+ *   简介与标题，用户早就知道那部剧是什么——那块信息既没用，又把输入框和候选词挤走了；
+ * - **固定留白只在有内容时占位**：没有联想词时不保留一整行，没有卡片时不摆预览区，
  *   首屏高度要还给卡片（维护者原话：「不能看见卡片标题，这是现在的显著问题」）；
  * - **卡片高度按内容区视口夹取**：只放得下一行卡时，封面按 `CardFit` 夹短，
- *   保证「封面 + 两行标题 + 角标」都在首屏内。
+ *   保证「封面 + 角标」都在首屏内。
  */
 internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.SEARCH) {
 
@@ -76,7 +79,8 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
     override fun onBuild() {
         val body = scaffold.body()
 
-        // 片库筛选：整行居中，与顶栏同一视觉轴
+        // 片库筛选：整行居中，与顶栏同一视觉轴（维护者口径：搜索页保持原来的排布，
+        // 顶部不再加页标题与说明——搜索页的"招牌"就是那一行输入框）
         val filterRow = ui.row().apply {
             gravity = Gravity.CENTER
             setPadding(0, ui.dp(tokens.space.m), 0, ui.dp(tokens.space.m))
@@ -94,7 +98,7 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         }
         body.addView(filterRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-        // 输入行：输入框 + 排序。输入完按确认就搜，不另放"搜索"按钮。
+        // 输入行：输入框 + 搜索 + 排序，整行居中
         val searchRow = ui.row().apply {
             gravity = Gravity.CENTER
             setPadding(0, 0, 0, ui.dp(tokens.space.s))
@@ -157,7 +161,8 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
 
         continueGrid = ui.grid("continue").apply {
             visibility = View.GONE
-            onCardFocused = { item -> previewHistory(item) }
+            // 「继续看」不挂预览区：那几张卡是用户自己刚看过的剧，再在上方写一遍标题、状态、
+            // 分类只是把首屏高度吃掉（维护者口径："继续看不需要简介、标题之类的上方信息"）。
             onCardActivated = { item -> host.navigator.toDetail(item.id, resumeRecording = true) }
         }
         content.addView(continueGrid)
@@ -325,42 +330,34 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
 
     private fun previewResult(item: CardItem) {
         val series = model.items.firstOrNull { it.id == item.id } ?: return
-        val favorite = host.favorites.isFavorite(SeasonKeys.seasonKey(series.title))
+        val favorite = favoriteOf(series)
         preview.show(
             title = series.title,
             status = CatalogText.previewStatus(
-                favorite = favorite,
+                favorite = favorite != null,
                 season = series.season,
                 progress = host.progress.progressOf(series.id),
                 watched = host.progress.isWatched(series.id),
             ),
-            meta = CatalogText.meta(series),
+            meta = CatalogText.meta(series, favorite?.let { FavoriteLabels.updateBadge(it) }.orEmpty()),
         )
     }
 
-    /** 搜索卡那一行收藏状态：收藏了就说"更新到哪里"（与收藏页同一口径），没收藏留空。 */
-    private fun favoriteBadgeOf(series: Series): String {
+    /** 这一季所属的收藏记录（收藏一季 = 收藏整个 IP，所以按系列键查）。 */
+    private fun favoriteOf(series: Series): FavoriteEntry? {
         val key = SeasonKeys.seasonKey(series.title)
-        if (key.isBlank() || !host.favorites.isFavorite(key)) return ""
-        val entry = host.favorites.entry(key) ?: return "已收藏"
-        return FavoriteLabels.updateBadge(entry)
+        if (key.isBlank()) return null
+        return host.favorites.entry(key)
     }
 
-    private fun previewHistory(item: CardItem) {
-        val entry = continueEntries.firstOrNull { it.series.id == item.id } ?: return
-        // 继续看的剧也可能是收藏的整个 IP：预览的信息栏要一并说出来
-        val favorite = host.favorites.isFavorite(SeasonKeys.seasonKey(entry.series.title))
-        preview.show(
-            title = entry.series.title,
-            status = CatalogText.previewStatus(
-                favorite = favorite,
-                season = entry.series.season,
-                progress = entry.progress,
-                watched = host.progress.isWatched(entry.series.id),
-            ),
-            meta = CatalogText.meta(entry.series),
-        )
-    }
+    /**
+     * 搜索卡那一行收藏状态：只回答"收藏了没有"。
+     *
+     * 更新到第几集属于收藏页的活（那里整页都在说更新）；搜索页每张卡都重复一遍
+     * "更新到第九季第352集"，同一部剧的每一季还都写一样的一句，读起来像噪音。
+     * 想看得细一点，把光标停上去，预览区第三行会给。
+     */
+    private fun favoriteBadgeOf(series: Series): String = if (favoriteOf(series) != null) "已收藏" else ""
 
     // ---------- 渲染 ----------
 
@@ -381,7 +378,8 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
 
         if (stateText == null) pane.showContent() else pane.showEmpty(stateText)
         retry.visibility = if (error != null) View.VISIBLE else View.GONE
-        preview.visibility = if (showContinue || showResult) View.VISIBLE else View.GONE
+        // 预览区只服务**搜索结果**（那才是"一部剧的全部信息"）；「继续看」上方不再挂它
+        preview.visibility = if (showResult) View.VISIBLE else View.GONE
         continueHeader.visibility = if (showContinue) View.VISIBLE else View.GONE
         continueGrid.visibility = if (showContinue) View.VISIBLE else View.GONE
         resultGrid.visibility = if (showResult) View.VISIBLE else View.GONE
@@ -389,14 +387,13 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         // 视口还没量到时不夹（保持比例）；量到之后由布局回调再走一遍 render
         applyCardLimit()
         continueRendered = if (showContinue) {
-            // 继续看的卡不带片名也不带预览兜底：季号自己带上，"第九季 · 第 20 集 · 05:00"
-            continueGrid.render(continueEntries.map { CatalogCards.history(it, host.progress.isWatched(it.series.id), withSeason = true) })
+            continueGrid.render(continueEntries.map { CatalogCards.history(it, host.progress.isWatched(it.series.id), withClock = false) })
         } else {
             null
         }
         rendered = if (showResult) resultGrid.render(model.items.map { CatalogCards.search(it, favoriteBadgeOf(it)) }) else null
 
-        if (!showContinue && !showResult) preview.show("", "", "")
+        if (!showResult) preview.show("", "", "")
         applyFocus()
     }
 
@@ -467,6 +464,10 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         const val SUGGEST_MIN_LENGTH = 2
         const val SUGGEST_LIMIT = 4
         const val SUGGEST_DEBOUNCE_MS = 400L
-        const val CONTINUE_LIMIT = 6
+        /**
+         * 「继续看」最多 5 部 = 网格一行的列数（1080p 上）。
+         * 多一个就会折到第二行，而第二行在首屏放不下——用户要么看不见，要么得先滚一下才知道还有。
+         */
+        const val CONTINUE_LIMIT = 5
     }
 }

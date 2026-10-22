@@ -35,7 +35,7 @@ class PreviewRail internal constructor(private val ui: UiKit) : LinearLayout(ui.
         )
         addView(titleView)
         addView(statusView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(tokens.space.xs) })
-        addView(metaView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(tokens.space.xxs) })
+        addView(metaView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(tokens.space.s) })
     }
 
     fun show(title: String, status: String, meta: String) {

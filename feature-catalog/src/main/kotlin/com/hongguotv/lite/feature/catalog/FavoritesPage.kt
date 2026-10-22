@@ -177,7 +177,7 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
                 progress = progress,
                 watched = host.progress.isWatched(entry.series.id),
             ),
-            meta = CatalogText.meta(entry.series),
+            meta = CatalogText.meta(entry.series, FavoriteLabels.updateBadge(entry)),
         )
     }
 

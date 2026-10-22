@@ -75,8 +75,8 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
     }
 
     private val statusView: TextView = ui.text("", tokens.type.label, tokens.colors.muted).apply {
-        maxLines = 2
-        setPadding(0, ui.dp(tokens.space.xs), 0, ui.dp(tokens.space.m))
+        maxLines = 1
+        setPadding(0, ui.dp(tokens.space.xxs), 0, ui.dp(tokens.space.s))
     }
 
     private val modeButton: TvButton
@@ -119,12 +119,19 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
         pager.onPage = { delta -> goPage(delta) }
 
         val actionRow = ui.row().apply {
-            addView(modeButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                rightMargin = ui.dp(tokens.space.xxs)
+            addView(modeButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                rightMargin = ui.dp(tokens.space.s)
             })
-            addView(jumpButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                leftMargin = ui.dp(tokens.space.xxs)
+            addView(jumpButton)
+        }
+
+        // 标题与两个动作同排：侧栏是覆盖层，每省下一行就多留一行画面。
+        // 标题吃剩余宽度，动作靠右，视线从"正在看哪一集"自然滑到"还能干什么"。
+        val titleRow = ui.row().apply {
+            addView(titleView, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                rightMargin = ui.dp(tokens.space.m)
             })
+            addView(actionRow)
         }
 
         episodesArea.addView(pager.view)
@@ -170,9 +177,8 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
             )
             val gap = ui.dp(tokens.metrics.sidebarGap)
             val wrap = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            addView(titleView)
+            addView(titleRow)
             addView(statusView)
-            addView(actionRow)
             addView(episodesArea, LinearLayout.LayoutParams(wrap).apply { topMargin = gap })
             addView(settingsArea, LinearLayout.LayoutParams(wrap).apply { topMargin = gap })
             addView(jumpArea, LinearLayout.LayoutParams(wrap).apply { topMargin = gap })

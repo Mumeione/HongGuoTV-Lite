@@ -134,21 +134,19 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
             targetId = seriesId
         }
         val entry = entries.firstOrNull { it.series.id == seriesId } ?: return
-        // 收藏一季 = 收藏整个 IP：历史页预览的信息栏要说明这部剧在收藏里、更新到了哪
+        // 收藏一季 = 收藏整个 IP：历史页预览要把"这部 IP 更新到哪"放在第三行（它的状态），
+        // 第二行只说我自己的状态（收藏没收藏、看到哪）
         val key = SeasonKeys.seasonKey(entry.series.title)
         val favoriteEntry = if (key.isBlank()) null else host.favorites.entry(key)
         preview.show(
             title = entry.series.title,
-            status = listOf(
-                CatalogText.previewStatus(
-                    favorite = favoriteEntry != null,
-                    season = entry.series.season,
-                    progress = entry.progress,
-                    watched = host.progress.isWatched(entry.series.id),
-                ),
-                favoriteEntry?.let { FavoriteLabels.updateBadge(it) },
-            ).filterNotNull().filter { it.isNotBlank() }.joinToString(" · "),
-            meta = CatalogText.meta(entry.series),
+            status = CatalogText.previewStatus(
+                favorite = favoriteEntry != null,
+                season = entry.series.season,
+                progress = entry.progress,
+                watched = host.progress.isWatched(entry.series.id),
+            ),
+            meta = CatalogText.meta(entry.series, favoriteEntry?.let { FavoriteLabels.updateBadge(it) }.orEmpty()),
         )
         if (managing) updateFooter()
     }
