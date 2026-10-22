@@ -126,39 +126,15 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
             })
         }
 
-        // 顶行：片名 + 「MENU 关闭」（mockup .b-drawer .toprow）。MENU 键帽沿用信息栏键帽画法
+        // 顶行：片名 + 「MENU 关闭」（mockup .b-drawer .toprow）。键帽画法走 uikit，
+        // 与信息栏右侧的「OK」是同一份（描边版）
         val topRow = ui.row().apply { setPadding(0, 0, 0, ui.dp(tokens.space.m)) }
         topRow.addView(titleView, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
             rightMargin = ui.dp(tokens.space.m)
         })
         val closeHint = ui.text("", tokens.type.footnote, tokens.colors.muted)
         closeHint.text = "关闭"
-        val menuCap = TextView(ui.context).apply {
-            text = "MENU"
-            textSize = tokens.type.railLabel
-            setTextColor(tokens.colors.text)
-            includeFontPadding = false
-            gravity = Gravity.CENTER
-            maxLines = 1
-            // 宽度随文字走（MENU 四个字母装不进 22dp），minWidth 保住键帽观感
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ui.dp(tokens.metrics.keyCapSize),
-            ).apply {
-                minWidth = ui.dp(tokens.metrics.keyCapSize)
-                rightMargin = ui.dp(tokens.space.s)
-            }
-            // uikit 的 shape() 是 internal（跨模块只能用公开 API）：键帽底用 GradientDrawable 画。
-            // mockup `.b-navkey` 是**描边**不是填充：透明底 + 1px 结构线，读作"按一下 MENU"而不是一颗按钮
-            background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(android.graphics.Color.TRANSPARENT)
-                cornerRadius = ui.dp(tokens.metrics.keyCapRadius).toFloat()
-                setStroke(ui.dp(tokens.space.hairline).coerceAtLeast(1), tokens.colors.outline)
-            }
-            val pad = ui.dp(tokens.metrics.keyCapPaddingH)
-            setPadding(pad, 0, pad, 0)
-        }
-        topRow.addView(menuCap)
+        topRow.addView(ui.keyCap("MENU", outlined = true))
         topRow.addView(closeHint)
 
         episodesBody = ui.column().apply {
@@ -217,7 +193,7 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
         bodyHost.addView(bodyRow, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         bodyHost.addView(jumpArea, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER_VERTICAL))
 
-        view = ui.tile(radiusDp = tokens.shapes.panel, paddingDp = 0).apply {
+        view = ui.tile(radiusDp = tokens.shapes.drawer, paddingDp = 0).apply {
             visibility = View.GONE
             setPadding(
                 ui.dp(tokens.metrics.drawerPaddingH),

@@ -1,7 +1,6 @@
 package com.hongguotv.lite.feature.catalog
 
 import com.hongguotv.core.model.ContentFilter
-import com.hongguotv.core.model.Progress
 import com.hongguotv.core.model.Series
 import com.hongguotv.core.port.UpstreamError
 import com.hongguotv.lite.uikit.text.TvText
@@ -14,29 +13,6 @@ import org.junit.Test
 class CatalogTextTest {
 
     private fun series(id: String, title: String = "剧$id", season: Int = 0) = Series(id = id, title = title, season = season)
-
-    private fun progress(index: Int, positionMs: Long, completed: Boolean = false) = Progress(
-        seriesId = "1",
-        episodeVid = "v1",
-        episodeIndex = index,
-        positionMs = positionMs,
-        durationMs = 100_000L,
-        completed = completed,
-        updatedAt = 1L,
-    )
-
-    @Test
-    fun previewStatusPutsTheSeasonInFrontOfTheEpisode() {
-        val status = CatalogText.previewStatus(favorite = true, season = 7, progress = progress(8, 754_000), watched = false)
-        assertEquals("已收藏 · 上次看到 第七季 第 9 集 · 12:34", status)
-    }
-
-    @Test
-    fun previewStatusCoversFinishedSeasonAndWholeSeries() {
-        assertEquals("上次已看完整季", CatalogText.previewStatus(false, 0, progress(3, 0, completed = true), false))
-        assertEquals("整剧已看完", CatalogText.previewStatus(false, 0, null, watched = true))
-        assertEquals("", CatalogText.previewStatus(false, 0, null, watched = false))
-    }
 
     @Test
     fun emptySearchSuggestsSwitchingTheFilterFirst() {

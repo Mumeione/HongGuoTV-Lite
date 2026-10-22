@@ -81,6 +81,11 @@ class PosterCard internal constructor(
      * 历史卡是产品口径的 152：B 方案把它压扁了一档，图按 `cover` 裁掉上下而不是留黑边。
      */
     coverHeightDp: Int = 0,
+    /**
+     * 聚焦时是否放大。季线一页 8 张、卡间距只有 10dp：放大 6% 会吃掉邻居的呼吸，
+     * 而 mockup 的季卡焦点本来就只有 3dp 描边（`.b-scard.focus{box-shadow}`），不缩放。
+     */
+    private val scaleOnFocus: Boolean = true,
 ) : LinearLayout(ui.context) {
 
     private val tokens = ui.tokens
@@ -208,6 +213,7 @@ class PosterCard internal constructor(
         bindFocus(
             tokens = tokens,
             paint = { paintCard(it) },
+            scale = { scaleOnFocus },
             onChange = { isFocused ->
                 focused = isFocused
                 val current = item ?: return@bindFocus

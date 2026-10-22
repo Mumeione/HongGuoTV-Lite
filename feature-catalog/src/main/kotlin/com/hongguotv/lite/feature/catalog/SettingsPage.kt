@@ -8,6 +8,7 @@ import android.widget.Toast
 import com.hongguotv.core.model.Settings
 import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.focus.FocusSections
+import com.hongguotv.lite.uikit.focus.navKey
 import com.hongguotv.lite.uikit.page.TwoStepConfirm
 import com.hongguotv.lite.uikit.ui.SettingRow
 import kotlinx.coroutines.launch
@@ -180,7 +181,7 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
 
     /** 首焦：第一项设置 → 当前导航项。进设置页就是要改东西，不该先按几下往下走。 */
     override fun startFocus(): List<FocusKey> =
-        listOf(FocusKey("setting:L0"), FocusKey("nav:${CatalogTab.SETTINGS.ordinal}"))
+        listOf(FocusKey("setting:L0"), navKey(CatalogTab.SETTINGS.ordinal))
 
     private fun applyFocus() {
         val leftRows = listOf(qualityRow, speedRow, frameRow, autoNextRow)

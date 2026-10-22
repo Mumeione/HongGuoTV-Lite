@@ -9,6 +9,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import com.hongguotv.core.port.ArtworkPort
 import com.hongguotv.lite.uikit.R
+import com.hongguotv.lite.uikit.internal.Stroke
 import com.hongguotv.lite.uikit.internal.dp
 import com.hongguotv.lite.uikit.internal.shape
 import com.hongguotv.lite.uikit.page.ContentPane
@@ -154,6 +155,32 @@ class UiKit(
     fun settingRow(label: String, value: String, onTap: () -> Unit): SettingRow =
         SettingRow(this, label, value, onTap)
 
+    /**
+     * 键帽（信息栏右侧的「OK / ◀▶」、播放抽屉顶行的「MENU」）。
+     *
+     * 两种画法：信息栏是 raised 底（mockup `.b-key`），抽屉是透明底 + 1px 结构线
+     * （`.b-navkey`）。宽度随文字走、minWidth 保住方块观感——"MENU" 四个字母装不进 22dp。
+     */
+    fun keyCap(label: String, outlined: Boolean = false): TextView = TextView(context).apply {
+        text = label
+        textSize = tokens.type.railLabel
+        setTextColor(tokens.colors.text)
+        includeFontPadding = false
+        gravity = Gravity.CENTER
+        maxLines = 1
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(tokens.metrics.keyCapSize)).apply {
+            minWidth = dp(tokens.metrics.keyCapSize)
+            rightMargin = dp(tokens.space.s)
+        }
+        background = if (outlined) {
+            shape(android.graphics.Color.TRANSPARENT, tokens.metrics.keyCapRadius, Stroke(tokens.colors.outline, 1))
+        } else {
+            shape(tokens.colors.raised, tokens.metrics.keyCapRadius, null)
+        }
+        val pad = dp(if (outlined) tokens.metrics.keyCapPaddingH else tokens.space.xxs)
+        setPadding(pad, 0, pad, 0)
+    }
+
     fun input(label: String, maxLength: Int = 80): TvInput = TvInput(context, tokens, label, maxLength)
 
     /** 单张封面（详情页大图）。走封面端口取图，尺寸由调用方给。 */
@@ -181,8 +208,18 @@ class UiKit(
      * 都是这种：用 [grid] 的话列数会按卡宽反推，40 季的剧会被 `pageCardLimit` 截断。
      * 外观与网格里的卡完全一致，不为一个区块另造一种卡。
      */
-    fun poster(widthPx: Int, stripHeightDp: Int = 0, coverHeightDp: Int = 0): PosterCard =
-        PosterCard(this, widthPx, stripHeightDp = stripHeightDp, coverHeightDp = coverHeightDp)
+    fun poster(
+        widthPx: Int,
+        stripHeightDp: Int = 0,
+        coverHeightDp: Int = 0,
+        scaleOnFocus: Boolean = true,
+    ): PosterCard = PosterCard(
+        ui = this,
+        widthPx = widthPx,
+        stripHeightDp = stripHeightDp,
+        coverHeightDp = coverHeightDp,
+        scaleOnFocus = scaleOnFocus,
+    )
 
     // ---------- 布局参数 ----------
 

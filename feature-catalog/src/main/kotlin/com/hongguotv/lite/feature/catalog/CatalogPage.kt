@@ -5,8 +5,9 @@ import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.focus.FocusSection
 import com.hongguotv.lite.uikit.focus.FocusSections
 import com.hongguotv.lite.uikit.focus.FocusSession
+import com.hongguotv.lite.uikit.focus.NAV_KEY_PREFIX
+import com.hongguotv.lite.uikit.focus.navKey
 import com.hongguotv.lite.uikit.page.PageScaffold
-import com.hongguotv.lite.uikit.ui.RailItem
 import com.hongguotv.lite.uikit.ui.RailNav
 import com.hongguotv.lite.uikit.token.Tokens
 import com.hongguotv.lite.uikit.ui.UiKit
@@ -52,8 +53,9 @@ internal abstract class CatalogPage(
 
     fun build(preferred: FocusKey?) {
         preferredOnBuild = preferred
+        // 导航项的标签与图标由 uikit 的 RailSlot 提供，页面只决定"选中谁、点了去哪"
         rail = scaffold.showRail(
-            CatalogTab.entries.map { item -> RailItem(item.label, item.iconRes) { host.show(item) } },
+            RailNav.standardItems { index -> host.show(CatalogTab.of(index)) },
             tab.ordinal,
         )
         onBuild()
@@ -84,7 +86,7 @@ internal abstract class CatalogPage(
      * 把它当成"上一页的光标位置"存下来，回来时就落在别人的导航项上了（S9 实测踩到）。
      * 空页确实停在导航上，但那由 [startFocus] 的阶梯给出，不靠记忆。
      */
-    fun currentFocus(): FocusKey? = focus.remembered()?.takeUnless { it.value.startsWith(NAV_PREFIX) }
+    fun currentFocus(): FocusKey? = focus.remembered()?.takeUnless { it.value.startsWith(NAV_KEY_PREFIX) }
 
     /**
      * MENU 键（B 方案：历史页"管理走 MENU"）。页面没接就返回 false，宿主走默认行为。
@@ -97,7 +99,7 @@ internal abstract class CatalogPage(
     }
 
     protected fun navViews(): Map<FocusKey, View> =
-        rail.navItems.mapIndexed { index, view -> FocusKey("nav:$index") to (view as View) }.toMap()
+        rail.keys().mapIndexed { index, key -> key to (rail.navItems[index] as View) }.toMap()
 
     /** 侧栏这一段：四个导航项竖排。作为**侧段**拼进焦点图（左右与内容互通）。 */
     protected fun navSection(): FocusSection? =
@@ -107,7 +109,7 @@ internal abstract class CatalogPage(
     protected fun applyPlan(sections: List<FocusSection?>, views: Map<FocusKey, View>) {
         // 内容往左回侧栏时落在**本页的 tab** 上：内容通常只有一行卡，按竖直位置映射
         // 会落到侧栏中段（实测：搜索页按左键落在「收藏」上，再按确认就换了页）
-        val plan = FocusSections.plan(sections, side = navSection(), sideAnchor = FocusKey("nav:${tab.ordinal}")) ?: return
+        val plan = FocusSections.plan(sections, side = navSection(), sideAnchor = navKey(tab.ordinal)) ?: return
         focus.bind(plan, views)
         val wanted = preferredOnBuild ?: preferredOnRender
         preferredOnRender = null
@@ -118,10 +120,5 @@ internal abstract class CatalogPage(
         if (focus.request(preferred, ladder)) return
         // 视图还没挂上窗口时一定失败：等一次 post 再要，别让光标留在页外
         scaffold.post { focus.request(preferred, ladder) }
-    }
-
-    private companion object {
-        /** 侧栏焦点段的 key 前缀（见 [navSection]）。 */
-        const val NAV_PREFIX = "nav:"
     }
 }

@@ -121,6 +121,8 @@ data class Shapes(
     val card: Int = 12,
     /** 面板（设置两栏）、播放抽屉。 */
     val panel: Int = 14,
+    /** 播放抽屉：比设置面板更圆一档（mockup `.b-drawer{border-radius:16px}`）。 */
+    val drawer: Int = 16,
     /** 胶囊：99 = 完全胶囊。 */
     val pill: Int = 99,
     /** 行容器（设置行、输入框）。 */

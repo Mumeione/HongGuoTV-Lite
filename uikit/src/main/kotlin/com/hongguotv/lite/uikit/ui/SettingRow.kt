@@ -46,7 +46,8 @@ class SettingRow internal constructor(
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         minimumHeight = ui.dp(tokens.metrics.setRowHeight)
-        val pad = ui.dp(VALUE_GAP)
+        // 行内左右留白（mockup `.setrow{padding:0 14px}`）
+        val pad = ui.dp(tokens.space.l)
         setPadding(pad, 0, pad, 0)
 
         labelView = TextView(context).apply {
@@ -74,10 +75,11 @@ class SettingRow internal constructor(
 
         addView(labelView, LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         addView(valueView, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            leftMargin = ui.dp(VALUE_GAP)
+            leftMargin = ui.dp(tokens.space.m)
         })
         addView(arrowView, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            leftMargin = ui.dp(ARROW_GAP)
+            // mockup `.setrow .arrow{margin-left:10px}`
+            leftMargin = ui.dp(tokens.space.m)
         })
 
         bindFocus(tokens = tokens, paint = { paintState(it) }, scale = { false }, onChange = { onFocused?.invoke(it) })
@@ -100,11 +102,5 @@ class SettingRow internal constructor(
         // mockup `.setrow.focus .val{color:#5B6674}`：白底上的值要退到 dim 一档才不抢主标签
         valueView.setTextColor(if (focused) colors.dim else colors.muted)
         arrowView.setTextColor(colors.dim)
-    }
-
-    private companion object {
-        /** 行内左右留白（mockup `.setrow{padding:0 14px}`）。 */
-        const val VALUE_GAP = 14
-        const val ARROW_GAP = 10
     }
 }

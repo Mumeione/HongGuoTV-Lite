@@ -1,12 +1,10 @@
 package com.hongguotv.lite.feature.catalog
 
 import com.hongguotv.core.model.ContentFilter
-import com.hongguotv.core.model.Progress
 import com.hongguotv.core.model.Series
-import com.hongguotv.lite.uikit.text.TvText
 
 /**
- * 四页共用的文案派生：预览三行、空态、正序/倒序。
+ * 四页共用的文案派生：卡片角标、空态、正序/倒序、信息栏说明段。
  *
  * 全部是纯函数（不 import `android.*`），因为文案是"用户看到什么"的一部分，
  * 必须能在 JVM 单测里钉死——尤其是"风控空体绝不能显示成没有结果"这条。
@@ -18,8 +16,8 @@ internal object CatalogText {
     /**
      * 预览第三行：这部剧本身的属性——收藏的更新进度、集数、分类。
      *
-     * 三个来源分开排：**我的状态**（收藏没收藏、看到哪）走 [previewStatus]，
-     * **它的状态**（更新到哪、共几集、什么分类）走这一行。混在一行会变成
+     * 三个来源分开排：**它的状态**（更新到哪、共几集、什么分类）走这一行；
+     * 我的状态（看到哪）在卡片状态条上，B 方案不再有预览区。混在一行会变成
      * "已收藏 · 上次看到第九季 第 20 集 · 05:00 · 更新到第九季第352集" 这种一长串，
      * 中间还夹着两种写法（维护者实测"这行文字的排列也不美观"）。
      *
@@ -28,17 +26,6 @@ internal object CatalogText {
     fun meta(series: Series, update: String = ""): String = listOf(update, series.badge, series.tags.replace(" · ", " / "))
         .filter { it.isNotBlank() }
         .joinToString("  ·  ")
-
-    /**
-     * 预览第二行：状态。**有记录就必须说出来**——"上次看到第七季 第 9 集"是用户回到这一页的理由。
-     * 句子本身由 [TvText.watchStatus] 出，多季剧带上季名。
-     */
-    fun previewStatus(favorite: Boolean, season: Int, progress: Progress?, watched: Boolean): String {
-        val parts = mutableListOf<String>()
-        if (favorite) parts += "已收藏"
-        TvText.watchStatus(progress, watched, season).takeIf { it.isNotBlank() }?.let { parts += it }
-        return parts.joinToString(" · ")
-    }
 
     /**
      * 底部信息栏的说明段（B 方案）：搜索/历史结果 = **已收藏 + 分类**。

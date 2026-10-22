@@ -25,22 +25,6 @@ class DetailTextTest {
         updatedAt = 1L,
     )
 
-    /** 多季剧的状态行必须带季名，否则"上次看到第 9 集"分不清是哪一季。 */
-    @Test
-    fun seriesStatusPutsTheSeasonInFrontOfTheEpisode() {
-        val line = SeasonLine(
-            listOf(
-                Series("6", "测试书第六季", season = 6),
-                Series("7", "测试书第七季", season = 7),
-            ),
-        )
-        val row = Progress("7", "v8", episodeIndex = 8, positionMs = 754_000, durationMs = 0L, completed = false, updatedAt = 1L)
-        assertEquals("上次看到 第七季 第 9 集 · 12:34", DetailText.seriesStatus(row, line))
-        // 记录所属的季不在季线里：退回调用方给的季号，仍然要能读出季名
-        assertEquals("上次看到 第六季 第 9 集 · 12:34", DetailText.seriesStatus(row, null, fallbackSeason = 6))
-        assertEquals("", DetailText.seriesStatus(null, line))
-    }
-
     @Test
     fun playLabelFollowsTheResumeTarget() {
         assertEquals("开始观看", DetailText.playLabel(null, ResumeTarget(0, 0L, false), watched = false))
@@ -97,8 +81,14 @@ class DetailTextTest {
 
     /** 剧集详情的四行规格表（mockup 画面3）：「记录」是 strong——那是用户回来的理由。 */
     @Test
-    fun episodeSpecsPutTheRecordInStrong() {
-        val rows = DetailText.episodeSpecs(
+    fun `update label only exists when the season has episodes`() {
+        // 规格表「更新」行的唯一写法；空格与量词漂了，详情页和卡片就会各说各的
+        assertEquals("更新到 第 352 集", DetailText.updateLabel(352))
+        assertEquals("空剧集不画这一行", "", DetailText.updateLabel(0))
+    }
+
+    @Test
+    fun episodeSpecsPutTheRecordInStrong() {        val rows = DetailText.episodeSpecs(
             update = "更新到 第 352 集",
             total = 352,
             watchedCount = 20,

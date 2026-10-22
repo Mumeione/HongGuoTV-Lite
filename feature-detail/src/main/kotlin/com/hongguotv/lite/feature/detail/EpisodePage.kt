@@ -146,10 +146,17 @@ internal class EpisodePage(
         }
     }
 
-    /** 季线只在已收藏时取（省一次请求，与旧行为一致）：详情页的"下一季"说明与"共 N 季"副行靠它。 */
+    /**
+     * 季线：剧集详情的「共 N 季」副行靠它（mockup 画面3 的第二行）。
+     *
+     * 以前只在已收藏时取（省一次请求），结果是未收藏的剧这一行永远空着——而它是
+     * "这是不是一个系列"的第一眼信息。现在只要进详情就取一次，失败静默（少一行说明，
+     * 不该让整页变成错误态），拿到后与收藏时一样落库，系列页直接用。
+     */
     private fun loadSeasonLine(series: Series) {
-        if (!host.favorites.isFavorite(SeasonKeys.seasonKey(series.title))) return
-        scope.launch { collectSeasonLine(series) }
+        // 已经缓存过就不再请求（从系列页/收藏回来时走这条）
+        val cached = host.favorites.seasonLine(SeasonKeys.seasonKey(series.title))
+        if (cached == null) scope.launch { collectSeasonLine(series) }
     }
 
     /** 失败静默：缺季线只是少一行说明，不该让整页变成错误态。 */
@@ -209,7 +216,7 @@ internal class EpisodePage(
             // 副行"共 N 季"只在拿到季线时有据可写；没收藏的剧不为此多发一次请求
             seasonNote = line?.let { DetailText.seasonNote(it.seasons.size, it.seasons.count { s -> s.released }, withReleased = false) }.orEmpty(),
             specs = DetailText.episodeSpecs(
-                update = if (data.episodes.isEmpty()) "" else "更新到 第 ${data.episodes.size} 集",
+                update = DetailText.updateLabel(data.episodes.size),
                 total = data.episodes.size,
                 watchedCount = host.progress.watchedUpTo(series.id),
                 tags = series.tags.replace(" · ", " / "),

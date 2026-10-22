@@ -51,7 +51,7 @@ class FocusSession(
      * **冷启动的自动聚焦也不记**：窗口挂上时框架会把焦点给树的第一个可聚焦项（侧栏第一项），
      * 那时 [oldFocus] 为 null，上面的判据拦不住——而这次"记忆"会**压过页面的落焦阶梯**
      * （记忆在回退链里排在阶梯前面）。侧栏 key 本来就不该进记忆（页面保存光标时会过滤
-     * `nav:` 前缀），这里在写入侧再多拦一道。
+     * [NAV_KEY_PREFIX] 开头的项），这里在写入侧再多拦一道。
      *
      * @param oldFocus 变化前的焦点视图。不可见（`isShown == false`）或已脱离窗口时不记。
      */
@@ -81,10 +81,5 @@ class FocusSession(
             remembered = remembered(),
             ladder = ladder,
         )
-    }
-
-    private companion object {
-        /** 侧栏段的 key 前缀（见 [onFocusChanged]）。 */
-        const val NAV_KEY_PREFIX = "nav:"
     }
 }

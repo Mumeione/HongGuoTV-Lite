@@ -10,6 +10,7 @@ import com.hongguotv.core.model.HistoryEntry
 import com.hongguotv.core.model.SeasonKeys
 import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.focus.FocusSections
+import com.hongguotv.lite.uikit.focus.navKey
 import com.hongguotv.lite.uikit.page.ContentPane
 import com.hongguotv.lite.uikit.page.GridRendered
 import com.hongguotv.lite.uikit.page.PosterGrid
@@ -201,7 +202,7 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
 
     /** 首焦：第一条历史 → 当前导航项（空历史时停在「历史」上）。 */
     override fun startFocus(): List<FocusKey> =
-        listOfNotNull(rendered?.keys?.firstOrNull(), FocusKey("nav:${CatalogTab.HISTORY.ordinal}"))
+        listOfNotNull(rendered?.keys?.firstOrNull(), navKey(CatalogTab.HISTORY.ordinal))
 
     private fun applyFocus() {
         val views = LinkedHashMap<FocusKey, View>()

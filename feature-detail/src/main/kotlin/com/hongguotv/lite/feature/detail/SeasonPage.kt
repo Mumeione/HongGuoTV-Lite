@@ -291,7 +291,7 @@ internal class SeasonPage(
         val row = ui.rowTop()
         slice.forEachIndexed { position, season ->
             val current = season.id == currentSeasonId
-            val card = ui.poster(cardWidth).apply {
+            val card = ui.poster(cardWidth, scaleOnFocus = false).apply {
                 // 这一页是详情类页面：封面**不落盘**，只按需取（落盘资格只给收藏/历史，见 S9 规格）
                 bind(
                     DetailCards.season(

@@ -70,6 +70,15 @@ internal object DetailText {
         ).filter { it.value.isNotBlank() }
     }
 
+    /**
+     * 剧集详情的「更新」值：这一季现在到第几集。空剧集返回空串（整行去掉）。
+     *
+     * 放在这里而不是调用点拼：同一句话在详情页、收藏页、信息栏各出现一次，
+     * 空格与"第 N 集 / 第 N 集"的写法必须只有一份。
+     */
+    fun updateLabel(episodeCount: Int): String =
+        if (episodeCount <= 0) "" else "更新到 第 $episodeCount 集"
+
     /** 剧集详情的「记录」值：**有记录就必须说出来**——这是用户回到这一页的理由。手动标"已看"优先。 */
     fun episodeRecord(progress: Progress?, watched: Boolean): String = when {
         watched -> "已看完"
@@ -84,16 +93,6 @@ internal object DetailText {
         return listOf(TvText.season(season), TvText.progress(progress.episodeIndex, progress.positionMs))
             .filter { it.isNotBlank() }
             .joinToString(" ")
-    }
-
-    /**
-     * 系列页状态行：多季剧必须带季名，否则"上次看到第 9 集"分不清是哪一季。
-     * [fallbackSeason] 用于记录所属的季不在季线里时（季线缓存可能是旧的）。
-     */
-    fun seriesStatus(progress: Progress?, line: SeasonLine?, fallbackSeason: Int = 0): String {
-        if (progress == null) return ""
-        val season = SeasonProgress.seasonOf(progress, line, fallbackSeason)
-        return TvText.watchStatus(progress, watched = false, season = season)
     }
 
     /** 主按钮文案。看 [ResumeTarget] 而不是原始记录：落点挪到下一集时文案也要跟着挪。 */

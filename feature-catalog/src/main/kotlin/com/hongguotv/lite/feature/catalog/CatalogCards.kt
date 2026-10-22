@@ -60,7 +60,7 @@ internal object CatalogCards {
             title = "",
             coverUrl = entry.series.cover,
             badge = if (finished) "整剧已看完"
-            else TvText.cardProgress(entry.series.season, entry.progress.episodeIndex, entry.progress.positionMs),
+            else TvText.cardProgress(entry.series.season, entry.progress.episodeIndex),
             artworkTitle = entry.series.title,
         )
     }

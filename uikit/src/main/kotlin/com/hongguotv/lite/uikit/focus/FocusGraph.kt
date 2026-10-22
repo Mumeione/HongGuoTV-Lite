@@ -15,6 +15,17 @@ package com.hongguotv.lite.uikit.focus
 value class FocusKey(val value: String)
 
 /**
+ * 侧栏导航项的 key 前缀（`nav:0 … nav:n-1`）。
+ *
+ * 页面拼焦点图、FocusSession 过滤"侧栏不进记忆"都用这一份：
+ * 前缀散在六处手拼时，改一次格式要动三个模块，漏一处就是光标落到图外。
+ */
+const val NAV_KEY_PREFIX = "nav:"
+
+/** 第 [index] 个导航项的焦点 key。 */
+fun navKey(index: Int): FocusKey = FocusKey("$NAV_KEY_PREFIX$index")
+
+/**
  * 一个焦点段：内部按 [columns] 分列，从上到下排。
  *
  * 两种常见形态：

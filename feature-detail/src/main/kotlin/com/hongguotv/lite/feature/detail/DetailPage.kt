@@ -5,9 +5,11 @@ import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.focus.FocusSection
 import com.hongguotv.lite.uikit.focus.FocusSections
 import com.hongguotv.lite.uikit.focus.FocusSession
+import com.hongguotv.lite.uikit.focus.navKey
 import com.hongguotv.lite.uikit.page.PageScaffold
 import com.hongguotv.lite.uikit.token.Tokens
 import com.hongguotv.lite.uikit.ui.RailNav
+import com.hongguotv.lite.uikit.ui.RailSlot
 import com.hongguotv.lite.uikit.ui.UiKit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -76,7 +78,7 @@ internal abstract class DetailPage(
             sections,
             side = side,
             // 详情两页的当前项固定亮「收藏」：内容往左要回到它，而不是按竖直位置落到别的 tab
-            sideAnchor = FocusKey("nav:$RAIL_SELECTED"),
+            sideAnchor = navKey(RAIL_SELECTED),
         ) ?: return
         focus.bind(plan, views)
         // 没有跨页记忆时把阶梯第一项升格成显式目标（回退链里显式 > 记忆）：
@@ -91,7 +93,7 @@ internal abstract class DetailPage(
     }
 
     private companion object {
-        /** 详情两页的侧栏当前项固定亮「收藏」（mockup 画面 3/5）。 */
-        const val RAIL_SELECTED = 1
+        /** 详情两页的侧栏当前项固定亮「收藏」（mockup 画面 3/5）——按名字取，不写死下标。 */
+        val RAIL_SELECTED = RailSlot.FAVORITES.ordinal
     }
 }

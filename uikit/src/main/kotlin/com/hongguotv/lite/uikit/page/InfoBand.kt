@@ -11,7 +11,6 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.hongguotv.lite.uikit.internal.dp
 import com.hongguotv.lite.uikit.internal.setTextIfChanged
-import com.hongguotv.lite.uikit.internal.shape
 import com.hongguotv.lite.uikit.ui.UiKit
 
 /**
@@ -117,24 +116,8 @@ class InfoBand internal constructor(private val ui: UiKit) : FrameLayout(ui.cont
 
     private fun syncKeys(keys: List<Pair<String, String>>) {
         while (keySpans.size < keys.size) {
-            val cap = TextView(context).apply {
-                textSize = tokens.type.railLabel
-                setTextColor(tokens.colors.text)
-                includeFontPadding = false
-                gravity = Gravity.CENTER
-                maxLines = 1
-                // 宽度随文字走（"MENU" 四个字母 22dp 装不下会折行），minWidth 保住"键帽"的方块观感
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ui.dp(tokens.metrics.keyCapSize),
-                ).apply {
-                    minWidth = ui.dp(tokens.metrics.keyCapSize)
-                    rightMargin = ui.dp(tokens.space.s)
-                }
-                background = shape(tokens.colors.raised, tokens.metrics.keyCapRadius, null)
-                val pad = ui.dp(tokens.space.xxs)
-                setPadding(pad, 0, pad, 0)
-            }
+            // 键帽画法归 uikit（UiKit.keyCap）：信息栏与播放抽屉共用同一份
+            val cap = ui.keyCap("")
             val label = TextView(context).apply {
                 textSize = tokens.type.caption
                 setTextColor(tokens.colors.muted)
@@ -149,7 +132,8 @@ class InfoBand internal constructor(private val ui: UiKit) : FrameLayout(ui.cont
             }
             keySpans += cap to label
             keysRow.addView(span, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                rightMargin = ui.dp(KEY_GAP)
+                // mockup `.b-band .keys{gap:18px}`：一处就够，不再单开常量
+                rightMargin = ui.dp(tokens.space.xl)
             })
         }
         keySpans.forEachIndexed { index, (_, label) ->
@@ -160,10 +144,5 @@ class InfoBand internal constructor(private val ui: UiKit) : FrameLayout(ui.cont
                 label.setTextIfChanged(keys[index].second)
             }
         }
-    }
-
-    private companion object {
-        /** 按键提示之间的间距（mockup `.b-band .keys{gap:18px}` + `span+span{margin-left:6px}`）。 */
-        const val KEY_GAP = 18
     }
 }

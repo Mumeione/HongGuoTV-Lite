@@ -9,6 +9,7 @@ import com.hongguotv.core.usecase.FavoriteUpdateCheck
 import com.hongguotv.core.usecase.SeasonProgress
 import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.focus.FocusSections
+import com.hongguotv.lite.uikit.focus.navKey
 import com.hongguotv.lite.uikit.page.ContentPane
 import com.hongguotv.lite.uikit.page.GridRendered
 import com.hongguotv.lite.uikit.page.PosterGrid
@@ -181,7 +182,7 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
      * 「检查更新」往下按一下就够到，不需要抢占首焦。
      */
     override fun startFocus(): List<FocusKey> =
-        listOfNotNull(rendered?.keys?.firstOrNull(), FocusKey("nav:${CatalogTab.FAVORITES.ordinal}"))
+        listOfNotNull(rendered?.keys?.firstOrNull(), navKey(CatalogTab.FAVORITES.ordinal))
 
     private fun applyFocus() {
         val views = LinkedHashMap<FocusKey, View>()

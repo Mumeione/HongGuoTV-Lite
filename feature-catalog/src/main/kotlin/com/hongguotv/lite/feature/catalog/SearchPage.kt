@@ -126,14 +126,12 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         searchRow.addView(sortChip)
         body.addView(searchRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-        // 候选词（B 方案：固定在输入框下方）。只在真的有联想词时占位
+        // 候选词（B 方案：固定在输入框下方）。只在真的有联想词时占位；
+        // 行内容由 showSuggestions 整行重建（「候选」标签在那里加，这里不预置）
         suggestRow = ui.row().apply {
             setPadding(0, ui.dp(tokens.space.m), 0, 0)
             visibility = View.GONE
         }
-        suggestRow.addView(ui.text("候选", tokens.type.caption, tokens.colors.dim).apply {
-            setPadding(0, 0, ui.dp(tokens.space.xs), 0)
-        })
         body.addView(suggestRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         // 内容区：滚动网格 + 居中空态，二态互斥

@@ -64,10 +64,8 @@ object TvText {
      * B 方案口径：季与集之间**一个空格**（「第九季 第20集」），信息条不再带时间——
      * 观看位置是"我自己在哪"，详情在底部信息栏/详情页说。季号为 0 时只写集。
      */
-    fun cardProgress(season: Int, index: Int, positionMs: Long, withClock: Boolean = false): String {
-        val position = listOf(season(season), "第${index + 1}集").filter { it.isNotBlank() }.joinToString(" ")
-        return if (withClock) "$position · ${clock(positionMs)}" else position
-    }
+    fun cardProgress(season: Int, index: Int): String =
+        listOf(season(season), "第${index + 1}集").filter { it.isNotBlank() }.joinToString(" ")
 
     /** `1×` / `1.25×`。`Float.toString()` 的 `1.0` 要去掉尾巴，不能写出"1.0×"。 */
     fun speed(value: Float): String = value.toString().removeSuffix(".0") + "×"
@@ -95,22 +93,6 @@ object TvText {
 
     /** 剩余毫秒 → 分钟（向上取整）。定时的文案与档位判定共用它，免得两处各写一遍除法和取整。 */
     fun sleepMinutes(remainingMs: Long): Long = (remainingMs + 59_999) / 60_000
-
-    /**
-     * 「上次看到…」这一句。目录页的预览、详情页的状态行、系列页的状态行都要说它——
-     * **说法只能有一份**，否则同一条记录会在三页上有三种写法。
-     *
-     * [season] > 0 时把季名带上（多季剧不写季名就分不清是哪一季）；单季剧不写。
-     */
-    fun watchStatus(progress: Progress?, watched: Boolean, season: Int = 0): String = when {
-        progress == null -> if (watched) "整剧已看完" else ""
-        progress.completed -> "上次已看完整季"
-        else -> listOf(
-            "上次看到",
-            season(season),
-            "第 ${progress.episodeIndex + 1} 集 · ${clock(progress.positionMs)}",
-        ).filter { it.isNotBlank() }.joinToString(" ")
-    }
 
     /**
      * 失败文案按**类型**映射，不匹配中文字符串。

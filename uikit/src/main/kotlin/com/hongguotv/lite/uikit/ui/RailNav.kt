@@ -12,6 +12,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.hongguotv.lite.uikit.focus.FocusKey
+import com.hongguotv.lite.uikit.focus.navKey
 import com.hongguotv.lite.uikit.internal.bindFocus
 import com.hongguotv.lite.uikit.internal.dp
 import com.hongguotv.lite.uikit.internal.stateShape
@@ -20,6 +21,19 @@ import com.hongguotv.lite.uikit.token.Tokens
 
 /** 侧栏的一项：标签 + 图标 + 选中后的动作。 */
 data class RailItem(val label: String, val iconRes: Int, val onSelect: () -> Unit)
+
+/**
+ * 四个导航位的**稳定标识**（顺序即视觉顺序）。
+ *
+ * 这是全应用唯一的导航词汇：目录页的 tab、详情页高亮的项、启动页偏好的文案都从这里取，
+ * 任何一处都不要再写一份「搜索 / 收藏 / 历史 / 设置」——两份名字迟早会漂。
+ */
+enum class RailSlot(val label: String, val iconRes: Int) {
+    SEARCH("搜索", Icons.SEARCH),
+    FAVORITES("收藏", Icons.FAVORITE),
+    HISTORY("历史", Icons.HISTORY),
+    SETTINGS("设置", Icons.SETTINGS),
+}
 
 /**
  * 左侧图标栏（B 方案）：80dp 宽，替代旧顶栏。
@@ -46,7 +60,8 @@ class RailNav internal constructor(ui: UiKit, items: List<RailItem>) : FrameLayo
         column.addView(
             ImageView(context).apply { setImageResource(Icons.BRAND) },
             LinearLayout.LayoutParams(dp(tokens.metrics.railBrandIcon), dp(tokens.metrics.railBrandIcon)).apply {
-                bottomMargin = dp(RAIL_BRAND_GAP)
+                // mockup `.b-logo-svg{margin-bottom:14px}`
+                bottomMargin = dp(tokens.space.l)
             },
         )
         navItems = items.mapIndexed { index, item ->
@@ -74,24 +89,13 @@ class RailNav internal constructor(ui: UiKit, items: List<RailItem>) : FrameLayo
     }
 
     /** 侧栏这一段的焦点 key（`nav:0 … nav:n-1`），由页面拼进 `FocusPlan.side`。 */
-    fun keys(): List<FocusKey> = navItems.indices.map { FocusKey("nav:$it") }
+    fun keys(): List<FocusKey> = navItems.indices.map(::navKey)
 
     companion object {
-        /**
-         * 全应用唯一的左侧栏项集（搜索 / 收藏 / 历史 / 设置）。
-         *
-         * 这四个词与四个图标是**导航词汇**，归设计系统所有——目录 feature 与详情 feature
-         * 都从这取，不能各自写一份"收藏"（两个名字会漂）。[onSelect] 收到选中的下标。
-         */
-        fun standardItems(onSelect: (Int) -> Unit): List<RailItem> = listOf(
-            RailItem("搜索", Icons.SEARCH) { onSelect(0) },
-            RailItem("收藏", Icons.FAVORITE) { onSelect(1) },
-            RailItem("历史", Icons.HISTORY) { onSelect(2) },
-            RailItem("设置", Icons.SETTINGS) { onSelect(3) },
-        )
-
-        /** 品牌图标与第一个导航项之间多留的一档（mockup `.b-logo-svg{margin-bottom:14px}`）。 */
-        private const val RAIL_BRAND_GAP = 14
+        /** 四个导航项，[onSelect] 收到选中的下标。 */
+        fun standardItems(onSelect: (Int) -> Unit): List<RailItem> = RailSlot.entries.mapIndexed { index, slot ->
+            RailItem(slot.label, slot.iconRes) { onSelect(index) }
+        }
     }
 }
 
