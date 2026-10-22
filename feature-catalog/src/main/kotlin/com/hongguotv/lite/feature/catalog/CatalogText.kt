@@ -40,6 +40,19 @@ internal object CatalogText {
         return parts.joinToString(" · ")
     }
 
+    /**
+     * 底部信息栏的说明段（B 方案）：搜索/历史结果 = **已收藏 + 分类**。
+     *
+     * 维护者口径："信息栏只写信息和收藏状态、更新情况，不写观看记录"——
+     * 我的状态（看到第几集）在卡片状态条与详情页说，信息栏不重复。
+     */
+    fun bandSegments(favorite: Boolean, tags: String): List<String> =
+        listOfNotNull("已收藏".takeIf { favorite }, tags.takeIf { it.isNotBlank() })
+
+    /** 收藏页信息栏 = **已收藏 + 更新到…**（还没检查出来时只说收藏状态）。 */
+    fun favoriteSegments(update: String): List<String> =
+        listOfNotNull("已收藏", update.takeIf { it.isNotBlank() })
+
     /** 搜索空态。分类筛选下的空结果先提示换分类，否则用户会以为这部剧不存在。 */
     fun emptySearch(keyword: String, filter: ContentFilter): String = when {
         keyword.isBlank() -> "输入完整剧名，按确认开始搜索"

@@ -35,8 +35,10 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
     private val confirm = TwoStepConfirm()
 
     override fun onBuild() {
-        val header = scaffold.showHeader("按你的习惯播放")
-        header.note("偏好自动保存，下一部剧继续使用。")
+        // B 方案（mockup 画面7）：「设置」26 + 说明跟在旁边
+        val header = scaffold.showHeader("设置")
+        header.titleSize(tokens.type.display)
+        header.leadNote("偏好自动保存，下一部剧继续使用")
 
         val body = scaffold.scrollBody()
         val groups = ui.rowTop()
@@ -76,7 +78,7 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
     // ---------- 构建小块 ----------
 
     private fun heading(group: LinearLayout, title: String, subtitle: String) {
-        group.addView(ui.text(title, tokens.type.title).apply { setTypeface(null, Typeface.BOLD) })
+        group.addView(ui.text(title, tokens.type.group).apply { setTypeface(null, Typeface.BOLD) })
         group.addView(ui.text(subtitle, tokens.type.caption, tokens.colors.muted).apply {
             setPadding(0, ui.dp(tokens.space.xs), 0, ui.dp(tokens.space.l))
         })
@@ -84,7 +86,7 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
 
     private fun setting(group: LinearLayout, label: String, onTap: () -> Unit): TvButton {
         val row = ui.button(label, variant = ButtonVariant.ROW, onTap = onTap)
-        group.addView(row, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT, bottomGap = tokens.space.s))
+        group.addView(row, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT, bottomGap = tokens.metrics.setRowGap))
         return row
     }
 

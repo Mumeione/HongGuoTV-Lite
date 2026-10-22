@@ -123,8 +123,9 @@ class CatalogLabelsTest {
         )
         // 看完的一季停在"第1集 · 00:01"既没用也不准确
         assertEquals("整剧已看完", CatalogCards.history(finished, watched = false).badge)
+        // B 方案：历史卡不带时间（详情在底部信息栏里），季与集之间一个空格
         assertEquals(
-            "第1集 · 00:01",
+            "第1集",
             CatalogCards.history(finished.copy(progress = finished.progress.copy(completed = false)), watched = false).badge,
         )
         assertEquals(
@@ -135,15 +136,23 @@ class CatalogLabelsTest {
 
     @Test
     fun cardsCarryNoTitleAndEachPageStatesItsOwnStatus() {
-        // 卡片下方不重复片名（维护者口径）：片名由预览区的大字说
+        // 卡片下方不重复片名（维护者口径）：片名由底部信息栏的大字说
         val series = Series("1", "测试书第九季", season = 9, cover = "http://c/1.jpg")
         assertTrue(CatalogCards.search(series).title.isEmpty())
 
-        // 季号必须自己带上：历史记录散在各季里，不写季名就分不清是哪一季
+        // B 方案：历史卡只写「第九季 第20集」——不带时间，季与集之间一个空格
         val entry = HistoryEntry(series, progress("1", updatedAt = 0L, index = 19))
-        assertEquals("第九季第20集 · 00:01", CatalogCards.history(entry, watched = false).badge)
-        // 首页「继续看」不要时间：用户刚看过，时间没有信息量
-        assertEquals("第九季第20集", CatalogCards.history(entry, watched = false, withClock = false).badge)
+        assertEquals("第九季 第20集", CatalogCards.history(entry, watched = false).badge)
+    }
+
+    @Test
+    fun searchResultsStateTheEpisodeCountInsteadOfTheFavoriteBadge() {
+        // B 方案（mockup 画面2）：结果卡写集数；未上线写「未上线」；收藏状态在信息栏里说
+        val released = Series("1", "剧第九季", season = 9, episodeCount = 352)
+        val unreleased = Series("2", "剧第十季", season = 10, released = false, episodeCount = 0)
+        assertEquals("全 352 集", CatalogCards.search(released).badge)
+        assertEquals("未上线", CatalogCards.search(unreleased).badge)
+        assertEquals("未上线的卡保持暗档", true, CatalogCards.search(unreleased).dim)
     }
 
     // ---------- 设置档位 ----------

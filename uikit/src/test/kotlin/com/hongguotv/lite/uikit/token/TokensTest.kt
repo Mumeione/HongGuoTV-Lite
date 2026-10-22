@@ -57,8 +57,8 @@ class TokensTest {
         val type = Tokens.Default.type
         val scale = listOf(
             type.corner, type.railLabel, type.micro, type.footnote, type.caption, type.cardStatus,
-            type.specValue, type.compact, type.seasonLine, type.body, type.group, type.subtitle, type.title,
-            type.heading, type.preview, type.brand, type.display, type.pageTitle,
+            type.specValue, type.compact, type.seasonLine, type.body, type.group, type.subtitle,
+            type.heading, type.display, type.pageTitle,
         )
         assertEquals("字号刻度必须单调递增", scale.sorted(), scale)
         assertTrue("页面主标题最大（搜索页 28）", type.pageTitle > type.display)

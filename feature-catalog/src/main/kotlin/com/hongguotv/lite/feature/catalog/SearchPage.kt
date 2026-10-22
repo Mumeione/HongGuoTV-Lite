@@ -27,7 +27,6 @@ import com.hongguotv.lite.uikit.text.TvText
 import com.hongguotv.lite.uikit.ui.ButtonVariant
 import com.hongguotv.lite.uikit.ui.CardItem
 import com.hongguotv.lite.uikit.ui.Icons
-import com.hongguotv.lite.uikit.ui.PreviewRail
 import com.hongguotv.lite.uikit.ui.TvButton
 import com.hongguotv.lite.uikit.ui.TvChip
 import com.hongguotv.lite.uikit.ui.TvInput
@@ -37,18 +36,13 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * 搜索页。
+ * 搜索页（B 方案，mockup 画面 1/2）。
  *
- * 从上到下：顶栏 → 标题与说明 → 输入行 → 片库 tag → 候选词（有才占位）→ 内容区。
- * 筛选、输入行固定在上方；内容区（继续看 / 结果网格 / 空态）吃掉剩余高度。
- *
- * 三条排版口径：
- * - **顶部四件事各有各的位置**：标题 / 说明 / tag / 候选词。以前这里放的是聚焦卡片的
- *   简介与标题，用户早就知道那部剧是什么——那块信息既没用，又把输入框和候选词挤走了；
- * - **固定留白只在有内容时占位**：没有联想词时不保留一整行，没有卡片时不摆预览区，
- *   首屏高度要还给卡片（维护者原话：「不能看见卡片标题，这是现在的显著问题」）；
- * - **卡片高度按内容区视口夹取**：只放得下一行卡时，封面按 `CardFit` 夹短，
- *   保证「封面 + 角标」都在首屏内。
+ * 从上到下：标题与说明 → 片库胶囊 → 输入行 → 候选词（有才占位）→ 内容区；底部信息栏。
+ * 与 S9 版的三处不同：
+ * - **片库固定在输入框上方、候选词固定在输入框下方**（B 方案用户故事：互相不被挤走）；
+ * - **预览区退役**：聚焦卡的信息由底部 [InfoBand] 说——空态只写片名，结果态写"片名 + 已收藏 + 分类"；
+ * - 「继续看」网格开**聚光**（非焦点卡 0.62），结果网格全亮（未上线卡用暗档表达）。
  */
 internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.SEARCH) {
 
@@ -60,7 +54,6 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
     private lateinit var sortChip: TvChip
     private lateinit var suggestRow: LinearLayout
     private val suggestChips = mutableListOf<TvButton>()
-    private lateinit var preview: PreviewRail
     private lateinit var pane: ContentPane
     private lateinit var retry: TvButton
     private lateinit var continueHeader: LinearLayout
@@ -79,15 +72,23 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
     override fun onBuild() {
         val body = scaffold.body()
 
-        // 片库筛选：整行居中，与顶栏同一视觉轴（维护者口径：搜索页保持原来的排布，
-        // 顶部不再加页标题与说明——搜索页的"招牌"就是那一行输入框）
-        val filterRow = ui.row().apply {
-            gravity = Gravity.CENTER
-            setPadding(0, ui.dp(tokens.space.m), 0, ui.dp(tokens.space.m))
-        }
-        filterRow.addView(ui.text("片库", tokens.type.subtitle).apply {
+        // 标题行：「搜索」28 + 说明 13，底对齐读作一行（mockup .b-title）
+        val titleRow = ui.rowTop().apply { gravity = Gravity.BOTTOM }
+        titleRow.addView(ui.text("搜索", tokens.type.pageTitle).apply {
             setTypeface(null, Typeface.BOLD)
-            setPadding(0, 0, ui.dp(tokens.space.xl), 0)
+            includeFontPadding = false
+        })
+        titleRow.addView(ui.text(TITLE_NOTE, tokens.type.caption, tokens.colors.muted).apply {
+            includeFontPadding = false
+            setPadding(ui.dp(tokens.space.m), 0, 0, ui.dp(tokens.space.xxs))
+        })
+        body.addView(titleRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
+        // 片库行（B 方案：固定在输入框上方）
+        val filterRow = ui.row().apply { setPadding(0, ui.dp(tokens.space.m), 0, 0) }
+        filterRow.addView(ui.text("片库", tokens.type.compact).apply {
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, 0, ui.dp(tokens.space.l), 0)
         })
         ContentFilter.entries.forEachIndexed { index, filter ->
             val chip = ui.chip(SettingRows.filterLabel(filter)) { chooseFilter(filter) }
@@ -98,11 +99,8 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         }
         body.addView(filterRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-        // 输入行：输入框 + 搜索 + 排序，整行居中
-        val searchRow = ui.row().apply {
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, ui.dp(tokens.space.s))
-        }
+        // 输入行
+        val searchRow = ui.row().apply { setPadding(0, ui.dp(tokens.space.m), 0, 0) }
         input = ui.input("输入完整剧名，按确认搜索").apply {
             setText(model.keyword)
             setSelection(text.length)
@@ -112,33 +110,31 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
                 true
             }
         }
-        val inputWidth = minOf(ui.dp(tokens.metrics.inputMaxWidth), (ui.context.resources.displayMetrics.widthPixels * tokens.metrics.inputWidthRatio).toInt())
-        searchRow.addView(input, LinearLayout.LayoutParams(inputWidth, ui.dp(tokens.metrics.inputHeight)).apply {
+        searchRow.addView(input, LinearLayout.LayoutParams(ui.dp(tokens.metrics.inputMaxWidth), ui.dp(tokens.metrics.inputHeight)).apply {
             rightMargin = ui.dp(tokens.space.m)
         })
         // 遥控器/电视上没有"键盘上的回车"可依赖：给一个看得见、按得着的搜索按钮。
         // 输入框里的 IME 搜索动作仍然保留，两种操作都能触发。
-        searchButton = ui.button("搜索", variant = ButtonVariant.PRIMARY) { submit() }
+        searchButton = ui.button("搜索", variant = ButtonVariant.STANDARD) { submit() }
         searchRow.addView(searchButton, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT,
-            ui.dp(tokens.metrics.inputHeight),
+            ViewGroup.LayoutParams.WRAP_CONTENT,
         ).apply {
-            rightMargin = ui.dp(tokens.space.m)
+            rightMargin = ui.dp(tokens.space.s)
         })
         sortChip = ui.chip(SettingRows.sortLabel(settings().seasonSortAsc), iconRes = Icons.SORT) { toggleSort() }
         searchRow.addView(sortChip)
         body.addView(searchRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-        // 联想：只在真的有联想词时占位——没有词还留 44dp 空白，首屏就少半张卡
+        // 候选词（B 方案：固定在输入框下方）。只在真的有联想词时占位
         suggestRow = ui.row().apply {
-            gravity = Gravity.CENTER
+            setPadding(0, ui.dp(tokens.space.m), 0, 0)
             visibility = View.GONE
         }
-        body.addView(suggestRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ui.dp(tokens.metrics.inputHeight)))
-
-        // 预览：只在有卡片可聚焦时占位（空态/加载中/出错时把高度还给提示文字）
-        preview = ui.preview().apply { visibility = View.GONE }
-        body.addView(preview)
+        suggestRow.addView(ui.text("候选", tokens.type.caption, tokens.colors.dim).apply {
+            setPadding(0, 0, ui.dp(tokens.space.xs), 0)
+        })
+        body.addView(suggestRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         // 内容区：滚动网格 + 居中空态，二态互斥
         pane = ui.contentPane()
@@ -149,11 +145,17 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         retry.visibility = View.GONE
         pane.empty.actions.addView(retry)
 
-        continueHeader = ui.row().apply {
-            setPadding(0, ui.dp(tokens.space.s), 0, ui.dp(tokens.space.m))
-            addView(ui.text("继续看", tokens.type.subtitle).apply { setTypeface(null, Typeface.BOLD) })
-            addView(ui.text("最近看过的几部", tokens.type.caption, tokens.colors.muted).apply {
-                setPadding(ui.dp(tokens.space.m), ui.dp(tokens.space.xxs), 0, 0)
+        // 「继续看」组标题（mockup .b-rail2：18 粗 + 12.5 弱）
+        continueHeader = ui.rowTop().apply {
+            gravity = Gravity.BOTTOM
+            setPadding(0, ui.dp(tokens.space.xl), 0, ui.dp(tokens.space.m))
+            addView(ui.text("继续看", tokens.type.subtitle).apply {
+                setTypeface(null, Typeface.BOLD)
+                includeFontPadding = false
+            })
+            addView(ui.text("最近看过的几部", tokens.type.footnote, tokens.colors.muted).apply {
+                includeFontPadding = false
+                setPadding(ui.dp(tokens.space.m), 0, 0, 0)
             })
             visibility = View.GONE
         }
@@ -161,15 +163,17 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
 
         continueGrid = ui.grid("continue").apply {
             visibility = View.GONE
-            // 「继续看」不挂预览区：那几张卡是用户自己刚看过的剧，再在上方写一遍标题、状态、
-            // 分类只是把首屏高度吃掉（维护者口径："继续看不需要简介、标题之类的上方信息"）。
+            // B 方案：「继续看」是背景墙，非焦点卡压暗（mockup 画面1 的 0.62）
+            spotlight = true
+            onCardFocused = { item -> showContinueBand(item) }
             onCardActivated = { item -> host.navigator.toDetail(item.id, resumeRecording = true) }
         }
         content.addView(continueGrid)
 
         resultGrid = ui.grid("result").apply {
             visibility = View.GONE
-            onCardFocused = { item -> previewResult(item) }
+            // 结果是主角：全亮（mockup 画面2），未上线卡用 CardItem.dim 表达
+            onCardFocused = { item -> showResultBand(item) }
             onCardActivated = { item -> openResult(item) }
         }
         content.addView(resultGrid)
@@ -272,8 +276,12 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
     private fun showSuggestions(list: List<Suggestion>) {
         suggestRow.removeAllViews()
         suggestChips.clear()
+        // 「候选」标签要一直在第一位：清空后重放
+        suggestRow.addView(ui.text("候选", tokens.type.caption, tokens.colors.dim).apply {
+            setPadding(0, 0, ui.dp(tokens.space.xs), 0)
+        })
         list.forEachIndexed { index, suggestion ->
-            val chip = ui.button(suggestion.keyword) { runSearch(suggestion.keyword) }
+            val chip = ui.button(suggestion.keyword, variant = ButtonVariant.SMALL) { runSearch(suggestion.keyword) }
             suggestRow.addView(chip, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 if (index < list.lastIndex) rightMargin = ui.dp(tokens.space.s)
             })
@@ -289,7 +297,7 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
             return
         }
         // 联想里正被聚焦的那一项马上要被删掉：先把光标交回输入框，
-        // 否则框架会自己把它扔到某个位置（通常是顶栏），并被焦点记忆钉住
+        // 否则框架会自己把它扔到某个位置（通常是侧栏），并被焦点记忆钉住
         val hadFocus = suggestChips.any { it.isFocused }
         suggestChips.clear()
         suggestRow.removeAllViews()
@@ -328,18 +336,25 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         host.navigator.toDetail(series.id)
     }
 
-    private fun previewResult(item: CardItem) {
+    // ---------- 底部信息栏 ----------
+
+    /** 空态（继续看）：信息栏只写片名（mockup 画面1——卡片已写了"第几季第几集"）。 */
+    private fun showContinueBand(item: CardItem) {
+        val title = continueEntries.firstOrNull { it.series.id == item.id }?.series?.title ?: item.artworkTitle
+        scaffold.band().show(
+            title = title,
+            segments = emptyList(),
+            keys = listOf("◀▶" to "移动", "OK" to "打开"),
+        )
+    }
+
+    /** 结果态：片名 + 已收藏 + 分类（mockup 画面2；MENU 提示等行为定了再加）。 */
+    private fun showResultBand(item: CardItem) {
         val series = model.items.firstOrNull { it.id == item.id } ?: return
-        val favorite = favoriteOf(series)
-        preview.show(
+        scaffold.band().show(
             title = series.title,
-            status = CatalogText.previewStatus(
-                favorite = favorite != null,
-                season = series.season,
-                progress = host.progress.progressOf(series.id),
-                watched = host.progress.isWatched(series.id),
-            ),
-            meta = CatalogText.meta(series, favorite?.let { FavoriteLabels.updateBadge(it) }.orEmpty()),
+            segments = CatalogText.bandSegments(favorite = favoriteOf(series) != null, tags = series.tags),
+            keys = listOf("OK" to "打开"),
         )
     }
 
@@ -349,15 +364,6 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         if (key.isBlank()) return null
         return host.favorites.entry(key)
     }
-
-    /**
-     * 搜索卡那一行收藏状态：只回答"收藏了没有"。
-     *
-     * 更新到第几集属于收藏页的活（那里整页都在说更新）；搜索页每张卡都重复一遍
-     * "更新到第九季第352集"，同一部剧的每一季还都写一样的一句，读起来像噪音。
-     * 想看得细一点，把光标停上去，预览区第三行会给。
-     */
-    private fun favoriteBadgeOf(series: Series): String = if (favoriteOf(series) != null) "已收藏" else ""
 
     // ---------- 渲染 ----------
 
@@ -378,22 +384,21 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
 
         if (stateText == null) pane.showContent() else pane.showEmpty(stateText)
         retry.visibility = if (error != null) View.VISIBLE else View.GONE
-        // 预览区只服务**搜索结果**（那才是"一部剧的全部信息"）；「继续看」上方不再挂它
-        preview.visibility = if (showResult) View.VISIBLE else View.GONE
         continueHeader.visibility = if (showContinue) View.VISIBLE else View.GONE
         continueGrid.visibility = if (showContinue) View.VISIBLE else View.GONE
         resultGrid.visibility = if (showResult) View.VISIBLE else View.GONE
+        // 信息栏伴着内容出现：没有卡片可说时整条收起，不占 46dp
+        if (showContinue || showResult) scaffold.band() else scaffold.hideBand()
 
         // 视口还没量到时不夹（保持比例）；量到之后由布局回调再走一遍 render
         applyCardLimit()
         continueRendered = if (showContinue) {
-            continueGrid.render(continueEntries.map { CatalogCards.history(it, host.progress.isWatched(it.series.id), withClock = false) })
+            continueGrid.render(continueEntries.map { CatalogCards.history(it, host.progress.isWatched(it.series.id)) })
         } else {
             null
         }
-        rendered = if (showResult) resultGrid.render(model.items.map { CatalogCards.search(it, favoriteBadgeOf(it)) }) else null
+        rendered = if (showResult) resultGrid.render(model.items.map { CatalogCards.search(it) }) else null
 
-        if (!showResult) preview.show("", "", "")
         applyFocus()
     }
 
@@ -416,7 +421,7 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
 
     /**
      * 首焦：第一张结果卡 → 搜索框。
-     * 搜索完成、切回本页、页面重建都按这条走，不再落回顶栏（UI-02/03）。
+     * 搜索完成、切回本页、页面重建都按这条走，不再落回侧栏（UI-02/03）。
      */
     override fun startFocus(): List<FocusKey> =
         listOfNotNull(rendered?.keys?.firstOrNull() ?: continueRendered?.keys?.firstOrNull(), FocusKey("search:input"))
@@ -434,7 +439,6 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         rendered?.views?.let { views.putAll(it) }
 
         val sections = listOf(
-            navSection(),
             FocusSections.section(FocusSections.keys("filter", filterChips.size), filterChips.size),
             FocusSections.section(
                 listOf(FocusKey("search:input"), FocusKey("search:go"), FocusKey("search:sort")),
@@ -469,5 +473,6 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
          * 多一个就会折到第二行，而第二行在首屏放不下——用户要么看不见，要么得先滚一下才知道还有。
          */
         const val CONTINUE_LIMIT = 5
+        const val TITLE_NOTE = "输入完整剧名，按确认搜索 · 支持拼音联想"
     }
 }

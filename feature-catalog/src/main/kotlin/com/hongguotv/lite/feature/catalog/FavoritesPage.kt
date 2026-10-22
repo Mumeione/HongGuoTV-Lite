@@ -13,7 +13,6 @@ import com.hongguotv.lite.uikit.page.ContentPane
 import com.hongguotv.lite.uikit.page.GridRendered
 import com.hongguotv.lite.uikit.page.PosterGrid
 import com.hongguotv.lite.uikit.ui.CardItem
-import com.hongguotv.lite.uikit.ui.PreviewRail
 import com.hongguotv.lite.uikit.ui.TvButton
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
@@ -22,15 +21,16 @@ import kotlinx.coroutines.launch
 /**
  * 收藏页。
  *
- * 收藏的是**系列**（去季号的基名），卡片角标回答"有没有新的一季"。
+ * 收藏的是**系列**（去季号的基名），卡片角标回答"更新到哪里"。
  * 进页自动检查更新（一小时内检查过就跳过），也可手动强制重查；
  * 检查是串行的、连续失败 3 次自动停，离开本页（进详情/播放）立刻取消。
+ *
+ * B 方案：底部信息栏 = 片名 + 已收藏 + 更新到…（无 mockup，跟随搜索结果的信息栏口径）。
  */
 internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.FAVORITES) {
 
     private lateinit var statusView: TextView
     private lateinit var checkButton: TvButton
-    private lateinit var preview: PreviewRail
     private lateinit var pane: ContentPane
     private lateinit var grid: PosterGrid
 
@@ -42,15 +42,14 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
 
     override fun onBuild() {
         val header = scaffold.showHeader("我的收藏")
+        // B 方案：顶层页用大标题（与详情片名同档）
+        header.titleSize(tokens.type.display)
         // 顺序按维护者口径：我的收藏 → 检查更新 → 更新说明，三者贴在一起靠左，不推到屏幕右边。
         checkButton = ui.button("检查更新") { startCheck(force = true) }
         header.lead().addView(checkButton)
         statusView = header.leadNote("")
 
         val body = scaffold.body()
-        preview = ui.preview().apply { visibility = View.GONE }
-        body.addView(preview)
-
         pane = ui.contentPane()
         body.addView(pane, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         pane.empty.show("在剧集详情中选择收藏，喜欢的剧就会出现在这里")
@@ -58,7 +57,7 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
         grid = ui.grid("favorites").apply {
             // 收藏封面值得占电视存储（旧行为）：列表稳定，复看频率高
             persistCovers = true
-            onCardFocused = { item -> previewFavorite(item) }
+            onCardFocused = { item -> showBand(item) }
             onCardActivated = { item -> openFavorite(item) }
         }
         pane.content.addView(grid)
@@ -136,11 +135,10 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
         val isEmpty = entries.isEmpty()
         if (isEmpty) {
             pane.showEmpty("在剧集详情中选择收藏，喜欢的剧就会出现在这里")
-            preview.visibility = View.GONE
-            preview.show("", "", "")
+            scaffold.hideBand()
         } else {
             pane.showContent()
-            preview.visibility = View.VISIBLE
+            scaffold.band()
         }
         rendered = if (isEmpty) null else grid.render(entries.map(CatalogCards::favorite))
         chrome()
@@ -150,6 +148,18 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
     private fun chrome() {
         statusView.text = status
         checkButton.label(if (checking) "正在检查…" else "检查更新")
+    }
+
+    // ---------- 信息栏 ----------
+
+    /** 信息栏 = 片名 + 已收藏 + 更新到…（spec 逐页-收藏）。 */
+    private fun showBand(item: CardItem) {
+        val entry = entries.firstOrNull { it.series.id == item.id } ?: return
+        scaffold.band().show(
+            title = entry.series.title,
+            segments = CatalogText.favoriteSegments(update = FavoriteLabels.updateBadge(entry)),
+            keys = listOf("OK" to "打开"),
+        )
     }
 
     // ---------- 交互 ----------
@@ -163,22 +173,6 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
         } else {
             host.navigator.toDetail(entry.series.id)
         }
-    }
-
-    private fun previewFavorite(item: CardItem) {
-        val entry = entries.firstOrNull { it.series.id == item.id } ?: return
-        val line = host.favorites.seasonLine(entry.seriesKey)
-        val progress = SeasonProgress.latest(entry, line) { host.progress.progressOf(it) }
-        preview.show(
-            title = entry.series.title,
-            status = CatalogText.previewStatus(
-                favorite = true,
-                season = progress?.let { SeasonProgress.seasonOf(it, line, entry.series.season) } ?: entry.series.season,
-                progress = progress,
-                watched = host.progress.isWatched(entry.series.id),
-            ),
-            meta = CatalogText.meta(entry.series, FavoriteLabels.updateBadge(entry)),
-        )
     }
 
     /**
@@ -196,7 +190,6 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
         rendered?.views?.let { views.putAll(it) }
 
         val sections = listOf(
-            navSection(),
             FocusSections.section(listOf(FocusKey("favorites:check")), 1),
             rendered?.let { FocusSections.section(it.keys, it.columns) },
         )

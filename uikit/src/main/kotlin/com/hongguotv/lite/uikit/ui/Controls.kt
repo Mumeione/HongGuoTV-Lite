@@ -191,56 +191,6 @@ class TvChip internal constructor(
     }
 }
 
-/**
- * 顶栏导航项：图标 + 文字。
- * 当前页 = 白框白字（选中），光标所在 = 白底深字（焦点），其余弱化色并透明底。
- */
-@SuppressLint("ViewConstructor")
-class TvNavItem internal constructor(
-    context: Context,
-    tokens: Tokens,
-    label: String,
-    iconRes: Int,
-    private val onTap: () -> Unit,
-) : FocusControl(context, tokens) {
-
-    init {
-        text = label
-        textSize = tokens.type.title
-        gravity = Gravity.CENTER
-        setTypeface(null, Typeface.BOLD)
-        setPadding(dp(tokens.metrics.navPaddingH), 0, dp(tokens.metrics.navPaddingH), 0)
-        minHeight = dp(tokens.metrics.navHeight)
-        if (iconRes != 0) setIcon(iconRes, tokens.metrics.iconNav, tokens.metrics.iconGap)
-        setOnClickListener { onTap() }
-        repaint()
-    }
-
-    override fun setSelected(selected: Boolean) {
-        super.setSelected(selected)
-        paintState(isFocused)
-    }
-
-    override fun paintState(focused: Boolean) {
-        val colors = tokens.colors
-        val chosen = isSelected
-        background = stateShape(
-            tokens = tokens,
-            fill = if (focused) colors.focus else android.graphics.Color.TRANSPARENT,
-            radiusDp = tokens.shapes.card,
-            selected = chosen,
-            focused = focused,
-        )
-        val color = when {
-            focused -> colors.onFocus
-            chosen -> colors.focus
-            else -> colors.muted
-        }
-        setTextColor(color)
-        tintIcon(color)
-    }
-}
-
 /** 小号文字切换键（正序/倒序这类）：不加胶囊，避免和旁边的标题抢大小。 */
 @SuppressLint("ViewConstructor")
 class TvLink internal constructor(

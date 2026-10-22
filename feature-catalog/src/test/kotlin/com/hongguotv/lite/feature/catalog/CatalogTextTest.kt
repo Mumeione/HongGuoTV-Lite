@@ -75,4 +75,23 @@ class CatalogTextTest {
         val raw = listOf(series("2"), series("1"))
         assertEquals(raw, CatalogText.ordered(raw, listOf(series("1")), ascending = true))
     }
+
+    // ---------- 底部信息栏（B 方案） ----------
+
+    @Test
+    fun infoBandOnlyStatesTheSeriesAndItsFacts() {
+        // B 方案口径："信息栏只写信息和收藏状态、更新情况，不写观看记录"
+        // 搜索/历史结果：片名 + 已收藏 + 分类（我的状态在卡片与详情页说）
+        assertEquals(listOf("已收藏", "古装 / 逆袭"), CatalogText.bandSegments(favorite = true, tags = "古装 / 逆袭"))
+        assertEquals(listOf("古装 / 逆袭"), CatalogText.bandSegments(favorite = false, tags = "古装 / 逆袭"))
+        assertEquals(emptyList<String>(), CatalogText.bandSegments(favorite = false, tags = ""))
+    }
+
+    @Test
+    fun favoriteInfoBandStatesTheUpdateProgress() {
+        // 收藏页：片名 + 已收藏 + 更新到…
+        assertEquals(listOf("已收藏", "更新到第九季第352集"), CatalogText.favoriteSegments(update = "更新到第九季第352集"))
+        // 还没检查出来时只说收藏状态，不编一句空话
+        assertEquals(listOf("已收藏"), CatalogText.favoriteSegments(update = ""))
+    }
 }

@@ -59,15 +59,13 @@ object TvText {
     fun progress(index: Int, positionMs: Long): String = "第 ${index + 1} 集 · ${clock(positionMs)}"
 
     /**
-     * 卡片上的一行观看位置：`第九季第20集 · 05:00`。
+     * 卡片上的一行观看位置：`第九季 第20集`。
      *
-     * 卡片只有一张封面那么宽，季与集必须写成一个短语才放得下；预览区/详情页那种成句的地方
-     * 仍用 [progress]（带空格的「第 20 集」读起来更像正文）。季号为 0 时只写集。
-     *
-     * [withClock] = false 时不带时间（首页「继续看」：用户刚看过，只关心"第几季第几集"）。
+     * B 方案口径：季与集之间**一个空格**（「第九季 第20集」），信息条不再带时间——
+     * 观看位置是"我自己在哪"，详情在底部信息栏/详情页说。季号为 0 时只写集。
      */
-    fun cardProgress(season: Int, index: Int, positionMs: Long, withClock: Boolean = true): String {
-        val position = "${season(season)}第${index + 1}集"
+    fun cardProgress(season: Int, index: Int, positionMs: Long, withClock: Boolean = false): String {
+        val position = listOf(season(season), "第${index + 1}集").filter { it.isNotBlank() }.joinToString(" ")
         return if (withClock) "$position · ${clock(positionMs)}" else position
     }
 

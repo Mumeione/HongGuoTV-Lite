@@ -88,6 +88,12 @@ class CatalogFeature(
         current.release()
         page = null
     }
+
+    /**
+     * MENU 键（B 方案：历史页"管理走 MENU"）。由宿主在目录页转发；
+     * 返回是否被消费（消费了宿主就不再走系统默认）。
+     */
+    fun onMenuKey(): Boolean = page?.onMenuKey() ?: false
 }
 
 /** 搜索页的状态：一个关键词、一份原始展示序、一份当前展示序。 */

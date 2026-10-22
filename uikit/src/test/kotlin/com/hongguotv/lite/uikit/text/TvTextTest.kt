@@ -41,6 +41,14 @@ class TvTextTest {
         assertEquals("第 1 集 · 00:00", TvText.progress(index = 0, positionMs = 0))
     }
 
+    /** B 方案：卡片状态条写「第九季 第20集」——季与集之间一个空格，默认不带时间。 */
+    @Test
+    fun cardProgressSeparatesSeasonAndEpisodeWithASpace() {
+        assertEquals("第九季 第20集", TvText.cardProgress(9, index = 19, positionMs = 300_000))
+        assertEquals("第九季 第20集 · 05:00", TvText.cardProgress(9, index = 19, positionMs = 300_000, withClock = true))
+        assertEquals("第8集", TvText.cardProgress(0, index = 7, positionMs = 0, withClock = false))
+    }
+
     /** 「上次看到…」只有一份说法：目录页、详情页、系列页共用它，多季剧才带季名。 */
     @Test
     fun watchStatusIsOneSentenceForEveryPage() {

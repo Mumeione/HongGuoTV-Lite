@@ -88,16 +88,10 @@ data class Type(
     val body: Float = 16f,
     /** 设置面板标题（「播放偏好」）。 */
     val group: Float = 17f,
-    /** 分组标题（继续看 / 所有季）、侧栏过渡期的导航项。 */
+    /** 分组标题（继续看 / 所有季）。 */
     val subtitle: Float = 18f,
-    /** 过渡期顶栏导航字号（随 `TopBar` 一起退场）。 */
-    val title: Float = 18f,
     /** 带返回的页头（剧集详情 / 收藏详情）。 */
     val heading: Float = 20f,
-    /** 过渡期预览区字号（随 `PreviewRail` 一起退场）。 */
-    val preview: Float = 21f,
-    /** 过渡期顶栏品牌字（随 `TopBar` 一起退场）。 */
-    val brand: Float = 22f,
     /** 详情类页面的片名（主视觉那块）、顶层页大标题（历史/收藏/设置）。一页只有一处。 */
     val display: Float = 26f,
     /** 页面主标题（搜索页）。全应用最大的字。 */
@@ -228,6 +222,8 @@ data class Metrics(
 
     // ---------- 信息栏（InfoBand） ----------
     val infoBandHeight: Int = 46,
+    /** 1px 结构线（侧栏右缘、信息带上缘）。 */
+    val dividerHeight: Int = 1,
     val keyCapSize: Int = 22,
     val keyCapRadius: Int = 5,
 
@@ -249,9 +245,6 @@ data class Metrics(
     // ---------- 搜索 ----------
     val inputHeight: Int = 44,
     val inputMaxWidth: Int = 480,
-    val inputWidthRatio: Float = 0.52f,
-    /** 候选词胶囊高度。 */
-    val suggestHeight: Int = 30,
 
     // ---------- 网格几何 ----------
     /**
@@ -279,30 +272,10 @@ data class Metrics(
     val dimAlpha: Float = 0.55f,
 
     // ---------- 过渡期字段（对应组件退场时一起删，新代码不要引用） ----------
-    /** @suppress 旧顶栏高度。 */
-    val topBarHeight: Int = 48,
-    val navHeight: Int = 40,
-    val navGap: Int = 12,
-    val dividerHeight: Int = 1,
-    val dividerGap: Int = 6,
-    val headerMinHeight: Int = 40,
-    val controlMinHeight: Int = 42,
-    val chipMinHeight: Int = 36,
-    val linkMinHeight: Int = 32,
     val controlPaddingH: Int = 14,
-    val controlPaddingV: Int = 10,
-    val chipPaddingH: Int = 16,
-    val chipPaddingV: Int = 7,
-    val navPaddingH: Int = 20,
-    val iconNav: Int = 19,
+    val linkMinHeight: Int = 32,
     val iconChip: Int = 15,
     val iconGap: Int = 5,
-    val brandIcon: Int = 30,
-    val badgeHeight: Int = 19,
-    val cardTitlePaddingTop: Int = 6,
-    val cardPaddingBottom: Int = 8,
-    val previewRailPaddingTop: Int = 4,
-    val previewRailPaddingBottom: Int = 6,
     val heroCoverHeight: Int = 124,
     val heroCoverGap: Int = 20,
     val heroIntroGap: Int = 28,

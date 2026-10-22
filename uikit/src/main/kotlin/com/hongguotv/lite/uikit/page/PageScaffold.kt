@@ -13,63 +13,10 @@ import com.hongguotv.lite.uikit.focus.FocusSession
 import com.hongguotv.lite.uikit.internal.dp
 import com.hongguotv.lite.uikit.internal.setTextIfChanged
 import com.hongguotv.lite.uikit.ui.ButtonVariant
-import com.hongguotv.lite.uikit.ui.Icons
 import com.hongguotv.lite.uikit.ui.RailItem
 import com.hongguotv.lite.uikit.ui.RailNav
 import com.hongguotv.lite.uikit.ui.TvButton
-import com.hongguotv.lite.uikit.ui.TvNavItem
 import com.hongguotv.lite.uikit.ui.UiKit
-
-/** 顶栏的一项：标签 + 图标 + 选中后的动作。**过渡期组件**：B 方案用 [RailNav]，页面迁完即删。 */
-data class TopBarItem(val label: String, val iconRes: Int, val onSelect: () -> Unit)
-
-/**
- * 顶栏：品牌靠左，「搜索 / 收藏 / 历史 / 设置」居中。
- * **过渡期组件**：B 方案换成左侧 [RailNav]，目录页迁完即删。
- */
-@SuppressLint("ViewConstructor")
-class TopBar internal constructor(ui: UiKit, brand: String, items: List<TopBarItem>) : FrameLayout(ui.context) {
-
-    private val tokens = ui.tokens
-    val navItems: List<TvNavItem>
-
-    init {
-        val brandRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        brandRow.addView(
-            ImageView(context).apply { setImageResource(Icons.BRAND) },
-            LinearLayout.LayoutParams(dp(tokens.metrics.brandIcon), dp(tokens.metrics.brandIcon)).apply { rightMargin = dp(tokens.space.m) },
-        )
-        brandRow.addView(TextView(context).apply {
-            text = brand
-            textSize = tokens.type.brand
-            setTextColor(tokens.colors.text)
-            includeFontPadding = false
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-        })
-        addView(brandRow, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(tokens.metrics.topBarHeight), Gravity.START or Gravity.CENTER_VERTICAL))
-
-        val navRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        navItems = items.mapIndexed { index, item ->
-            ui.navItem(item.label, item.iconRes, item.onSelect).also { nav ->
-                navRow.addView(nav, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                    if (index < items.lastIndex) rightMargin = dp(tokens.metrics.navGap)
-                })
-            }
-        }
-        addView(navRow, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
-    }
-
-    /** 切换当前页：只有"当前页"那一个亮起来。 */
-    fun select(index: Int) {
-        navItems.forEachIndexed { i, item -> item.isSelected = i == index }
-    }
-}
 
 /** 内页页头：返回（可无）+ 标题 + 右侧动作。 */
 @SuppressLint("ViewConstructor")
@@ -105,16 +52,18 @@ class PageHeader internal constructor(ui: UiKit, title: String, onBack: (() -> U
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
             setTypeface(null, Typeface.BOLD)
-            setPadding(dp(tokens.space.m), 0, dp(tokens.space.m), 0)
         }
         // 标题不再吃满剩余宽度：后面紧跟一块「贴身动作」区，再用弹性空隙把右侧动作推边。
-        addView(titleView, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(tokens.metrics.pageTitleRowHeight)))
+        // 有返回键时与键拉开一档；顶层页（无返回）直接从页边距起排（mockup 画面4）。
+        addView(titleView, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(tokens.metrics.pageTitleRowHeight)).apply {
+            if (onBack != null) leftMargin = dp(tokens.space.m)
+        })
 
         leadRow = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             // 与标题拉开一档：贴太紧会让动作看着像标题的一部分
-            setPadding(dp(tokens.space.m), 0, 0, 0)
+            setPadding(0, 0, 0, 0)
         }
         addView(leadRow, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
@@ -146,6 +95,11 @@ class PageHeader internal constructor(ui: UiKit, title: String, onBack: (() -> U
 
     fun title(value: String) {
         titleView.setTextIfChanged(value)
+    }
+
+    /** 顶层页的大标题（B 方案：26sp，与详情片名同档）。带返回的页头用 20sp。 */
+    fun titleSize(size: Float) {
+        titleView.textSize = size
     }
 
     /** 页头右侧的小字说明（例如"最近 30 条 · 收藏不受影响"）。 */
@@ -198,7 +152,6 @@ class PageScaffold internal constructor(private val ui: UiKit) : FrameLayout(ui.
     private val footerSlot: LinearLayout
     private val bandSlot: FrameLayout
     private val bodyContent: LinearLayout
-    private var _topBar: TopBar? = null
     private var _rail: RailNav? = null
     private var _header: PageHeader? = null
     private var _band: InfoBand? = null
@@ -285,20 +238,11 @@ class PageScaffold internal constructor(private val ui: UiKit) : FrameLayout(ui.
     }
 
     /**
-     * 旧顶栏。**过渡期**：目录页迁到 [showRail] 后即删（连同 [TopBar]）。
+     * 收起信息带（没有可说的内容时空着 46dp 只会把内容区顶矮——mockup 里它
+     * 总是伴着卡片出现，没有卡片就不占位）。
      */
-    fun showTopBar(brand: String, items: List<TopBarItem>, selected: Int): TopBar {
-        // 顶栏是稳定树的一部分：已经建过就只切选中态，避免重建把焦点一起丢掉。
-        val existing = _topBar
-        if (existing != null) {
-            existing.select(selected)
-            return existing
-        }
-        val bar = TopBar(ui, brand, items)
-        bar.select(selected)
-        contentColumn.addView(bar, 0, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(tokens.metrics.topBarHeight)))
-        _topBar = bar
-        return bar
+    fun hideBand() {
+        bandSlot.visibility = View.GONE
     }
 
     /**

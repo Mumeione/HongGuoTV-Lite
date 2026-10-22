@@ -9,7 +9,13 @@ package com.hongguotv.lite.uikit.layout
  */
 object GridGeometry {
 
-    /** 列数：夹在 [minColumns] 与 [maxColumns] 之间。可用宽度不足一列时取 [minColumns]。 */
+    /**
+     * 列数：夹在 [minColumns] 与 [maxColumns] 之间。可用宽度不足一列时取 [minColumns]。
+     *
+     * 按**四舍五入**取整而不是截断：B 方案内容区 800dp 上 5×149 + 4×14 = 801，
+     * 只差 1dp——截断会掉到 4 列，与 mockup 的"一行 5 张"对不上；四舍五入取 5 列，
+     * 实际卡宽 148，视觉等价。
+     */
     fun columns(availableWidthPx: Int, targetCardWidthPx: Int, gapPx: Int, minColumns: Int, maxColumns: Int): Int {
         require(minColumns >= 1) { "最少列数至少为 1，实际 $minColumns" }
         require(maxColumns >= minColumns) { "最多列数不能小于最少列数（$maxColumns < $minColumns）" }
@@ -18,8 +24,8 @@ object GridGeometry {
         // 每列占 target + gap，最后一行末尾没有 gap。
         val perCard = targetCardWidthPx + gapPx
         if (perCard <= 0) return minColumns
-        val fit = (availableWidthPx + gapPx) / perCard
-        return fit.coerceIn(minColumns, maxColumns)
+        val fit = (availableWidthPx + gapPx).toFloat() / perCard
+        return Math.round(fit).coerceIn(minColumns, maxColumns)
     }
 
     /** 卡宽：可用宽度扣掉列间距后均分。结果至少为 1，避免宽度为 0 的视图。 */

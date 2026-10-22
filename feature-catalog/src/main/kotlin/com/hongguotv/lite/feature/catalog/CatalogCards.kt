@@ -18,14 +18,18 @@ import com.hongguotv.lite.uikit.ui.CardItem
 internal object CatalogCards {
 
     /**
-     * 搜索结果卡：封面 + 一行收藏状态。没收藏的剧角标留空——
-     * 搜索页的职责是"找到剧"，收藏状态是它与收藏页的唯一交集。
+     * 搜索结果卡：封面 + 一行集数（B 方案，mockup 画面2）——
+     * 未上线写「未上线」，其余写「全 N 集」；收藏状态在底部信息栏说，不占卡片。
      */
-    fun search(series: Series, favoriteBadge: String = ""): CardItem = CardItem(
+    fun search(series: Series): CardItem = CardItem(
         id = series.id,
         title = "",
         coverUrl = series.cover,
-        badge = favoriteBadge,
+        badge = when {
+            !series.released -> "未上线"
+            series.episodeCount > 0 -> "全 ${series.episodeCount} 集"
+            else -> ""
+        },
         // 未上线季：暗一档。是否拦点击由页面决定（旧版是点进去再提示，那是产品文案）
         dim = !series.released,
         artworkTitle = series.title,
@@ -42,23 +46,21 @@ internal object CatalogCards {
     )
 
     /**
-     * 历史卡片：封面 + 观看位置（`第九季第20集 · 05:00`）。角标先说"看完"，再说"看到哪"——
-     * 一条 `completed = true` 或手动标记过已看的记录，停在"第 30 集 · 00:00"既没用也不准确。
+     * 历史卡片：封面 + 观看位置（`第九季 第20集`）。角标先说"看完"，再说"看到哪"——
+     * 一条 `completed = true` 或手动标记过已看的记录，停在"第 30 集"既没用也不准确。
      *
-     * 季号**总是**带上：多季剧的历史记录散在各季里，不写季名就分不清看的是哪一季
-     * （维护者口径：收藏一季 = 收藏整个 IP，历史页也要看得出是全 IP 的哪一季）。
-     *
-     * [withClock] = false 给首页「继续看」：那里用户刚看过，时间没有信息量，
-     * 只需要"第几季第几集"（维护者口径）。
+     * B 方案：**不带时间**（mockup 画面4）——时间在详情页/信息栏里有需要时再看；
+     * 季与集之间一个空格，季号**总是**带上：多季剧的历史记录散在各季里，
+     * 不写季名就分不清看的是哪一季。
      */
-    fun history(entry: HistoryEntry, watched: Boolean, withClock: Boolean = true): CardItem {
+    fun history(entry: HistoryEntry, watched: Boolean): CardItem {
         val finished = watched || entry.progress.completed
         return CardItem(
             id = entry.series.id,
             title = "",
             coverUrl = entry.series.cover,
             badge = if (finished) "整剧已看完"
-            else TvText.cardProgress(entry.series.season, entry.progress.episodeIndex, entry.progress.positionMs, withClock),
+            else TvText.cardProgress(entry.series.season, entry.progress.episodeIndex, entry.progress.positionMs),
             artworkTitle = entry.series.title,
         )
     }

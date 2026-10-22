@@ -188,6 +188,15 @@ class LiteActivity : Activity(), Navigator {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         // 播放页先看：焦点系统会把方向键吃掉，而播放页在"没有可聚焦项"时正是靠按键表工作
         if (painted is Route.Player && graph.player.onKeyEvent(event)) return true
+        // 目录页接 MENU（B 方案：历史页"管理走 MENU"）；只认无重复的按下，长按不连发
+        if (painted is Route.Catalog &&
+            event.action == KeyEvent.ACTION_DOWN &&
+            event.repeatCount == 0 &&
+            event.keyCode == KeyEvent.KEYCODE_MENU &&
+            graph.catalog.onMenuKey()
+        ) {
+            return true
+        }
         return super.dispatchKeyEvent(event)
     }
 

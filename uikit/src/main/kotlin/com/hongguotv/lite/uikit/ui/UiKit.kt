@@ -136,17 +136,12 @@ class UiKit(
     fun chip(label: String, selected: Boolean = false, iconRes: Int = 0, onTap: () -> Unit): TvChip =
         TvChip(context, tokens, label, selected, iconRes, onTap)
 
-    fun navItem(label: String, iconRes: Int, onTap: () -> Unit): TvNavItem =
-        TvNavItem(context, tokens, label, iconRes, onTap)
-
     fun link(label: String, onTap: () -> Unit): TvLink = TvLink(context, tokens, label, onTap)
 
     fun input(label: String, maxLength: Int = 80): TvInput = TvInput(context, tokens, label, maxLength)
 
     /** 单张封面（详情页大图）。走封面端口取图，尺寸由调用方给。 */
     fun cover(widthDp: Int, heightDp: Int): TvCover = TvCover(this, dp(widthDp), dp(heightDp))
-
-    fun preview(): PreviewRail = PreviewRail(this)
 
     /** 两列规格表（B 方案详情 hero 的信息列）。 */
     fun specTable(): SpecTable = SpecTable(this)

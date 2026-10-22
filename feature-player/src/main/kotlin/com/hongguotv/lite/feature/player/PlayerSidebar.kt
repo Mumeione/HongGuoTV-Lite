@@ -69,7 +69,7 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
     private var lastCurrent = -1
     private var digits = ""
 
-    private val titleView: TextView = ui.text("", tokens.type.title, tokens.colors.text).apply {
+    private val titleView: TextView = ui.text("", tokens.type.body, tokens.colors.text).apply {
         maxLines = 1
         ellipsize = TextUtils.TruncateAt.END
     }

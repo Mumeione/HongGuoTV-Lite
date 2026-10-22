@@ -5,7 +5,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GridGeometryTest {
-
     /** 1080p 电视上的典型值：目标卡宽 150、间距 14（密度 1 时 dp 与 px 同值）。 */
     private fun columnsAt(width: Int): Int =
         GridGeometry.columns(availableWidthPx = width, targetCardWidthPx = 150, gapPx = 14, minColumns = 3, maxColumns = 6)
@@ -32,6 +31,14 @@ class GridGeometryTest {
             assertTrue("宽度 $width / $columns 列：总宽超出可用宽度", columns * card + (columns - 1) * 14 <= width)
             assertTrue("卡宽必须为正", card > 0)
         }
+    }
+
+    @Test
+    fun `a row that just barely fits rounds up instead of dropping a card`() {
+        // B 方案内容区 800dp：5×149 + 4×14 = 801，差 1dp——按四舍五入取 5 列（实际卡宽 148），
+        // 截断的话只剩 4 列，与 mockup 的"一行 5 张"对不上
+        assertEquals(5, GridGeometry.columns(availableWidthPx = 800, targetCardWidthPx = 149, gapPx = 14, minColumns = 3, maxColumns = 6))
+        assertEquals(148, GridGeometry.cardWidth(availableWidthPx = 800, columns = 5, gapPx = 14))
     }
 
     @Test

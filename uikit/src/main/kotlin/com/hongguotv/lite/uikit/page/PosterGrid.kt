@@ -67,6 +67,15 @@ class PosterGrid internal constructor(
      */
     var cardHeightLimit: Int = 0
 
+    /** 目标卡宽覆盖（dp）：历史页两行 6 列这类"产品口径"网格用；0 = 令牌默认（149）。 */
+    var cardWidthTargetDp: Int = 0
+
+    /** 列间距覆盖（dp）：历史页 12；0 = 令牌默认（14）。 */
+    var columnGapDp: Int = 0
+
+    /** 信息条高度覆盖（dp）：历史卡 26；0 = 目录卡默认（34）。 */
+    var stripHeightDp: Int = 0
+
     init {
         orientation = VERTICAL
     }
@@ -76,11 +85,12 @@ class PosterGrid internal constructor(
     fun render(items: List<CardItem>): GridRendered {
         val limited = items.take(tokens.pageCardLimit)
         val ids = limited.map { it.id }
-        val gap = dp(tokens.metrics.cardGap)
+        val gap = dp(if (columnGapDp > 0) columnGapDp else tokens.metrics.cardGap)
+        val target = dp(if (cardWidthTargetDp > 0) cardWidthTargetDp else tokens.metrics.gridTargetCardWidth)
         val available = ui.availableWidth(width)
         val columns = GridGeometry.columns(
             availableWidthPx = available,
-            targetCardWidthPx = dp(tokens.metrics.gridTargetCardWidth),
+            targetCardWidthPx = target,
             gapPx = gap,
             minColumns = tokens.metrics.gridMinColumns,
             maxColumns = tokens.metrics.gridMaxColumns,
@@ -152,7 +162,7 @@ class PosterGrid internal constructor(
         if (focusedId != null) cards[focusedId]?.requestFocus()
     }
 
-    private fun newCard(widthPx: Int): PosterCard = PosterCard(ui, widthPx, cardHeightLimit).apply {
+    private fun newCard(widthPx: Int): PosterCard = PosterCard(ui, widthPx, cardHeightLimit, stripHeightDp).apply {
         onFocused = { item ->
             applySpotlight()
             onCardFocused?.invoke(item)

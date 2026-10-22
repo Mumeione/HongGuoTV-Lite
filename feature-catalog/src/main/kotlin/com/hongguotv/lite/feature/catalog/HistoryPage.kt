@@ -14,24 +14,24 @@ import com.hongguotv.lite.uikit.page.ContentPane
 import com.hongguotv.lite.uikit.page.GridRendered
 import com.hongguotv.lite.uikit.page.PosterGrid
 import com.hongguotv.lite.uikit.page.TwoStepConfirm
-import com.hongguotv.lite.uikit.ui.PreviewRail
 import com.hongguotv.lite.uikit.ui.TvButton
 import com.hongguotv.lite.uikit.ui.TvLink
 import kotlinx.coroutines.launch
 
 /**
- * 历史页。
+ * 历史页（B 方案，mockup 画面4）。
  *
- * 「管理记录」不是弹窗，而是页脚动作条：开启后对**当前聚焦的那条**执行
- * 继续播放 / 标记已看（恢复未看）/ 删除。删除要两步确认——S4 没有模态组件，
- * 用"再按一次"替代确认框，焦点移开即撤销。
+ * 卡片 120dp 两行 6 列（一屏 12 部，更多往下滚），状态条只写「第九季 第20集」——
+ * 详情（收藏状态、分类）在底部信息栏里，**不写观看位置**（我的状态在卡片上已经有了）。
+ *
+ * 管理入口是 **MENU 键**（顶部不再有"管理记录"按钮；一键全清只在设置里）：
+ * 开启后对**当前聚焦的那条**执行 继续播放 / 标记已看（恢复未看）/ 删除。
+ * 删除要两步确认——焦点移开即撤销。
  */
 internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.HISTORY) {
 
-    private lateinit var preview: PreviewRail
     private lateinit var pane: ContentPane
     private lateinit var grid: PosterGrid
-    private lateinit var manageButton: TvButton
     private lateinit var footer: LinearLayout
     private lateinit var footerLabel: TextView
     private lateinit var resumeButton: TvButton
@@ -47,20 +47,21 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
 
     override fun onBuild() {
         val header = scaffold.showHeader("观看历史")
-        header.note("最近 30 条 · 收藏不受影响")
-        manageButton = ui.button("管理记录") { setManaging(!managing) }
-        header.actions.addView(manageButton)
+        header.titleSize(tokens.type.display)
+        header.leadNote("只存在本机，最多 30 条；清空不影响收藏")
 
         val body = scaffold.body()
-        preview = ui.preview().apply { visibility = View.GONE }
-        body.addView(preview)
-
         pane = ui.contentPane()
         body.addView(pane, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         pane.empty.show("播放过的剧集会自动保存在这里")
 
         grid = ui.grid("history").apply {
             persistCovers = true
+            // B 方案产品口径：两行 6 列、信息条 26dp、列距 12（spec 令牌表"卡片（历史）"）
+            cardWidthTargetDp = tokens.metrics.historyCardWidth
+            columnGapDp = tokens.metrics.historyColumnGap
+            stripHeightDp = tokens.metrics.historyStripHeight
+            spotlight = true
             onCardFocused = { item -> onCardFocused(item.id) }
             onCardActivated = { item -> host.navigator.toDetail(item.id, resumeRecording = true) }
         }
@@ -103,17 +104,15 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
 
     private fun render() {
         val isEmpty = entries.isEmpty()
-        manageButton.visibility = if (isEmpty) View.GONE else View.VISIBLE
         rendered = if (isEmpty) null else grid.render(entries.map { CatalogCards.history(it, host.progress.isWatched(it.series.id)) })
         if (isEmpty) {
             pane.showEmpty("播放过的剧集会自动保存在这里")
-            preview.visibility = View.GONE
+            scaffold.hideBand()
             managing = false
             footer.visibility = View.GONE
-            preview.show("", "", "")
         } else {
             pane.showContent()
-            preview.visibility = View.VISIBLE
+            scaffold.band()
         }
         updateFooter()
         applyFocus()
@@ -134,21 +133,25 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
             targetId = seriesId
         }
         val entry = entries.firstOrNull { it.series.id == seriesId } ?: return
-        // 收藏一季 = 收藏整个 IP：历史页预览要把"这部 IP 更新到哪"放在第三行（它的状态），
-        // 第二行只说我自己的状态（收藏没收藏、看到哪）
+        // 信息栏只写"这部剧"：片名 + 收藏状态 + 分类。观看位置在卡片状态条上，不重复
         val key = SeasonKeys.seasonKey(entry.series.title)
         val favoriteEntry = if (key.isBlank()) null else host.favorites.entry(key)
-        preview.show(
+        scaffold.band().show(
             title = entry.series.title,
-            status = CatalogText.previewStatus(
+            segments = CatalogText.bandSegments(
                 favorite = favoriteEntry != null,
-                season = entry.series.season,
-                progress = entry.progress,
-                watched = host.progress.isWatched(entry.series.id),
+                tags = entry.series.tags,
             ),
-            meta = CatalogText.meta(entry.series, favoriteEntry?.let { FavoriteLabels.updateBadge(it) }.orEmpty()),
+            keys = listOf("OK" to "继续播放", "MENU" to "管理"),
         )
         if (managing) updateFooter()
+    }
+
+    /** MENU 键 = 管理入口（B 方案口径，宿主从 `LiteActivity` 转发过来）。 */
+    override fun onMenuKey(): Boolean {
+        if (entries.isEmpty()) return false
+        setManaging(!managing)
+        return true
     }
 
     private fun setManaging(value: Boolean) {
@@ -196,7 +199,6 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
     private fun applyFocus() {
         val views = LinkedHashMap<FocusKey, View>()
         views.putAll(navViews())
-        if (manageButton.visibility == View.VISIBLE) views[FocusKey("history:manage")] = manageButton
         rendered?.views?.let { views.putAll(it) }
         if (managing) {
             views[FocusKey("history:resume")] = resumeButton
@@ -206,8 +208,6 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
         }
 
         val sections = listOf(
-            navSection(),
-            if (manageButton.visibility == View.VISIBLE) FocusSections.section(listOf(FocusKey("history:manage")), 1) else null,
             rendered?.let { FocusSections.section(it.keys, it.columns) },
             if (managing) {
                 FocusSections.section(
