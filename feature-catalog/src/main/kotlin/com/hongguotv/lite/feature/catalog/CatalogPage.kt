@@ -59,8 +59,10 @@ internal abstract class CatalogPage(
         onBuild()
         preferredOnBuild = null
         // 这里也要给阶梯：onBuild 里的首帧请求常常在"视图还没挂上窗口"时失败，
-        // 真正落定的往往是这一次（或它的 post 重试）——不给阶梯就又落回侧栏了
-        requestFocus(preferred, startFocus())
+        // 真正落定的往往是这一次（或它的 post 重试）——不给阶梯就又落回侧栏了。
+        // 没有跨页记忆时把阶梯第一项升格成显式目标：显式目标在回退链里排在记忆前面，
+        // 冷启动时框架的自动聚焦（侧栏第一项）就不会压过阶梯。
+        requestFocus(preferred ?: startFocus().firstOrNull(), startFocus())
     }
 
     /** 搭树并装载首屏数据。只调用一次。 */
@@ -103,7 +105,9 @@ internal abstract class CatalogPage(
 
     /** 提交焦点结构。空的段（没有联想、没有结果、页脚没开）由 [FocusSections] 丢弃。 */
     protected fun applyPlan(sections: List<FocusSection?>, views: Map<FocusKey, View>) {
-        val plan = FocusSections.plan(sections, side = navSection()) ?: return
+        // 内容往左回侧栏时落在**本页的 tab** 上：内容通常只有一行卡，按竖直位置映射
+        // 会落到侧栏中段（实测：搜索页按左键落在「收藏」上，再按确认就换了页）
+        val plan = FocusSections.plan(sections, side = navSection(), sideAnchor = FocusKey("nav:${tab.ordinal}")) ?: return
         focus.bind(plan, views)
         val wanted = preferredOnBuild ?: preferredOnRender
         preferredOnRender = null

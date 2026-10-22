@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.view.View
 import android.widget.ImageView
 import com.hongguotv.core.port.ArtworkSpec
+import com.hongguotv.lite.uikit.internal.shape
 
 /**
  * 单张封面（详情页 / 系列页的 hero 那一块）。
@@ -11,6 +12,10 @@ import com.hongguotv.core.port.ArtworkSpec
  * 与 [PosterCard] 的区别只在"没有标题与角标"：封面尺寸由调用方给定，
  * 取图仍然走 [com.hongguotv.core.port.ArtworkPort]——**页面不直接碰 Bitmap**，
  * 缓存与优先级策略留在端口的实现里。
+ *
+ * 画法对齐 mockup 的 `.b-hero2 .cv`：圆角 10dp + `background-size:cover`。
+ * 高度由 [HeroBlock] 跟随信息列设置（封面跨两行、与简介底部平齐），
+ * 所以比例不是固定的——按 `CENTER_CROP` 裁，而不是 `FIT_CENTER` 留黑边。
  */
 @SuppressLint("ViewConstructor")
 class TvCover internal constructor(
@@ -22,8 +27,11 @@ class TvCover internal constructor(
     private var url: String = ""
 
     init {
-        scaleType = ScaleType.FIT_CENTER
+        scaleType = ScaleType.CENTER_CROP
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        // 圆角靠 outline 裁切：背景只提供轮廓，取不到图时露出的也是同一块 surface 色
+        background = shape(ui.tokens.colors.surface, ui.tokens.shapes.row, null)
+        clipToOutline = true
     }
 
     /** 详情页封面不落盘：看得快、扔得也快，不值得占电视存储。 */

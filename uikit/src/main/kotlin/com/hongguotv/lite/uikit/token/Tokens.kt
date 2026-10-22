@@ -207,6 +207,10 @@ data class Metrics(
     val heroColumnGap: Int = 22,
     /** 动作列宽：三个胶囊竖排的固定宽。 */
     val heroActionsWidth: Int = 172,
+    /** 动作列里两个胶囊之间的间距（mockup `.b-acts{gap:9px}`）。 */
+    val heroActionGap: Int = 9,
+    /** 封面跟随信息列高度的下限：内容再短也不把封面压成一条。 */
+    val heroCoverMinHeight: Int = 120,
     /** 规格表 label 列宽。 */
     val specLabelWidth: Int = 56,
     val specRowGap: Int = 9,
@@ -226,10 +230,19 @@ data class Metrics(
 
     // ---------- 信息栏（InfoBand） ----------
     val infoBandHeight: Int = 46,
+    /**
+     * 信息栏片名的宽度上限：再长就省略号。
+     *
+     * 片名是 WRAP_CONTENT、说明段吃 weight——不设上限的话，一部 30 字的长剧名
+     * 会把说明段挤成 0 宽、把右侧按键提示顶出屏幕（LinearLayout 不会自动收缩定宽子项）。
+     */
+    val bandTitleMaxWidth: Int = 360,
     /** 1px 结构线（侧栏右缘、信息带上缘）。 */
     val dividerHeight: Int = 1,
     val keyCapSize: Int = 22,
     val keyCapRadius: Int = 5,
+    /** 抽屉顶行「MENU」键帽的左右内边距（mockup `.b-navkey{padding:0 7px}`）。 */
+    val keyCapPaddingH: Int = 7,
 
     // ---------- 播放抽屉（底部） ----------
     val drawerHeight: Int = 286,

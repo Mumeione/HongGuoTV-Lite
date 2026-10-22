@@ -19,6 +19,8 @@ object CardFit {
      * @param cardHeightLimitPx 整张卡的高度上限；0 或负数表示不限制（还没量、或页面高度充足）
      * @param textBlockHeightPx 封面以下那块文字（标题两行 + 角标 + 内边距）的高度
      * @param minArtworkHeightPx 保底高度
+     * @param explicitHeightPx 显式封面高（0 = 按比例）。历史卡是产品口径的 152dp：
+     *   B 方案把它压扁了一档（120×152 ≈ 0.79），图按 `cover` 裁掉上下，不按 0.7 留黑边。
      */
     fun artworkHeight(
         cardWidthPx: Int,
@@ -26,9 +28,14 @@ object CardFit {
         cardHeightLimitPx: Int,
         textBlockHeightPx: Int,
         minArtworkHeightPx: Int,
+        explicitHeightPx: Int = 0,
     ): Int {
         require(aspect > 0f) { "封面宽高比必须为正，实际 $aspect" }
-        val natural = (cardWidthPx / aspect).toInt().coerceAtLeast(1)
+        val natural = if (explicitHeightPx > 0) {
+            explicitHeightPx
+        } else {
+            (cardWidthPx / aspect).toInt().coerceAtLeast(1)
+        }
         if (cardHeightLimitPx <= 0) return natural
         val room = cardHeightLimitPx - textBlockHeightPx
         if (room >= natural) return natural

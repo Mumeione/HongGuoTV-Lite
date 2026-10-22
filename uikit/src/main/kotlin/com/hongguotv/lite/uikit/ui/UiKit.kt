@@ -96,7 +96,12 @@ class UiKit(
     /** 面板：设置页两栏的卡片底。圆角与留白走令牌，页面不再自己拼背景。 */
     fun panel(): LinearLayout = column().apply {
         background = shape(tokens.colors.surface, tokens.shapes.panel, null)
-        setPadding(dp(tokens.space.xl), dp(tokens.space.xl), dp(tokens.space.xl), dp(tokens.space.l))
+        setPadding(
+            dp(tokens.metrics.setPanelPaddingH),
+            dp(tokens.metrics.setPanelPaddingV),
+            dp(tokens.metrics.setPanelPaddingH),
+            dp(tokens.metrics.setPanelPaddingV),
+        )
     }
 
     /**
@@ -145,6 +150,10 @@ class UiKit(
 
     fun link(label: String, onTap: () -> Unit): TvLink = TvLink(context, tokens, label, onTap)
 
+    /** 设置面板的一行：左标签 + 右值 + 箭头（B 方案 mockup 画面7）。 */
+    fun settingRow(label: String, value: String, onTap: () -> Unit): SettingRow =
+        SettingRow(this, label, value, onTap)
+
     fun input(label: String, maxLength: Int = 80): TvInput = TvInput(context, tokens, label, maxLength)
 
     /** 单张封面（详情页大图）。走封面端口取图，尺寸由调用方给。 */
@@ -172,7 +181,8 @@ class UiKit(
      * 都是这种：用 [grid] 的话列数会按卡宽反推，40 季的剧会被 `pageCardLimit` 截断。
      * 外观与网格里的卡完全一致，不为一个区块另造一种卡。
      */
-    fun poster(widthPx: Int, stripHeightDp: Int = 0): PosterCard = PosterCard(this, widthPx, stripHeightDp = stripHeightDp)
+    fun poster(widthPx: Int, stripHeightDp: Int = 0, coverHeightDp: Int = 0): PosterCard =
+        PosterCard(this, widthPx, stripHeightDp = stripHeightDp, coverHeightDp = coverHeightDp)
 
     // ---------- 布局参数 ----------
 
@@ -203,15 +213,18 @@ class UiKit(
     internal fun pageInsetVertical(): Int = dp(tokens.metrics.pagePaddingTop)
 
     /**
-     * 内容区可用宽度：已量过就用量过的，没量过按"屏幕 − 左侧栏 − 页边距"估。
+     * 内容区可用宽度：已量过就用量过的，没量过按"屏幕 − 左侧栏 − 左右页边距"估。
      *
      * 给"列数由产品口径决定"的行用（季线一页 8 张），它没法像网格那样按卡宽反推列数。
      * 第一次渲染时视图还没量过，传 0 即可。
+     *
+     * 估算必须扣**左右两侧**的页边距：只扣一侧会多算 40dp，首帧按偏宽的宽度算出偏大的卡宽，
+     * 布局量到真实宽度后又要重建一次卡片（焦点得靠会话找回来，白做一轮）。
      */
     fun availableWidth(measured: Int): Int =
         if (measured > 0) {
             measured
         } else {
-            context.resources.displayMetrics.widthPixels - dp(tokens.metrics.pagePaddingH) - dp(leftChromeDp)
+            context.resources.displayMetrics.widthPixels - dp(tokens.metrics.pagePaddingH) * 2 - dp(leftChromeDp)
         }
 }

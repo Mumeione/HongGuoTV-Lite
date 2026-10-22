@@ -214,6 +214,32 @@ class FocusGraphTest {
     }
 
     @Test
+    fun `content exits left into the anchored rail item regardless of row`() {
+        // 目录页的一行卡（画面1/2/4）：按竖直位置映射会落到侧栏中段，
+        // 用户按左键只是想回自己那一页的导航项，不该被带去别的 tab。
+        val plan = FocusPlan(
+            listOf(FocusSection(keys("card", 6), columns = 3)),
+            side = FocusSection(keys("nav", 4), columns = 1),
+            sideAnchor = key("nav2"),
+        )
+        val graph = FocusGraph.of(plan)
+        assertEquals("首行行首按左回当前 tab", key("nav2"), graph.neighborsOf(key("card0"))!!.left)
+        assertEquals("第二行行首也回当前 tab", key("nav2"), graph.neighborsOf(key("card3"))!!.left)
+        assertEquals("非行首仍在行内", key("card0"), graph.neighborsOf(key("card1"))!!.left)
+    }
+
+    @Test
+    fun `anchor outside the rail falls back to vertical position`() {
+        val plan = FocusPlan(
+            listOf(FocusSection(keys("card", 6), columns = 3)),
+            side = FocusSection(keys("nav", 4), columns = 1),
+            sideAnchor = key("nav9"),
+        )
+        val graph = FocusGraph.of(plan)
+        assertEquals("锚点不在侧段里就当没给", key("nav0"), graph.neighborsOf(key("card0"))!!.left)
+    }
+
+    @Test
     fun `rail order comes first for focus fallback`() {
         val graph = FocusGraph.of(railPlan())
         assertEquals("侧栏是页面的第一段（空页兜底落在导航上）", "nav0", graph.order.first().value)

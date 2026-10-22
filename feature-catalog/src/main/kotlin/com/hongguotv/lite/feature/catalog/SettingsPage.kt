@@ -9,8 +9,7 @@ import com.hongguotv.core.model.Settings
 import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.focus.FocusSections
 import com.hongguotv.lite.uikit.page.TwoStepConfirm
-import com.hongguotv.lite.uikit.ui.ButtonVariant
-import com.hongguotv.lite.uikit.ui.TvButton
+import com.hongguotv.lite.uikit.ui.SettingRow
 import kotlinx.coroutines.launch
 
 /**
@@ -23,14 +22,14 @@ import kotlinx.coroutines.launch
  */
 internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.SETTINGS) {
 
-    private lateinit var qualityRow: TvButton
-    private lateinit var speedRow: TvButton
-    private lateinit var frameRow: TvButton
-    private lateinit var autoNextRow: TvButton
-    private lateinit var filterRow: TvButton
-    private lateinit var sortRow: TvButton
-    private lateinit var clearRow: TvButton
-    private lateinit var startupRow: TvButton
+    private lateinit var qualityRow: SettingRow
+    private lateinit var speedRow: SettingRow
+    private lateinit var frameRow: SettingRow
+    private lateinit var autoNextRow: SettingRow
+    private lateinit var filterRow: SettingRow
+    private lateinit var sortRow: SettingRow
+    private lateinit var clearRow: SettingRow
+    private lateinit var startupRow: SettingRow
 
     private val confirm = TwoStepConfirm()
 
@@ -40,7 +39,11 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
         header.titleSize(tokens.type.display)
         header.leadNote("偏好自动保存，下一部剧继续使用")
 
-        val body = scaffold.scrollBody()
+        // 不滚动：这一页固定两栏 4 行，用会撑满高度的 body 才能把页脚压在页底
+        // （mockup：`.setbody{flex:1}` 居中两栏、`.setfoot` 贴底）
+        val body = scaffold.body()
+        body.addView(spacer(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+
         val groups = ui.rowTop()
         val left = ui.panel()
         val right = ui.panel()
@@ -63,12 +66,13 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
         clearRow.onFocused = { focused ->
             if (!focused) {
                 confirm.disarm()
-                clearRow.label("清空观看记录")
+                syncLabels()
             }
         }
 
-        body.addView(ui.text(footerNote(), tokens.type.caption, tokens.colors.muted).apply {
-            setPadding(ui.dp(tokens.space.xxs), ui.dp(tokens.space.xl), 0, ui.dp(tokens.space.m))
+        body.addView(spacer(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        body.addView(ui.text(footerNote(), tokens.type.footnote, tokens.colors.dim).apply {
+            setPadding(ui.dp(tokens.space.xs), 0, 0, ui.dp(tokens.space.m))
         })
 
         syncLabels()
@@ -77,6 +81,8 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
 
     // ---------- 构建小块 ----------
 
+    private fun spacer(): View = View(ui.context)
+
     private fun heading(group: LinearLayout, title: String, subtitle: String) {
         group.addView(ui.text(title, tokens.type.group).apply { setTypeface(null, Typeface.BOLD) })
         group.addView(ui.text(subtitle, tokens.type.caption, tokens.colors.muted).apply {
@@ -84,8 +90,8 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
         })
     }
 
-    private fun setting(group: LinearLayout, label: String, onTap: () -> Unit): TvButton {
-        val row = ui.button(label, variant = ButtonVariant.ROW, onTap = onTap)
+    private fun setting(group: LinearLayout, label: String, onTap: () -> Unit): SettingRow {
+        val row = ui.settingRow(label, "", onTap)
         group.addView(row, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT, bottomGap = tokens.metrics.setRowGap))
         return row
     }
@@ -98,14 +104,16 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
 
     private fun syncLabels() {
         val current = host.settings.current()
-        qualityRow.label("默认清晰度  ·  ${SettingRows.qualityLabel(current.quality)}")
-        speedRow.label("默认倍速  ·  ${SettingRows.speedLabel(current.speed)}")
-        frameRow.label("画面模式  ·  ${SettingRows.frameLabel(current.frame)}")
-        autoNextRow.label("自动连播  ·  ${if (current.autoNext) "开启" else "关闭"}")
-        filterRow.label("默认片库筛选  ·  ${SettingRows.filterLabel(current.filter)}")
-        sortRow.label("搜索结果顺序  ·  ${SettingRows.sortLabel(current.seasonSortAsc)}")
-        clearRow.label("清空观看记录")
-        startupRow.label("启动页面  ·  ${SettingRows.tabLabel(current.startupTab)}")
+        qualityRow.value(SettingRows.qualityLabel(current.quality))
+        speedRow.value(SettingRows.speedLabel(current.speed))
+        frameRow.value(SettingRows.frameLabel(current.frame))
+        autoNextRow.value(if (current.autoNext) "开启" else "关闭")
+        filterRow.value(SettingRows.filterLabel(current.filter))
+        sortRow.value(SettingRows.sortLabel(current.seasonSortAsc))
+        // 清空是不可恢复动作：值这一列先说清后果（mockup 的「不可恢复」），
+        // 第二次按才换成「再按一次确认」——比把警告塞进主标签更贴近表格的读法
+        clearRow.value(if (confirm.isArmed(KEY_CLEAR)) "再按一次确认" else "不可恢复")
+        startupRow.value(SettingRows.tabLabel(current.startupTab))
     }
 
     // ---------- 交互 ----------
@@ -158,10 +166,10 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
 
     private fun requestClear() {
         if (!confirm.press(KEY_CLEAR)) {
-            clearRow.label("再按一次确认清空（收藏会保留）")
+            syncLabels()
             return
         }
-        clearRow.label("清空观看记录")
+        syncLabels()
         scope.launch {
             host.progress.clearHistory()
             Toast.makeText(ui.context, "已清空观看记录", Toast.LENGTH_SHORT).show()
@@ -190,8 +198,9 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
             if (index < rightRows.size) keys += FocusKey("setting:R$index")
         }
 
+        // 侧栏由 `applyPlan` 统一当"侧段"加进去，这里只提交内容段——
+        // 再放一次 navSection() 会让同一批 nav key 出现在两处，焦点图直接拒绝
         val sections = listOf(
-            navSection(),
             FocusSections.section(keys, 2),
         )
         applyPlan(sections, views)

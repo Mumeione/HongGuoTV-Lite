@@ -14,10 +14,20 @@ object FocusSections {
     fun section(keys: List<FocusKey>, columns: Int = keys.size): FocusSection? =
         if (keys.isEmpty()) null else FocusSection(keys, columns.coerceAtLeast(1))
 
-    /** 从上到下拼成焦点图；一个可聚焦项都没有时返回 null（页面还没内容）。[side] 是左侧栏（见 [FocusPlan]）。 */
-    fun plan(sections: List<FocusSection?>, side: FocusSection? = null): FocusPlan? {
+    /**
+     * 从上到下拼成焦点图；一个可聚焦项都没有时返回 null（页面还没内容）。
+     *
+     * [side] 是左侧栏，[sideAnchor] 是"内容往左回侧栏时落在哪一项"（通常是当前 tab）。
+     * 目录页的内容只有一行卡，不给锚点就会落到侧栏中段——用户按左键想回自己的 tab，
+     * 却被带去了别的页面（模拟器实测）。
+     */
+    fun plan(
+        sections: List<FocusSection?>,
+        side: FocusSection? = null,
+        sideAnchor: FocusKey? = null,
+    ): FocusPlan? {
         val present = sections.filterNotNull()
         if (present.isEmpty()) return null
-        return FocusPlan(present, side)
+        return FocusPlan(present, side, sideAnchor)
     }
 }

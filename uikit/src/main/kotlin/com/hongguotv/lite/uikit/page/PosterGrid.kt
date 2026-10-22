@@ -73,11 +73,22 @@ class PosterGrid internal constructor(
     /** 列间距覆盖（dp）：历史页 12；0 = 令牌默认（14）。 */
     var columnGapDp: Int = 0
 
+    /** 行间距覆盖（dp）：历史页 20；0 = 令牌默认（14）。 */
+    var rowGapDp: Int = 0
+
     /** 信息条高度覆盖（dp）：历史卡 26；0 = 目录卡默认（34）。 */
     var stripHeightDp: Int = 0
 
+    /** 封面高度覆盖（dp）：历史卡 152；0 = 按 0.7 比例派生。 */
+    var coverHeightDp: Int = 0
+
     init {
         orientation = VERTICAL
+        // 焦点卡放大 1.06 会超出网格边界：不留出溢出量、又让网格裁子视图的话，
+        // 首行/首列的 3dp 白框会被切平（只剩右/下两侧看得到）。
+        // `clipToPadding` 也必须关掉——它会把整棵子树裁到 padding 框内，白框照样没。
+        clipChildren = false
+        clipToPadding = false
     }
 
     fun keyOf(id: String): FocusKey = FocusKey("$section:$id")
@@ -86,28 +97,44 @@ class PosterGrid internal constructor(
         val limited = items.take(tokens.pageCardLimit)
         val ids = limited.map { it.id }
         val gap = dp(if (columnGapDp > 0) columnGapDp else tokens.metrics.cardGap)
+        val rowGap = dp(if (rowGapDp > 0) rowGapDp else tokens.metrics.cardGap)
         val target = dp(if (cardWidthTargetDp > 0) cardWidthTargetDp else tokens.metrics.gridTargetCardWidth)
-        val available = ui.availableWidth(width)
+        val available0 = ui.availableWidth(width)
         val columns = GridGeometry.columns(
-            availableWidthPx = available,
+            availableWidthPx = available0,
             targetCardWidthPx = target,
             gapPx = gap,
             minColumns = tokens.metrics.gridMinColumns,
             maxColumns = tokens.metrics.gridMaxColumns,
         )
+        // 先按"未扣留白"的卡宽估算放大外扩，再把留白扣掉重算卡宽：
+        // 留白取决于卡高、卡高取决于卡宽，一步收敛（外扩只与较长边有关，量级是几 dp）
+        val cardWidth0 = GridGeometry.cardWidth(available0, columns, gap)
+        val cover0 = if (coverHeightDp > 0) {
+            dp(coverHeightDp)
+        } else {
+            (cardWidth0 / tokens.metrics.posterAspect).toInt()
+        }
+        val strip = dp(if (stripHeightDp > 0) stripHeightDp else tokens.metrics.catalogStripHeight)
+        val scale = if (tokens.motion.enabled) tokens.motion.focusScale else 1f
+        // focusOverflow 的入参和返回值都是像素，不要再换算一次
+        val overflow = GridGeometry.focusOverflow(cardWidth0, cover0 + strip, scale)
+        applyFocusPadding(overflow)
+
+        val available = (ui.availableWidth(width) - paddingLeft - paddingRight).coerceAtLeast(1)
         val cardWidth = GridGeometry.cardWidth(available, columns, gap)
 
         val reusable = ids == lastIds && columns == lastColumns && cardWidth == lastCardWidth && cards.isNotEmpty()
         if (reusable) {
             limited.forEach { item ->
                 cards[item.id]?.let { card ->
-                    card.heightLimit(cardHeightLimit)
+                    card.heightLimit(cardLimit())
                     card.persistCover(persistCovers)
                     card.bind(item)
                 }
             }
         } else {
-            rebuild(limited, columns, cardWidth, gap)
+            rebuild(limited, columns, cardWidth, gap, rowGap)
             lastIds = ids
             lastColumns = columns
             lastCardWidth = cardWidth
@@ -119,6 +146,16 @@ class PosterGrid internal constructor(
         return GridRendered(keys = ids.map(::keyOf), views = views, columns = columns)
     }
 
+    /** 焦点外扩的留白：只在数值变化时改，避免每帧触发一次布局。 */
+    private fun applyFocusPadding(pad: Int) {
+        if (paddingLeft == pad && paddingTop == pad && paddingRight == pad && paddingBottom == pad) return
+        setPadding(pad, pad, pad, pad)
+    }
+
+    /** 高度上限扣掉上下留白：卡片连同白框要落在视口里，不能把留白算成可用高度。 */
+    private fun cardLimit(): Int =
+        if (cardHeightLimit <= 0) 0 else (cardHeightLimit - paddingTop - paddingBottom).coerceAtLeast(0)
+
     /** 把"哪张卡正亮着"同步给全部卡。焦点落到本网格之外时（全暗）由下一次 render 修正。 */
     private fun applySpotlight() {
         if (!spotlight) {
@@ -129,7 +166,7 @@ class PosterGrid internal constructor(
         cards.forEach { (id, card) -> card.dimmed = id != focusedId }
     }
 
-    private fun rebuild(limited: List<CardItem>, columns: Int, cardWidth: Int, gap: Int) {
+    private fun rebuild(limited: List<CardItem>, columns: Int, cardWidth: Int, gap: Int, rowGap: Int) {
         // 重建会换掉一批 View 实例：先把"哪一张正被聚焦"记下来，建完立刻要回去。
         // 不这么做的话，框架会把焦点交给页面里第一个可聚焦项（顶栏），而那次变化会被
         // 焦点记忆记下来——「切完 tab / 搜索完成后光标跑到顶上」就是这么来的。
@@ -142,7 +179,7 @@ class PosterGrid internal constructor(
         removeAllViews()
         val rowCounts = GridGeometry.rowsOf(limited.size, columns)
         var cursor = 0
-        rowCounts.forEach { count ->
+        rowCounts.forEachIndexed { rowIndex, count ->
             val row = ui.rowTop()
             repeat(count) { indexInRow ->
                 val item = limited[cursor++]
@@ -156,13 +193,25 @@ class PosterGrid internal constructor(
                     },
                 )
             }
-            addView(row, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(
+                row,
+                LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    // 行距不只是排版：放大后的卡片上下各外扩几 dp，行距为 0 时相邻两张的白框会叠在一起
+                    if (rowIndex < rowCounts.lastIndex) bottomMargin = rowGap
+                },
+            )
         }
         // 同一张卡还在就回到它；否则交给页面的焦点阶梯（它会在 render 结束后请求）
         if (focusedId != null) cards[focusedId]?.requestFocus()
     }
 
-    private fun newCard(widthPx: Int): PosterCard = PosterCard(ui, widthPx, cardHeightLimit, stripHeightDp).apply {
+    private fun newCard(widthPx: Int): PosterCard = PosterCard(
+        ui = ui,
+        widthPx = widthPx,
+        maxHeightPx = cardLimit(),
+        stripHeightDp = stripHeightDp,
+        coverHeightDp = coverHeightDp,
+    ).apply {
         onFocused = { item ->
             applySpotlight()
             onCardFocused?.invoke(item)

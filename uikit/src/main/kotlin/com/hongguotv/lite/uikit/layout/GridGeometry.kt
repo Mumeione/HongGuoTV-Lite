@@ -46,4 +46,19 @@ object GridGeometry {
         if (remainder > 0) rows += remainder
         return rows
     }
+
+    /**
+     * 聚光放大后卡片在**每一侧**超出自身边界的像素数。
+     *
+     * 缩放以中心为轴，所以每侧外扩 = 较长边 × (scale − 1) / 2。网格要按它留出内边距，
+     * 否则首行/首列的焦点卡 3dp 白框会被自己的边界裁掉一条边（模拟器实测：
+     * 只有右侧和下方看得见白框，左上被切平）。
+     *
+     * [scale] ≤ 1（低内存档关闭动效）时返回 0：不留无用的空白。
+     */
+    fun focusOverflow(cardWidthPx: Int, cardHeightPx: Int, scale: Float): Int {
+        if (scale <= 1f) return 0
+        val longer = maxOf(cardWidthPx, cardHeightPx)
+        return kotlin.math.ceil(longer * (scale - 1f) / 2f).toInt()
+    }
 }

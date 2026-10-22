@@ -50,6 +50,8 @@ class InfoBand internal constructor(private val ui: UiKit) : FrameLayout(ui.cont
             ellipsize = TextUtils.TruncateAt.END
             setTypeface(null, Typeface.BOLD)
             fontFeatureSettings = "tnum"
+            // 长剧名不能把说明段与按键提示挤出屏幕
+            maxWidth = ui.dp(tokens.metrics.bandTitleMaxWidth)
         }
         row.addView(titleView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             rightMargin = ui.dp(tokens.space.xl)
@@ -120,7 +122,18 @@ class InfoBand internal constructor(private val ui: UiKit) : FrameLayout(ui.cont
                 setTextColor(tokens.colors.text)
                 includeFontPadding = false
                 gravity = Gravity.CENTER
+                maxLines = 1
+                // 宽度随文字走（"MENU" 四个字母 22dp 装不下会折行），minWidth 保住"键帽"的方块观感
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ui.dp(tokens.metrics.keyCapSize),
+                ).apply {
+                    minWidth = ui.dp(tokens.metrics.keyCapSize)
+                    rightMargin = ui.dp(tokens.space.s)
+                }
                 background = shape(tokens.colors.raised, tokens.metrics.keyCapRadius, null)
+                val pad = ui.dp(tokens.space.xxs)
+                setPadding(pad, 0, pad, 0)
             }
             val label = TextView(context).apply {
                 textSize = tokens.type.caption
@@ -131,9 +144,7 @@ class InfoBand internal constructor(private val ui: UiKit) : FrameLayout(ui.cont
             val span = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                addView(cap, LinearLayout.LayoutParams(ui.dp(tokens.metrics.keyCapSize), ui.dp(tokens.metrics.keyCapSize)).apply {
-                    rightMargin = ui.dp(tokens.space.s)
-                })
+                addView(cap)
                 addView(label)
             }
             keySpans += cap to label

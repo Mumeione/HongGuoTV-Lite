@@ -71,7 +71,9 @@ internal class SeasonPage(
     override fun onBuild() {
         // 页头写页面名，剧名交给下面的主视觉：同一行标题重复两遍既占高度又显得乱
         header = scaffold.showHeader("收藏详情") { host.navigator.back() }
-        val body = scaffold.scrollBody()
+        // 这一页没有信息栏，"所有季"整行要压到下半部分（mockup 画面5 的 margin-top:auto）：
+        // 用会撑满高度的 body + 一根弹性留白，而不是滚动区（滚动区按内容高测量，权重不生效）
+        val body = scaffold.body()
 
         stateView = ui.text("", tokens.type.subtitle, tokens.colors.muted).apply {
             setPadding(0, ui.dp(tokens.space.xxl), 0, ui.dp(tokens.space.l))
@@ -85,9 +87,9 @@ internal class SeasonPage(
 
         hero = HeroBlock(ui)
         playButton = ui.button("开始播放", variant = ButtonVariant.PRIMARY) { play() }
-        hero.actions.addView(playButton, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT, bottomGap = tokens.space.xs))
+        hero.actions.addView(playButton, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT, bottomGap = tokens.metrics.heroActionGap))
         pickButton = ui.button("选集") { openCurrentSeason() }
-        hero.actions.addView(pickButton, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT, bottomGap = tokens.space.xs))
+        hero.actions.addView(pickButton, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT, bottomGap = tokens.metrics.heroActionGap))
         favoriteButton = ui.button("取消收藏") { toggleFavorite() }
         // 焦点一离开就撤销确认：挪到「继续播放」再回来，一次按键不该把收藏取消掉
         favoriteButton.onFocused = { focused ->
@@ -98,6 +100,9 @@ internal class SeasonPage(
         }
         hero.actions.addView(favoriteButton, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT))
         body.addView(hero.view)
+
+        // 弹性留白：把「所有季」与季卡压到页面下半部分（mockup 画面5）
+        body.addView(View(ui.context), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
         seasonHeader = ui.row().apply {
             visibility = View.GONE
@@ -117,8 +122,13 @@ internal class SeasonPage(
         body.addView(seasonHeader)
 
         seasonHost = ui.column().apply { visibility = View.GONE }
-        body.addView(seasonHost)
-
+        body.addView(
+            seasonHost,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                // 季卡离页底留一档（mockup `.b-seasons{margin-bottom:18px}`）
+                bottomMargin = ui.dp(tokens.space.xl)
+            },
+        )
 
         load()
     }
@@ -292,8 +302,8 @@ internal class SeasonPage(
                         watched = host.progress.isWatched(season.id),
                     ),
                 )
-                // 当前季 = 白底深字（与分集格同一套选中语义），封面图盖住上半部分
-                isSelected = current
+                // 当前季只靠封面左上角的「当前」角标表达：mockup 不给季卡加描边，
+                // 白框全留给光标（一页只有一处白色填充/描边在争注意力）
                 onActivated = { openSeason(season) }
             }
             row.addView(

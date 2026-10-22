@@ -77,18 +77,29 @@ internal class EpisodePage(
 
         hero = HeroBlock(ui)
         playButton = ui.button("开始观看", variant = ButtonVariant.PRIMARY) { play() }
-        hero.actions.addView(playButton, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT, bottomGap = tokens.space.xs))
+        hero.actions.addView(playButton, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT, bottomGap = tokens.metrics.heroActionGap))
         pickButton = ui.button("选集") { pickEpisode() }
-        hero.actions.addView(pickButton, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT, bottomGap = tokens.space.xs))
+        hero.actions.addView(pickButton, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT, bottomGap = tokens.metrics.heroActionGap))
         favoriteButton = ui.button("收藏") { toggleFavorite() }
         hero.actions.addView(favoriteButton, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT))
         body.addView(hero.view)
 
         pager = PagerRow(ui).apply { onPage = { delta -> goPage(delta) } }
-        body.addView(pager.view)
+        // 翻组行离 hero 14dp、分集格离翻组 10dp（mockup 画面3 的两处 margin-top）
+        body.addView(
+            pager.view,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = ui.dp(tokens.space.m)
+            },
+        )
 
         episodeHost = ui.column()
-        body.addView(episodeHost)
+        body.addView(
+            episodeHost,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = ui.dp(tokens.space.s)
+            },
+        )
 
         nextSeasonView = ui.text("", tokens.type.caption, tokens.colors.muted).apply {
             visibility = View.GONE

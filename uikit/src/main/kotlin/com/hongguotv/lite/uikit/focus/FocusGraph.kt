@@ -45,12 +45,20 @@ data class FocusSection(val keys: List<FocusKey>, val columns: Int) {
  * 两种形态并存：
  * - [sections] 纵向堆叠：段内左右走、段间上下走（原有语义）；
  * - [side] 是竖排的侧栏（图标栏）：段内上下走，**左右与内容互通**——
- *   侧栏按右进第一段内容（按竖直位置选行），内容行首按左回侧栏（按竖直位置选项）。
+ *   侧栏按右进第一段内容（按竖直位置选行），内容行首按左回侧栏。
  *   没有侧段时一切行为与旧版完全一致。
+ *
+ * [sideAnchor] 是"内容往左回侧栏时优先落在哪一项"：目录页的内容通常只有一行，
+ * 按竖直位置映射会落到侧栏中段（用户按左键只是想回自己那一页的 tab），
+ * 页面因此指名当前 tab。没给或不在侧段里时退回按竖直位置映射。
  *
  * **空段不允许存在**：空段会成为"按进去出不来"的隐形区域。调用方应整段省略。
  */
-data class FocusPlan(val sections: List<FocusSection>, val side: FocusSection? = null) {
+data class FocusPlan(
+    val sections: List<FocusSection>,
+    val side: FocusSection? = null,
+    val sideAnchor: FocusKey? = null,
+) {
     init { require(sections.isNotEmpty()) { "焦点图至少需要一段" } }
 }
 
@@ -113,11 +121,12 @@ class FocusGraph private constructor(
                     val range = section.rowRange(row)
 
                     // 行首/行尾夹住自己：按左键不跨行，也不交给系统做几何猜测。
-                    // 行首按左键的唯一出口是侧段（竖排在屏幕左缘）——按竖直位置选侧栏项。
+                    // 行首按左键的唯一出口是侧段（竖排在屏幕左缘）——优先落页面指名的当前 tab，
+                    // 没指名才按竖直位置选侧栏项。
                     val left = if (column > 0) {
                         section.keys[index - 1]
                     } else {
-                        plan.side?.let { side -> crossToRow(side, row, section.rows, fromStart = true) } ?: key
+                        plan.side?.let { side -> leftIntoSide(plan, side, row, section.rows) } ?: key
                     }
                     val right = if (index < range.last) section.keys[index + 1] else key
                     val up = if (row > 0) {
@@ -173,6 +182,17 @@ class FocusGraph private constructor(
             val center = (column + 0.5f) * width / columns - 0.5f
             val offset = center.toInt().coerceIn(0, width - 1)
             return target.keys[range.first + offset]
+        }
+
+        /**
+         * 内容行首往左的去处：页面指名的当前 tab 优先，其次按竖直位置映射。
+         *
+         * 指名只在"锚点确实在侧段里"时生效——页面传了一个已被移除的导航项时不能把光标扔到图外。
+         */
+        private fun leftIntoSide(plan: FocusPlan, side: FocusSection, row: Int, rows: Int): FocusKey {
+            val anchor = plan.sideAnchor
+            if (anchor != null && anchor in side.keys) return anchor
+            return crossToRow(side, row, rows, fromStart = true)
         }
 
         /**

@@ -72,9 +72,16 @@ internal abstract class DetailPage(
         ladder: List<FocusKey> = emptyList(),
     ) {
         val side = FocusSections.section(rail.keys(), columns = 1)
-        val plan = FocusSections.plan(sections, side = side) ?: return
+        val plan = FocusSections.plan(
+            sections,
+            side = side,
+            // 详情两页的当前项固定亮「收藏」：内容往左要回到它，而不是按竖直位置落到别的 tab
+            sideAnchor = FocusKey("nav:$RAIL_SELECTED"),
+        ) ?: return
         focus.bind(plan, views)
-        requestFocus(preferred ?: host.lastFocus[pageKey], ladder)
+        // 没有跨页记忆时把阶梯第一项升格成显式目标（回退链里显式 > 记忆）：
+        // 冷启动框架的自动聚焦（侧栏第一项）不能压过"进这页该落在哪"
+        requestFocus(preferred ?: host.lastFocus[pageKey] ?: ladder.firstOrNull(), ladder)
     }
 
     private fun requestFocus(preferred: FocusKey?, ladder: List<FocusKey>) {

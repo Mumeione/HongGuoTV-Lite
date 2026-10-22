@@ -38,7 +38,7 @@ class PageHeader internal constructor(ui: UiKit, title: String, onBack: (() -> U
         gravity = Gravity.CENTER_VERTICAL
         minimumHeight = dp(tokens.metrics.pageTitleRowHeight)
 
-        back = ui.button("‹ 返回", variant = ButtonVariant.STANDARD, onTap = { onBack?.invoke() })
+        back = ui.button("‹ 返回", variant = ButtonVariant.SMALL, onTap = { onBack?.invoke() })
         // 收藏/历史/设置是顶层页，没有"返回上一页"的语义：不给按钮，而不是给一个按了没反应的
         back.visibility = if (onBack == null) View.GONE else View.VISIBLE
         addView(back)

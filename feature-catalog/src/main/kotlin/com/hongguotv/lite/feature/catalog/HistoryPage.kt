@@ -57,15 +57,22 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
 
         grid = ui.grid("history").apply {
             persistCovers = true
-            // B 方案产品口径：两行 6 列、信息条 26dp、列距 12（spec 令牌表"卡片（历史）"）
+            // B 方案产品口径：两行 6 列、封面 152、信息条 26dp、列距 12、行距 20
+            // （spec 令牌表"卡片（历史）"；封面比 0.7 比例矮一档，图按 cover 裁上下）
             cardWidthTargetDp = tokens.metrics.historyCardWidth
             columnGapDp = tokens.metrics.historyColumnGap
+            rowGapDp = tokens.metrics.historyRowGap
             stripHeightDp = tokens.metrics.historyStripHeight
+            coverHeightDp = tokens.metrics.historyCoverHeight
             spotlight = true
             onCardFocused = { item -> onCardFocused(item.id) }
             onCardActivated = { item -> host.navigator.toDetail(item.id, resumeRecording = true) }
         }
-        pane.content.addView(grid)
+        // 标题到卡片 22dp（mockup 画面4 `.b-histcards{margin-top:22px}`）：
+        // 网格自身留了 8dp 焦点溢出，这里补 14
+        pane.content.addView(grid, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = ui.dp(tokens.space.l)
+        })
 
         footer = scaffold.footer()
         footer.visibility = View.GONE

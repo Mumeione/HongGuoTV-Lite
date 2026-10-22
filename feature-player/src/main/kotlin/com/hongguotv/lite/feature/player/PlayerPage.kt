@@ -238,9 +238,11 @@ internal class PlayerPage(
         if (!::session.isInitialized || !::notice.isInitialized || !::sidebar.isInitialized) return
         notice.render(session.state, loadFailure, sidebar.visible, lowerQuality())
         if (sidebar.visible) sidebarModel()?.let { sidebar.bind(it) }
-        // 压暗层与抽屉同进退；操作提示只在"画面上没有别的板子"时出现
+        // 压暗层与抽屉同进退；操作提示**常驻画面顶部**，抽屉打开时也留着
+        // （mockup 画面6：抽屉占下半屏，上半屏仍写着"左右快退/快进…"）。
+        // 只有提示卡出现时才让位——那块板子自带按钮，两行提示叠一起会挤。
         scrim.visibility = if (sidebar.visible) View.VISIBLE else View.GONE
-        operationHint.visibility = if (sidebar.visible || notice.view.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        operationHint.visibility = if (notice.view.visibility == View.VISIBLE) View.GONE else View.VISIBLE
         syncFocus()
     }
 

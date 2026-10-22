@@ -76,6 +76,11 @@ class PosterCard internal constructor(
     private val widthPx: Int,
     maxHeightPx: Int = 0,
     stripHeightDp: Int = 0,
+    /**
+     * 显式封面高（dp，0 = 按 [com.hongguotv.lite.uikit.token.Metrics.posterAspect] 派生）。
+     * 历史卡是产品口径的 152：B 方案把它压扁了一档，图按 `cover` 裁掉上下而不是留黑边。
+     */
+    coverHeightDp: Int = 0,
 ) : LinearLayout(ui.context) {
 
     private val tokens = ui.tokens
@@ -89,6 +94,9 @@ class PosterCard internal constructor(
 
     /** 单行信息条的高度（目录卡 34 / 历史卡 26）；0 = 默认。 */
     private val stripHeight: Int = if (stripHeightDp > 0) stripHeightDp else tokens.metrics.catalogStripHeight
+
+    /** 显式封面高（像素，0 = 按比例）。 */
+    private val explicitCoverHeight: Int = if (coverHeightDp > 0) ui.dp(coverHeightDp) else 0
 
     private val artworkWidth: Int
     private var artworkHeight: Int
@@ -140,7 +148,7 @@ class PosterCard internal constructor(
             visibility = View.GONE
         }
         artworkView.addView(artworkTitleView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        image.scaleType = ImageView.ScaleType.FIT_CENTER
+        image.scaleType = if (explicitCoverHeight > 0) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
         image.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         artworkView.addView(image, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
@@ -277,6 +285,7 @@ class PosterCard internal constructor(
         cardHeightLimitPx = limitPx,
         textBlockHeightPx = textBlockHeight(),
         minArtworkHeightPx = dp(tokens.metrics.artworkMinHeight),
+        explicitHeightPx = explicitCoverHeight,
     )
 
     /** 整体不透明度：焦点永远全亮；未上线最暗；聚光静默档居中。 */

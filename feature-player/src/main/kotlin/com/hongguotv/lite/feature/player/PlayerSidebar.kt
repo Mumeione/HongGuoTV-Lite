@@ -139,8 +139,24 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
             setTextColor(tokens.colors.text)
             includeFontPadding = false
             gravity = Gravity.CENTER
-            val size = ui.dp(tokens.metrics.keyCapSize)
-            layoutParams = LinearLayout.LayoutParams(size, size).apply { rightMargin = ui.dp(tokens.space.s) }
+            maxLines = 1
+            // 宽度随文字走（MENU 四个字母装不进 22dp），minWidth 保住键帽观感
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ui.dp(tokens.metrics.keyCapSize),
+            ).apply {
+                minWidth = ui.dp(tokens.metrics.keyCapSize)
+                rightMargin = ui.dp(tokens.space.s)
+            }
+            // uikit 的 shape() 是 internal（跨模块只能用公开 API）：键帽底用 GradientDrawable 画。
+            // mockup `.b-navkey` 是**描边**不是填充：透明底 + 1px 结构线，读作"按一下 MENU"而不是一颗按钮
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(android.graphics.Color.TRANSPARENT)
+                cornerRadius = ui.dp(tokens.metrics.keyCapRadius).toFloat()
+                setStroke(ui.dp(tokens.space.hairline).coerceAtLeast(1), tokens.colors.outline)
+            }
+            val pad = ui.dp(tokens.metrics.keyCapPaddingH)
+            setPadding(pad, 0, pad, 0)
         }
         topRow.addView(menuCap)
         topRow.addView(closeHint)

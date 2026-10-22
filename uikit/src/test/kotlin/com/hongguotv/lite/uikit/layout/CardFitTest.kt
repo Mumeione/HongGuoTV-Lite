@@ -45,4 +45,23 @@ class CardFitTest {
     fun `degenerate width does not produce a zero height`() {
         assertEquals(1, CardFit.artworkHeight(0, 0.7f, 0, 120, 96))
     }
+
+    // ---------- 显式高度（历史卡 120×152，B 方案把它压扁了一档） ----------
+
+    @Test
+    fun `explicit height wins over the poster ratio`() {
+        // 240 宽按 0.7 应是 342；产品口径要 304（152dp @2x）
+        assertEquals(304, CardFit.artworkHeight(240, 0.7f, 0, 52, 96, explicitHeightPx = 304))
+    }
+
+    @Test
+    fun `explicit height is still clamped by a tight viewport`() {
+        // 视口 400、文字块 100 → 只剩 300，显式 304 要夹到 300
+        assertEquals(300, CardFit.artworkHeight(240, 0.7f, 400, 100, 96, explicitHeightPx = 304))
+    }
+
+    @Test
+    fun `explicit height respects the floor when the viewport is impossible`() {
+        assertEquals(96, CardFit.artworkHeight(240, 0.7f, 150, 100, 96, explicitHeightPx = 304))
+    }
 }
