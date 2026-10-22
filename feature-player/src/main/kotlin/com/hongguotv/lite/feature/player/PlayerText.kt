@@ -11,37 +11,12 @@ import com.hongguotv.lite.uikit.text.TvText
  */
 object PlayerText {
 
-    /** 侧栏顶部那行：`正在播放 · 12:34 / 45:00 · 1080P · 1.25×`，有定时再追加一段。 */
-    fun status(
-        state: PlaybackState,
-        positionMs: Long,
-        durationMs: Long,
-        quality: Int,
-        speed: Float,
-        sleep: String? = null,
-    ): String {
-        val parts = mutableListOf(stateLabel(state))
-        if (state is PlaybackState.Playing || state is PlaybackState.Ended) {
-            parts += "${TvText.clock(positionMs)} / ${TvText.clock(durationMs)}"
-        }
-        parts += TvText.quality(quality)
-        parts += TvText.speed(speed)
-        if (sleep != null) parts += "定时 $sleep"
-        return parts.joinToString(" · ")
-    }
-
-    private fun stateLabel(state: PlaybackState): String = when (state) {
-        PlaybackState.Idle -> "准备中"
-        is PlaybackState.Preparing -> "正在获取播放地址…"
-        is PlaybackState.Playing -> when {
-            state.pausedBy == PauseReason.SLEEP -> "定时停止"
-            state.pausedBy != null -> "已暂停"
-            state.buffering -> "正在缓冲…"
-            else -> "正在播放"
-        }
-        is PlaybackState.Ended -> "本集已结束"
-        is PlaybackState.Failed -> "播放出错了"
-    }
+    /**
+     * 抽屉的状态行（B 方案）：**只报失败**——成功与否看画面，正在播什么看右侧设置行，
+     * 状态行重复这些只会占地方（维护者口径）。
+     */
+    fun drawerStatus(state: PlaybackState): String =
+        if (state is PlaybackState.Failed) notice(state).orEmpty() else ""
 
     /** 侧栏标题：`剧名 · 第 9 集`。 */
     fun title(seriesTitle: String, index: Int): String = "$seriesTitle · 第 ${index + 1} 集"
@@ -119,12 +94,17 @@ object PlayerText {
     const val FAST_FORWARD: String = "2 倍速快进"
 
     /**
-     * 播放画面底部的常驻操作提示（维护者口径：底部要写清怎么操作）。
-     * 每一段与 `PlayerKeys` 的命令一一对应：左右 10 秒、长按→ 2 倍速、上下切集、
-     * 确定暂停/继续、菜单选集与设置、返回退出。
+     * 播放画面**顶部**的常驻操作提示（B 方案，mockup 画面6）：（键, 说明）成对，
+     * 页面把它画成"键白粗 + 说明弱一档"。每一段与 `PlayerKeys` 的命令一一对应：
+     * 左右 10 秒、长按→ 2 倍速、上下切集、确定暂停/继续、菜单选集与设置。
      */
-    const val OPERATION_HINT: String =
-        "左右 快退/快进　长按→ 2倍快进　上下 切集　确定 暂停/继续　菜单 选集·播放设置　返回 退出"
+    fun operationHints(): List<Pair<String, String>> = listOf(
+        "左右" to "快退/快进",
+        "长按→" to "2倍快进",
+        "上下" to "切集",
+        "确定" to "暂停/继续",
+        "菜单" to "选集·播放设置",
+    )
 
     private const val DECODE_HINT: String = "低清晰度更容易解码，代价是画面变糊。"
     private const val NETWORK_HINT: String = "网络抖动时先重试通常就够。"

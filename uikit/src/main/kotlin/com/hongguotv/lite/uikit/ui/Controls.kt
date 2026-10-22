@@ -28,11 +28,17 @@ enum class ButtonVariant {
     /** 整行左对齐的设置项：46dp 高、圆角 10，底色比面板亮一档（`colors.row`）。 */
     ROW,
 
+    /** 抽屉里的设置行：34dp 高、圆角 8（B 方案播放抽屉的右列）。 */
+    SMALL_ROW,
+
     /**
      * 紧凑格（分集格）：26dp 高的胶囊，一行排 20 个。
      * 画法与胶囊一致，只改尺寸与圆角。
      */
     CELL,
+
+    /** 抽屉里的分集格：26dp 高、圆角 6（一行排 10 个，与详情页的胶囊格区分）。 */
+    GRID_CELL,
 }
 
 /**
@@ -56,28 +62,32 @@ class TvButton internal constructor(
 ) : FocusControl(context, tokens) {
 
     /**
-     * 分集格不放大：一行 20 个时格间距只有几 dp，放大 6% 就会压到邻居，
+     * 密集格（分集格）不放大：一行 10–20 个时格间距只有几 dp，放大 6% 就会压到邻居，
      * 白框的圆角被后绘制的格子吃掉一条边（维护者实测"变成长方形"）。
      * 白底本身已经是足够强的焦点信号，不需要再叠一层缩放。
      */
-    override val scalesOnFocus: Boolean get() = variant != ButtonVariant.CELL
+    override val scalesOnFocus: Boolean
+        get() = variant != ButtonVariant.CELL && variant != ButtonVariant.GRID_CELL
 
     init {
         text = label
-        val cell = variant == ButtonVariant.CELL
+        val cell = variant == ButtonVariant.CELL || variant == ButtonVariant.GRID_CELL
         val row = variant == ButtonVariant.ROW
+        val smallRow = variant == ButtonVariant.SMALL_ROW
         val small = variant == ButtonVariant.SMALL
         textSize = when {
             cell -> tokens.type.footnote
             row -> tokens.type.specValue
+            smallRow -> tokens.type.cardStatus
             small -> tokens.type.cardStatus
             else -> tokens.type.compact
         }
-        gravity = if (row) Gravity.CENTER_VERTICAL else Gravity.CENTER
+        gravity = if (row || smallRow) Gravity.CENTER_VERTICAL else Gravity.CENTER
         val horizontal = dp(
             when {
                 cell -> tokens.metrics.episodeCellPaddingH
                 row -> tokens.space.l
+                smallRow -> tokens.space.m
                 small -> tokens.metrics.pillSmallPaddingH
                 else -> tokens.metrics.pillPaddingH
             },
@@ -86,6 +96,7 @@ class TvButton internal constructor(
         minHeight = dp(
             when {
                 row -> tokens.metrics.setRowHeight
+                smallRow -> tokens.metrics.drawerRowHeight
                 cell -> tokens.metrics.episodeCellHeight
                 small -> tokens.metrics.pillSmallHeight
                 else -> tokens.metrics.pillHeight
@@ -113,7 +124,7 @@ class TvButton internal constructor(
         val fill = when {
             focused -> colors.focus
             watched -> colors.watched
-            variant == ButtonVariant.ROW -> colors.row
+            variant == ButtonVariant.ROW || variant == ButtonVariant.SMALL_ROW -> colors.row
             else -> colors.surface
         }
         background = stateShape(
@@ -121,6 +132,8 @@ class TvButton internal constructor(
             fill = fill,
             radiusDp = when {
                 variant == ButtonVariant.ROW -> tokens.shapes.row
+                variant == ButtonVariant.SMALL_ROW -> tokens.shapes.small
+                variant == ButtonVariant.GRID_CELL -> tokens.metrics.drawerCellRadius
                 variant == ButtonVariant.CELL -> tokens.metrics.episodeCellRadius
                 else -> tokens.shapes.pill
             },

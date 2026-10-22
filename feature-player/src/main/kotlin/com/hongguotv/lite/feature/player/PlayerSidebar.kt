@@ -1,9 +1,11 @@
 package com.hongguotv.lite.feature.player
 
+import android.graphics.Typeface
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.Space
 import android.widget.TextView
@@ -21,24 +23,24 @@ import com.hongguotv.lite.uikit.ui.UiKit
 internal enum class PlayerSetting { SPEED, QUALITY, FRAME, SLEEP, RESTART }
 
 /**
- * MENU 键呼出的侧栏：选集 / 播放设置 / 数字跳集三种模式共用一块区域。
+ * MENU 键呼出的底部抽屉（B 方案，mockup 画面6）：左列选集、右列五项设置**同屏**。
  *
  * **不是 Dialog**：Dialog 是独立窗口，`dispatchKeyEvent` 收不到它的按键，焦点还要跨窗口恢复
  * （旧实现为此写了 `onKeyListener` + `pendingFocus` 两处补丁）。这里只是播放页里的一层覆盖，
  * 焦点图、焦点记忆、按键表全部照用。
  *
- * 集数格复用 `EpisodePages` 的同一份算术、侧栏自己的参数（10 列 × 5 行 = 50 集/页，
- * 维护者口径：画面外只留一小块侧栏，格不能太密）与 S5 的 `PagerRow`：
- * 详情页与侧栏看到的是**同一种格子**，352 集的剧在详情页翻 4 页、在侧栏翻 8 页。
+ * 与旧侧栏的三处不同：
+ * - **选集与设置不再分页切换**：左列 10×5 选集、右列五项设置垂直居中，打开就都在——
+     焦点图把右列当成选集格右侧的"第 11 列"，左右键直接互达；
+ * - **状态行只报失败**（[Model.status] 由 [PlayerText.drawerStatus] 给）；
+ * - 数字跳集保留：抽屉开着时**直接按数字键**进入跳集模式（不再需要先按「跳转集数」按钮），
+ *   返回键回到选集。
  */
 internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callbacks) {
 
-    enum class Mode { EPISODES, SETTINGS, JUMP }
+    enum class Mode { EPISODES, JUMP }
 
     interface Callbacks {
-        /** 侧栏要求换模式（"播放设置 / 返回选集"按钮）。 */
-        fun onMode(mode: Mode)
-
         fun selectEpisode(index: Int)
 
         fun changeSetting(setting: PlayerSetting)
@@ -48,6 +50,7 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
 
     data class Model(
         val title: String,
+        /** 失败文案；空串 = 状态行不占位（B 方案：状态行只报失败）。 */
         val status: String,
         val total: Int,
         val current: Int,
@@ -58,7 +61,7 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
 
     private val tokens: Tokens = ui.tokens
 
-    /** 侧栏的分页口径：一行 10 格，一页 5 行 = 50 集。 */
+    /** 抽屉的分页口径：一行 10 格，一页 5 行 = 50 集。 */
     private val pagination = EpisodePages.SIDEBAR
 
     var mode: Mode = Mode.EPISODES
@@ -72,31 +75,27 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
     private val titleView: TextView = ui.text("", tokens.type.body, tokens.colors.text).apply {
         maxLines = 1
         ellipsize = TextUtils.TruncateAt.END
+        setTypeface(null, Typeface.BOLD)
     }
 
-    private val statusView: TextView = ui.text("", tokens.type.caption, tokens.colors.muted).apply {
+    /** 状态行：danger 色、只报失败（"播放出错了，正在自动重试…"）。 */
+    private val statusView: TextView = ui.text("", tokens.type.caption, tokens.colors.danger).apply {
         maxLines = 1
-        setPadding(0, ui.dp(tokens.space.xxs), 0, ui.dp(tokens.space.s))
+        ellipsize = TextUtils.TruncateAt.END
+        visibility = View.GONE
     }
 
-    private val modeButton: TvButton
-    private val jumpButton: TvButton
     private val pager = PagerRow(ui)
     private val gridHost = ui.column()
-    private val episodesArea = ui.column()
-    private val settingsArea = ui.column()
     private val jumpArea = ui.column()
     private val digitsView: TextView = ui.text("", tokens.type.body * tokens.metrics.jumpDigitsScale, tokens.colors.text).apply {
         gravity = Gravity.CENTER
-        setTypeface(null, android.graphics.Typeface.BOLD)
+        setTypeface(null, Typeface.BOLD)
         setPadding(0, ui.dp(tokens.space.xs), 0, ui.dp(tokens.space.xs))
     }
     private val jumpHintView: TextView = ui.text("", tokens.type.caption, tokens.colors.muted).apply {
         gravity = Gravity.CENTER
         setPadding(0, 0, 0, ui.dp(tokens.space.s))
-    }
-    private val hintView: TextView = ui.text("", tokens.type.caption, tokens.colors.muted).apply {
-        setPadding(0, ui.dp(tokens.space.s), 0, 0)
     }
 
     private var cells: List<TvButton> = emptyList()
@@ -109,40 +108,70 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
     private val settingRows = mutableListOf<TvButton>()
     private val keypad = mutableListOf<TvButton>()
 
+    /** 抽屉顶行之下的内容区：选集态 = 左列 + 右列，跳集态 = 数字键盘。 */
+    private val bodyHost: FrameLayout
+    private val episodesBody: LinearLayout
+    private val settingsColumn: LinearLayout = ui.column()
+
     val view: LinearLayout
 
     init {
-        modeButton = ui.button("播放设置") { callbacks.onMode(if (mode == Mode.EPISODES) Mode.SETTINGS else Mode.EPISODES) }
-        jumpButton = ui.button("跳转集数") {
-            if (mode == Mode.JUMP) submitDigits() else callbacks.onMode(Mode.JUMP)
-        }
         pager.onPage = { delta -> goPage(delta) }
 
-        val actionRow = ui.row().apply {
-            addView(modeButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                rightMargin = ui.dp(tokens.space.s)
-            })
-            addView(jumpButton)
-        }
-
-        // 标题与两个动作同排：侧栏是覆盖层，每省下一行就多留一行画面。
-        // 标题吃剩余宽度，动作靠右，视线从"正在看哪一集"自然滑到"还能干什么"。
-        val titleRow = ui.row().apply {
-            addView(titleView, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                rightMargin = ui.dp(tokens.space.m)
-            })
-            addView(actionRow)
-        }
-
-        episodesArea.addView(pager.view)
-        episodesArea.addView(gridHost)
-
-        PlayerSetting.entries.forEachIndexed { index, setting ->
-            val row = ui.button("", variant = ButtonVariant.ROW) { callbacks.changeSetting(setting) }
+        PlayerSetting.entries.forEach { setting ->
+            val row = ui.button("", variant = ButtonVariant.SMALL_ROW) { callbacks.changeSetting(setting) }
             settingRows += row
-            settingsArea.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = if (index == PlayerSetting.entries.lastIndex) 0 else ui.dp(tokens.space.xs)
+            settingsColumn.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = ui.dp(tokens.space.xs)
             })
+        }
+
+        // 顶行：片名 + 「MENU 关闭」（mockup .b-drawer .toprow）。MENU 键帽沿用信息栏键帽画法
+        val topRow = ui.row().apply { setPadding(0, 0, 0, ui.dp(tokens.space.m)) }
+        topRow.addView(titleView, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+            rightMargin = ui.dp(tokens.space.m)
+        })
+        val closeHint = ui.text("", tokens.type.footnote, tokens.colors.muted)
+        closeHint.text = "关闭"
+        val menuCap = TextView(ui.context).apply {
+            text = "MENU"
+            textSize = tokens.type.railLabel
+            setTextColor(tokens.colors.text)
+            includeFontPadding = false
+            gravity = Gravity.CENTER
+            val size = ui.dp(tokens.metrics.keyCapSize)
+            layoutParams = LinearLayout.LayoutParams(size, size).apply { rightMargin = ui.dp(tokens.space.s) }
+        }
+        topRow.addView(menuCap)
+        topRow.addView(closeHint)
+
+        episodesBody = ui.column().apply {
+            addView(statusView)
+            addView(pager.view)
+            addView(gridHost)
+        }
+
+        // 右列：设置五行垂直居中，与左列之间隔一条 1px 结构线（mockup .b-drawer .right）
+        val rightColumn = FrameLayout(ui.context)
+        rightColumn.addView(
+            View(ui.context).apply { setBackgroundColor(tokens.colors.line) },
+            FrameLayout.LayoutParams(ui.dp(tokens.metrics.dividerHeight), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.START),
+        )
+        rightColumn.addView(
+            settingsColumn,
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER_VERTICAL).apply {
+                leftMargin = ui.dp(tokens.space.xl)
+            },
+        )
+
+        val bodyRow = ui.rowTop().apply {
+            addView(episodesBody, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                rightMargin = ui.dp(tokens.space.l)
+            })
+            addView(
+                rightColumn,
+                LinearLayout.LayoutParams(ui.dp(tokens.metrics.drawerSettingsWidth), ViewGroup.LayoutParams.MATCH_PARENT),
+            )
         }
 
         jumpArea.addView(digitsView)
@@ -167,24 +196,35 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
             jumpArea.addView(row)
         }
 
+        // 抽屉本体：286dp 高、内边距 12/18/14、圆角 16（spec"播放抽屉"）
+        bodyHost = FrameLayout(ui.context)
+        bodyHost.addView(bodyRow, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        bodyHost.addView(jumpArea, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER_VERTICAL))
+
         view = ui.tile(radiusDp = tokens.shapes.panel, paddingDp = 0).apply {
             visibility = View.GONE
             setPadding(
-                ui.dp(tokens.metrics.sidebarPaddingH),
-                ui.dp(tokens.metrics.sidebarPaddingV),
-                ui.dp(tokens.metrics.sidebarPaddingH),
-                ui.dp(tokens.metrics.sidebarPaddingV),
+                ui.dp(tokens.metrics.drawerPaddingH),
+                ui.dp(tokens.metrics.drawerPaddingTop),
+                ui.dp(tokens.metrics.drawerPaddingH),
+                ui.dp(tokens.metrics.drawerPaddingBottom),
             )
-            val gap = ui.dp(tokens.metrics.sidebarGap)
-            val wrap = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            addView(titleRow)
-            addView(statusView)
-            addView(episodesArea, LinearLayout.LayoutParams(wrap).apply { topMargin = gap })
-            addView(settingsArea, LinearLayout.LayoutParams(wrap).apply { topMargin = gap })
-            addView(jumpArea, LinearLayout.LayoutParams(wrap).apply { topMargin = gap })
-            addView(hintView)
+            val height = ui.dp(tokens.metrics.drawerHeight)
+            addView(
+                topRow,
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+            )
+            // 顶行与内容之间一条 1px 结构线（mockup toprow 的 border-bottom）
+            addView(
+                View(ui.context).apply { setBackgroundColor(tokens.colors.line) },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ui.dp(tokens.metrics.dividerHeight)),
+            )
+            addView(
+                bodyHost,
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = ui.dp(tokens.space.m) },
+            )
+            minimumHeight = height
         }
-        settingsArea.visibility = View.GONE
         jumpArea.visibility = View.GONE
     }
 
@@ -212,37 +252,38 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
         model?.let { bind(it) }
     }
 
+    /** 数字键直接进入跳集（B 方案：不再需要先按「跳转集数」按钮）。返回 false 表示已在该模式。 */
+    fun enterJump(): Boolean {
+        if (mode == Mode.JUMP) return false
+        setMode(Mode.JUMP)
+        return true
+    }
+
     // ---------- 渲染 ----------
 
     fun bind(model: Model) {
         this.model = model
         titleView.text = model.title
         statusView.text = model.status
+        statusView.visibility = if (model.status.isBlank()) View.GONE else View.VISIBLE
         if (model.total > 0 && lastCurrent != model.current) {
-            // 换集（含片尾自动连播）之后，侧栏要翻到当前集所在的那一组
+            // 换集（含片尾自动连播）之后，抽屉要翻到当前集所在的那一组
             page = pagination.pageOf(model.current)
             builtPage = -1
         }
         lastCurrent = model.current
         page = page.coerceIn(0, pagination.pages(model.total) - 1)
 
-        modeButton.label(if (mode == Mode.EPISODES) "播放设置" else "返回选集")
-        jumpButton.label(if (mode == Mode.JUMP) "定位" else "跳转集数")
-        episodesArea.visibility = if (mode == Mode.EPISODES) View.VISIBLE else View.GONE
-        settingsArea.visibility = if (mode == Mode.SETTINGS) View.VISIBLE else View.GONE
+        episodesBody.visibility = if (mode == Mode.EPISODES) View.VISIBLE else View.GONE
         jumpArea.visibility = if (mode == Mode.JUMP) View.VISIBLE else View.GONE
 
         when (mode) {
-            Mode.EPISODES -> bindEpisodes(model)
-            Mode.SETTINGS -> bindSettings(model)
+            Mode.EPISODES -> {
+                bindEpisodes(model)
+                // 设置行的标签随每次绑定刷新：改完倍速不必等下一次 tick 才看到新值
+                bindSettings(model)
+            }
             Mode.JUMP -> bindJump()
-        }
-        // 提示只写"侧栏开着时真的能按的键"：侧栏里方向键走焦点图（不再快进/换台），
-        // 写"←→ 快退快进"会让人按了发现只挪光标。
-        hintView.text = when (mode) {
-            Mode.EPISODES -> "方向键 选集　确认 播放　MENU 关闭"
-            Mode.SETTINGS -> "确认 修改　返回 回到选集"
-            Mode.JUMP -> "数字键输入　确认 定位　返回 回到选集"
         }
     }
 
@@ -275,7 +316,7 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
                     label = "${index + 1}",
                     selected = index == model.current,
                     watched = index < model.watchedUpTo,
-                    variant = ButtonVariant.CELL,
+                    variant = ButtonVariant.GRID_CELL,
                 ) { callbacks.selectEpisode(index) }
                 row.addView(
                     cell,
@@ -366,62 +407,58 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
     fun focusBinding(preferred: FocusKey? = null): FocusBinding? {
         val model = this.model ?: return null
         val views = LinkedHashMap<FocusKey, View>()
-        val actionKeys = mutableListOf(KEY_MODE, KEY_JUMP)
-        views[KEY_MODE] = modeButton
-        views[KEY_JUMP] = jumpButton
 
         val pagerKeys = mutableListOf<FocusKey>()
-        val gridKeys = mutableListOf<FocusKey>()
-        val settingKeys = mutableListOf<FocusKey>()
-        val keypadKeys = mutableListOf<FocusKey>()
+        val bodyKeys = mutableListOf<FocusKey>()
 
-        if (mode == Mode.EPISODES && pager.view.visibility == View.VISIBLE) {
-            if (pager.prev.isEnabled) {
-                views[KEY_PREV] = pager.prev
-                pagerKeys += KEY_PREV
-            }
-            if (pager.next.isEnabled) {
-                views[KEY_NEXT] = pager.next
-                pagerKeys += KEY_NEXT
-            }
-        }
         if (mode == Mode.EPISODES) {
-            cellIndexes.forEachIndexed { position, index ->
-                val key = episodeKey(index)
-                views[key] = cells[position]
-                gridKeys += key
+            if (pager.view.visibility == View.VISIBLE) {
+                if (pager.prev.isEnabled) {
+                    views[KEY_PREV] = pager.prev
+                    pagerKeys += KEY_PREV
+                }
+                if (pager.next.isEnabled) {
+                    views[KEY_NEXT] = pager.next
+                    pagerKeys += KEY_NEXT
+                }
             }
-        }
-        if (mode == Mode.SETTINGS) {
-            settingRows.forEachIndexed { index, row ->
+            // 选集格 + 右列设置拼成**一张 11 列的表**：每行末尾挂当行的设置项，
+            // 左右键从选集格直接滑进设置、滑回来，上下键逐行走（mockup 画面6 的双列布局）
+            val settingKeys = settingRows.mapIndexed { index, row ->
                 val key = FocusKey("$PREFIX:set:$index")
                 views[key] = row
-                settingKeys += key
+                key
             }
-        }
-        if (mode == Mode.JUMP) {
+            val rows = maxOf(cellIndexes.size / pagination.columns, settingKeys.size).coerceAtLeast(1)
+            for (row in 0 until rows) {
+                for (position in 0 until pagination.columns) {
+                    val index = row * pagination.columns + position
+                    if (index >= cellIndexes.size) break
+                    val key = episodeKey(cellIndexes[index])
+                    views[key] = cells[index]
+                    bodyKeys += key
+                }
+                settingKeys.getOrNull(row)?.let { bodyKeys += it }
+            }
+        } else {
             keypad.forEachIndexed { index, key ->
                 val focusKey = FocusKey("$PREFIX:key:$index")
                 views[focusKey] = key
-                keypadKeys += focusKey
+                bodyKeys += focusKey
             }
         }
 
         val plan = FocusSections.plan(
             listOf(
-                FocusSections.section(actionKeys, actionKeys.size),
                 FocusSections.section(pagerKeys, pagerKeys.size),
-                FocusSections.section(gridKeys, pagination.columns),
-                FocusSections.section(settingKeys, 1),
-                FocusSections.section(keypadKeys, JUMP_COLUMNS),
+                FocusSections.section(bodyKeys, if (mode == Mode.EPISODES) pagination.columns + 1 else JUMP_COLUMNS),
             ),
         ) ?: return null
 
         val fallback = when (mode) {
-            Mode.EPISODES -> episodeKey(model.current).takeIf { views.containsKey(it) } ?: gridKeys.firstOrNull() ?: KEY_MODE
-            Mode.SETTINGS -> settingKeys.firstOrNull() ?: KEY_MODE
-            Mode.JUMP -> keypadKeys.firstOrNull() ?: KEY_MODE
-        }
+            Mode.EPISODES -> episodeKey(model.current).takeIf { views.containsKey(it) } ?: bodyKeys.firstOrNull()
+            Mode.JUMP -> bodyKeys.firstOrNull()
+        } ?: return null
         return FocusBinding(plan, views, preferred ?: fallback)
     }
 
@@ -430,8 +467,6 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
         private const val MAX_DIGITS = 6
         private const val JUMP_COLUMNS = 3
 
-        val KEY_MODE = FocusKey("$PREFIX:mode")
-        val KEY_JUMP = FocusKey("$PREFIX:jump")
         val KEY_PREV = FocusKey("$PREFIX:prev")
         val KEY_NEXT = FocusKey("$PREFIX:next")
 

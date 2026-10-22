@@ -11,36 +11,41 @@ import org.junit.Test
 /** 播放页文案：用户看到的每一句。 */
 class PlayerTextTest {
 
-    private fun status(state: PlaybackState, sleep: String? = null) = PlayerText.status(
-        state = state,
-        positionMs = 754_000,
-        durationMs = 2_700_000,
-        quality = 1080,
-        speed = 1.25f,
-        sleep = sleep,
-    )
-
-    @Test
-    fun everyStateHasItsOwnSentence() {
-        assertEquals("准备中 · 1080P · 1.25×", status(PlaybackState.Idle))
-        assertEquals("正在获取播放地址… · 1080P · 1.25×", status(PlaybackState.Preparing(0)))
-        assertEquals("正在播放 · 12:34 / 45:00 · 1080P · 1.25×", status(PlaybackState.Playing(0, null, buffering = false)))
-        assertEquals("正在缓冲… · 12:34 / 45:00 · 1080P · 1.25×", status(PlaybackState.Playing(0, null, buffering = true)))
-        assertEquals("已暂停 · 12:34 / 45:00 · 1080P · 1.25×", status(PlaybackState.Playing(0, PauseReason.USER, false)))
-        assertEquals("定时停止 · 12:34 / 45:00 · 1080P · 1.25×", status(PlaybackState.Playing(0, PauseReason.SLEEP, false)))
-        assertEquals("本集已结束 · 12:34 / 45:00 · 1080P · 1.25×", status(PlaybackState.Ended(0, lastOfSeason = false)))
-        assertEquals("播放出错了 · 1080P · 1.25×", status(PlaybackState.Failed(0, PlaybackFailure.Decode(), RetryState.None)))
-    }
-
-    @Test
-    fun theSleepCountdownIsAppendedWhenSet() {
-        val state = PlaybackState.Playing(0, null, buffering = false)
-        assertEquals("正在播放 · 12:34 / 45:00 · 1080P · 1.25× · 定时 15 分钟后", status(state, sleep = "15 分钟后"))
-    }
-
     @Test
     fun theSidebarTitleCountsEpisodesFromOne() {
         assertEquals("某剧 · 第 9 集", PlayerText.title("某剧", 8))
+    }
+
+    /** B 方案：抽屉的状态行只报失败，不再重复右侧设置里能看到的东西。 */
+    @Test
+    fun theDrawerStatusOnlyReportsFailures() {
+        assertEquals("", PlayerText.drawerStatus(PlaybackState.Idle))
+        assertEquals("", PlayerText.drawerStatus(PlaybackState.Preparing(0)))
+        assertEquals("", PlayerText.drawerStatus(PlaybackState.Playing(0, null, buffering = false)))
+        assertEquals("", PlayerText.drawerStatus(PlaybackState.Ended(0, lastOfSeason = false)))
+        assertEquals(
+            "播放出错了，正在自动重试…",
+            PlayerText.drawerStatus(PlaybackState.Failed(0, PlaybackFailure.Decode(), RetryState.Scheduled(1L))),
+        )
+        assertEquals(
+            "网络已断开，联网后会自动重试",
+            PlayerText.drawerStatus(PlaybackState.Failed(0, PlaybackFailure.Unavailable(null), RetryState.WaitingNetwork)),
+        )
+    }
+
+    /** 画面顶部的操作提示是（键, 说明）成对的：键加粗白字，说明弱一档——顺序按 mockup 画面6。 */
+    @Test
+    fun theOperationHintIsStructuredKeyLabelPairs() {
+        assertEquals(
+            listOf(
+                "左右" to "快退/快进",
+                "长按→" to "2倍快进",
+                "上下" to "切集",
+                "确定" to "暂停/继续",
+                "菜单" to "选集·播放设置",
+            ),
+            PlayerText.operationHints(),
+        )
     }
 
     @Test

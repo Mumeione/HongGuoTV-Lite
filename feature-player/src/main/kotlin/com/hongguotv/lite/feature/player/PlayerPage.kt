@@ -3,7 +3,7 @@ package com.hongguotv.lite.feature.player
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
+import android.graphics.Typeface
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Handler
@@ -101,18 +101,36 @@ internal class PlayerPage(
 
     // ---------- 视图 ----------
 
-    /** 画面底部的操作提示。侧栏开着时不显示（侧栏有自己的按键提示），提示卡在场时也让位。 */
+    /** 画面顶部的操作提示（B 方案：常驻顶部，键白粗、说明弱一档）。 */
     private lateinit var operationHint: TextView
 
+    /** 抽屉打开时的整屏压暗层（`Colors.scrim`）：画面让位给选集与设置，但仍看得见。 */
+    private val scrim = View(ui.context)
+
     private fun buildOperationHint() {
-        operationHint = ui.text(PlayerText.OPERATION_HINT, tokens.type.caption, tokens.colors.muted).apply {
-            background = GradientDrawable().apply {
-                setColor(tokens.colors.surface)
-                cornerRadius = ui.dp(tokens.shapes.small).toFloat()
-            }
-            // 半透明面板压在画面上：内容要读得清，又不能像一块实心板子把画面切走
-            background.alpha = 216
-            setPadding(ui.dp(tokens.space.l), ui.dp(tokens.space.xs), ui.dp(tokens.space.l), ui.dp(tokens.space.xs))
+        // （键, 说明）成对 → 键白粗、说明弱一档；段落之间用全角空格分开（mockup .op-hint）
+        val hints = PlayerText.operationHints()
+        val spanned = android.text.SpannableStringBuilder()
+        hints.forEachIndexed { index, (key, label) ->
+            if (index > 0) spanned.append(HINT_GAP)
+            val boldStart = spanned.length
+            spanned.append(key)
+            spanned.setSpan(
+                android.text.style.StyleSpan(Typeface.BOLD),
+                boldStart,
+                spanned.length,
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+            spanned.setSpan(
+                android.text.style.ForegroundColorSpan(tokens.colors.text),
+                boldStart,
+                spanned.length,
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+            spanned.append(" ").append(label)
+        }
+        operationHint = ui.text("", tokens.type.caption, tokens.colors.muted).apply {
+            setText(spanned)
             visibility = View.GONE
         }
         root.addView(
@@ -120,11 +138,10 @@ internal class PlayerPage(
             FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM or Gravity.START,
+                Gravity.TOP or Gravity.START,
             ).apply {
-                val margin = ui.dp(tokens.space.xl)
-                leftMargin = margin
-                bottomMargin = margin
+                leftMargin = ui.dp(HINT_MARGIN_LEFT)
+                topMargin = ui.dp(tokens.space.l)
             },
         )
     }
@@ -133,12 +150,6 @@ internal class PlayerPage(
         sidebar = PlayerSidebar(
             ui,
             object : PlayerSidebar.Callbacks {
-                override fun onMode(mode: PlayerSidebar.Mode) {
-                    sidebar.setMode(mode)
-                    render()
-                    bindFocus(PlayerSidebar.KEY_MODE)
-                }
-
                 override fun selectEpisode(index: Int) {
                     // 选集之后回到选集页：用户可能还要接着挑，不该把他留在输入框里
                     sidebar.setMode(PlayerSidebar.Mode.EPISODES)
@@ -154,14 +165,24 @@ internal class PlayerPage(
                 override fun close() = closeMenu()
             },
         )
-        val width = (ui.context.resources.displayMetrics.widthPixels * tokens.metrics.sidebarWidthRatio).toInt()
-        val margin = ui.dp(tokens.space.xl)
-        // 高度按内容走（wrap），不铺满整屏：侧栏是压在画面上的覆盖层，
-        // 一页 50 格本来就不需要半个屏幕的空板子（维护者口径"不得占用太多屏幕空间"）。
+        // 压暗层垫在抽屉之下、画面之上；显隐跟着抽屉走（render 里同步）
+        scrim.setBackgroundColor(tokens.colors.scrim)
+        root.addView(
+            scrim,
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT),
+        )
+        val marginH = ui.dp(tokens.metrics.drawerPaddingH)
+        // B 方案：抽屉贴底（左右 18dp、底部 16dp），高度 286dp 由抽屉自己定
         root.addView(
             sidebar.view,
-            FrameLayout.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.END or Gravity.CENTER_VERTICAL).apply {
-                rightMargin = margin
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM,
+            ).apply {
+                leftMargin = marginH
+                rightMargin = marginH
+                bottomMargin = ui.dp(DRAWER_BOTTOM_MARGIN)
             },
         )
     }
@@ -217,7 +238,8 @@ internal class PlayerPage(
         if (!::session.isInitialized || !::notice.isInitialized || !::sidebar.isInitialized) return
         notice.render(session.state, loadFailure, sidebar.visible, lowerQuality())
         if (sidebar.visible) sidebarModel()?.let { sidebar.bind(it) }
-        // 操作提示只在"画面上没有别的板子"时出现：侧栏与提示卡都有自己更具体的说明
+        // 压暗层与抽屉同进退；操作提示只在"画面上没有别的板子"时出现
+        scrim.visibility = if (sidebar.visible) View.VISIBLE else View.GONE
         operationHint.visibility = if (sidebar.visible || notice.view.visibility == View.VISIBLE) View.GONE else View.VISIBLE
         syncFocus()
     }
@@ -230,7 +252,6 @@ internal class PlayerPage(
         if (data.episodes.isEmpty()) return null
         val state = session.state
         val index = state.indexOr(startIndex).coerceIn(0, data.episodes.lastIndex)
-        val position = if (engine.ready) engine.positionMs else 0L
         // 读**会话自持的值**，不读端口的异步写入结果：否则改完倍速要等下一次 tick 才看到新标签
         val current = host.settings.current().copy(
             speed = session.speed,
@@ -239,14 +260,7 @@ internal class PlayerPage(
         )
         return PlayerSidebar.Model(
             title = PlayerText.title(data.series.title, index),
-            status = PlayerText.status(
-                state = state,
-                positionMs = position,
-                durationMs = engine.durationMs,
-                quality = current.quality,
-                speed = current.speed,
-                sleep = sleepLabel(),
-            ),
+            status = PlayerText.drawerStatus(state),
             total = data.episodes.size,
             current = index,
             watchedUpTo = host.progress.watchedUpTo(data.series.id),
@@ -410,7 +424,7 @@ internal class PlayerPage(
             if (sidebar.mode != PlayerSidebar.Mode.EPISODES) {
                 sidebar.setMode(PlayerSidebar.Mode.EPISODES)
                 render()
-                bindFocus(PlayerSidebar.KEY_MODE)
+                bindFocus(PlayerSidebar.episodeKey(currentIndex()))
             } else {
                 closeMenu()
             }
@@ -432,6 +446,13 @@ internal class PlayerPage(
                     return true
                 }
             }
+        }
+        // 抽屉里直接按数字 = 进跳集模式（B 方案：不再需要先按「跳转集数」按钮）
+        PlayerKeys.digitOf(key)?.let { digit ->
+            sidebar.enterJump()
+            sidebar.appendDigit(digit)
+            render()
+            return true
         }
         return false
     }
@@ -572,6 +593,15 @@ internal class PlayerPage(
 
         /** 长按左键的重复间隔：比系统连发（约 50ms）慢得多，快退才不会一按就飞到片头。 */
         const val SEEK_REPEAT_GATE_MS = 320L
+
+        /** 操作提示段与段之间的全角空格（mockup `.op-hint` 的排版）。 */
+        const val HINT_GAP = "　"
+
+        /** 操作提示离画面左缘的距离（mockup `.op-hint{left:20px}`）。 */
+        const val HINT_MARGIN_LEFT = 20
+
+        /** 抽屉离画面底缘的距离（mockup `.b-drawer{bottom:16px}`）。 */
+        const val DRAWER_BOTTOM_MARGIN = 16
     }
 }
 
