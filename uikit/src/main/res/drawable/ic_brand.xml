@@ -1,15 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  侧栏品牌图（RailNav 顶部的 52dp 图标）：线稿白果的完整底板——
+  深底圆角方 + 1.6px 描边 + 白线果。几何与 mockup #ic-line 同一套（96 视口），
+  所以桌面图标、电视横幅、侧栏品牌三处是同一个果。
+  注意：RailNav 品牌是独立 ImageView，不走 RailNavItem 的单色 tint——三色（底/框/线）都保留。
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="30dp"
-    android:height="30dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M54,25C20,18 15,48 25,71C33,90 50,91 54,85C58,91 75,90 83,71C93,48 88,18 54,25Z" />
-    <path
-        android:fillColor="#A6FFFFFF"
-        android:pathData="M54,25Q55,8 77,11Q70,29 54,25Z" />
+    android:width="96dp"
+    android:height="96dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
     <path
         android:fillColor="#FF0B0F15"
-        android:pathData="M45,43L45,71L68,57Z" />
+        android:pathData="M22,0H74A22,22 0 0 1 96,22V74A22,22 0 0 1 74,96H22A22,22 0 0 1 0,74V22A22,22 0 0 1 22,0Z"/>
+    <path
+        android:strokeColor="#FF2A3546"
+        android:strokeWidth="1.6"
+        android:pathData="M22,1.2H73.8A20.8,20.8 0 0 1 94.8,22V73.8A20.8,20.8 0 0 1 73.8,94.8H22A20.8,20.8 0 0 1 1.2,73.8V22A20.8,20.8 0 0 1 22,1.2Z"/>
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="4.4"
+        android:pathData="M27.5,55a20.5,20.5 0 1 0 41,0a20.5,20.5 0 1 0 -41,0"/>
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="4.2"
+        android:strokeLineCap="round"
+        android:pathData="M48,35C48,28.5,51.6,24.2,57.4,23"/>
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M74.126,20.006A12,6.4 -22 1 1 51.874,28.994A12,6.4 -22 1 1 74.126,20.006Z"/>
 </vector>

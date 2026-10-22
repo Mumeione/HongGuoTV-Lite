@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自适应图标·前景层：线稿白果（一根白线，与界面语言一致）。
+  108dp 画布上果形缩到 66dp 安全区内（scale = 66/108）——任何形状的蒙版都不会裁到白线。
+  圆与果柄用描边（strokeWidth 与 mockup #ic-line 同值），叶子是实心旋转椭圆。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+    <group
+        android:scaleX="0.6111"
+        android:scaleY="0.6111"
+        android:pivotX="48"
+        android:pivotY="48">
+        <path
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="4.4"
+            android:pathData="M27.5,55a20.5,20.5 0 1 0 41,0a20.5,20.5 0 1 0 -41,0"/>
+        <path
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="4.2"
+            android:strokeLineCap="round"
+            android:pathData="M48,35C48,28.5,51.6,24.2,57.4,23"/>
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M74.126,20.006A12,6.4 -22 1 1 51.874,28.994A12,6.4 -22 1 1 74.126,20.006Z"/>
+    </group>
+</vector>

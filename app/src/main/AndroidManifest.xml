@@ -13,7 +13,7 @@
     -->
     <application
         android:label="红果 TV Lite"
-        android:icon="@mipmap/app_icon"
+        android:icon="@mipmap/ic_launcher"
         android:banner="@drawable/tv_banner"
         android:allowBackup="false"
         android:fullBackupContent="false"
