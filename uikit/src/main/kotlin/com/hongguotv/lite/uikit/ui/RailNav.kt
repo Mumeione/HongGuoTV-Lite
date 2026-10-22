@@ -76,9 +76,22 @@ class RailNav internal constructor(ui: UiKit, items: List<RailItem>) : FrameLayo
     /** 侧栏这一段的焦点 key（`nav:0 … nav:n-1`），由页面拼进 `FocusPlan.side`。 */
     fun keys(): List<FocusKey> = navItems.indices.map { FocusKey("nav:$it") }
 
-    private companion object {
+    companion object {
+        /**
+         * 全应用唯一的左侧栏项集（搜索 / 收藏 / 历史 / 设置）。
+         *
+         * 这四个词与四个图标是**导航词汇**，归设计系统所有——目录 feature 与详情 feature
+         * 都从这取，不能各自写一份"收藏"（两个名字会漂）。[onSelect] 收到选中的下标。
+         */
+        fun standardItems(onSelect: (Int) -> Unit): List<RailItem> = listOf(
+            RailItem("搜索", Icons.SEARCH) { onSelect(0) },
+            RailItem("收藏", Icons.FAVORITE) { onSelect(1) },
+            RailItem("历史", Icons.HISTORY) { onSelect(2) },
+            RailItem("设置", Icons.SETTINGS) { onSelect(3) },
+        )
+
         /** 品牌图标与第一个导航项之间多留的一档（mockup `.b-logo-svg{margin-bottom:14px}`）。 */
-        const val RAIL_BRAND_GAP = 14
+        private const val RAIL_BRAND_GAP = 14
     }
 }
 

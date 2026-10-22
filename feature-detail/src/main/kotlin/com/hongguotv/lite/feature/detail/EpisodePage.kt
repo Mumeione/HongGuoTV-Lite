@@ -26,10 +26,13 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * 剧集详情：一季作品的信息、简介、动作与集数清单。
+ * 剧集详情：一季作品的信息、简介、动作与集数清单（B 方案，mockup 画面3）。
  *
  * 数据只有一条路：`ContentPort.detail(id)`，分集顺序以服务端为准，本地不重排。
- * 集数按 20 列 × 5 行分组——300 集的剧也真实存在，一次画完既建不动也没法用遥控器走。
+ * 集数按 20 列 × 5 行分组成胶囊格——300 集的剧也真实存在，一次画完既建不动也没法用遥控器走。
+ *
+ * 动作列是竖排三键：继续播放 / 选集（光标跳到分集区）/ 收藏。
+ * 「完整简介」按钮与可滚简介框随 B 方案取消——简介两行封顶。
  */
 internal class EpisodePage(
     host: DetailFeature,
@@ -42,8 +45,8 @@ internal class EpisodePage(
     private lateinit var retryButton: TvButton
     private lateinit var hero: HeroBlock
     private lateinit var playButton: TvButton
+    private lateinit var pickButton: TvButton
     private lateinit var favoriteButton: TvButton
-    private lateinit var introButton: TvButton
     private lateinit var pager: PagerRow
     private lateinit var episodeHost: LinearLayout
     private lateinit var nextSeasonView: TextView
@@ -53,7 +56,6 @@ internal class EpisodePage(
     private var failure: Throwable? = null
     private var loading = false
     private var pageIndex = 0
-    private var introExpanded = false
 
     /** 分页算术：一行 20 格 × 5 行 = 100 集一页（与播放侧栏的 10×50 各是各的口径）。 */
     private val pagination = EpisodePages.DETAIL
@@ -62,7 +64,7 @@ internal class EpisodePage(
     private var preferredOnRender: FocusKey? = null
     private val episodeCells = LinkedHashMap<String, TvButton>()
 
-    override fun build() {
+    override fun onBuild() {
         header = scaffold.showHeader("剧集详情") { host.navigator.back() }
         val body = scaffold.scrollBody()
 
@@ -75,11 +77,11 @@ internal class EpisodePage(
 
         hero = HeroBlock(ui)
         playButton = ui.button("开始观看", variant = ButtonVariant.PRIMARY) { play() }
-        hero.actions.addView(playButton, ui.params(rightGap = tokens.space.s))
+        hero.actions.addView(playButton, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT, bottomGap = tokens.space.xs))
+        pickButton = ui.button("选集") { pickEpisode() }
+        hero.actions.addView(pickButton, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT, bottomGap = tokens.space.xs))
         favoriteButton = ui.button("收藏") { toggleFavorite() }
-        hero.actions.addView(favoriteButton, ui.params(rightGap = tokens.space.s))
-        introButton = ui.button("完整简介") { toggleIntro() }
-        hero.actions.addView(introButton)
+        hero.actions.addView(favoriteButton, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT))
         body.addView(hero.view)
 
         pager = PagerRow(ui).apply { onPage = { delta -> goPage(delta) } }
@@ -133,7 +135,7 @@ internal class EpisodePage(
         }
     }
 
-    /** 季线只在已收藏时取（省一次请求，与旧行为一致）：详情页的"下一季"说明靠它。 */
+    /** 季线只在已收藏时取（省一次请求，与旧行为一致）：详情页的"下一季"说明与"共 N 季"副行靠它。 */
     private fun loadSeasonLine(series: Series) {
         if (!host.favorites.isFavorite(SeasonKeys.seasonKey(series.title))) return
         scope.launch { collectSeasonLine(series) }
@@ -152,6 +154,7 @@ internal class EpisodePage(
         // 取消后回写视图会把即将销毁的树再绑一次
         if (!currentCoroutineContext().isActive) return
         detail?.let {
+            renderHero(it)
             renderNextSeason(it)
             applyFocus()
         }
@@ -186,19 +189,25 @@ internal class EpisodePage(
         val series = data.series
         val progress = host.progress.progressOf(series.id)
         val watched = host.progress.isWatched(series.id)
+        val favorite = host.favorites.isFavorite(SeasonKeys.seasonKey(series.title))
+        val line = host.favorites.seasonLine(SeasonKeys.seasonKey(series.title))
 
         hero.show(
             coverUrl = series.cover,
             title = series.title,
-            meta = DetailText.heroMeta(series, data.episodes.size),
-            status = DetailText.heroStatus(progress, watched),
+            // 副行"共 N 季"只在拿到季线时有据可写；没收藏的剧不为此多发一次请求
+            seasonNote = line?.let { DetailText.seasonNote(it.seasons.size, it.seasons.count { s -> s.released }, withReleased = false) }.orEmpty(),
+            specs = DetailText.episodeSpecs(
+                update = if (data.episodes.isEmpty()) "" else "更新到 第 ${data.episodes.size} 集",
+                total = data.episodes.size,
+                watchedCount = host.progress.watchedUpTo(series.id),
+                tags = series.tags.replace(" · ", " / "),
+                record = DetailText.episodeRecord(progress, watched),
+            ),
             intro = series.intro.ifBlank { "选择剧集开始观看" },
-            introExpanded = introExpanded,
         )
-        introButton.visibility = if (series.intro.isBlank()) View.GONE else View.VISIBLE
-        introButton.label(if (introExpanded) "收起简介" else "完整简介")
         playButton.label(DetailText.playLabel(progress, target, watched))
-        favoriteButton.label(if (host.favorites.isFavorite(SeasonKeys.seasonKey(series.title))) "已收藏" else "收藏")
+        favoriteButton.label(if (favorite) "已收藏" else "收藏")
     }
 
     private fun renderEpisodes(data: Detail) {
@@ -260,6 +269,14 @@ internal class EpisodePage(
         detail?.let { openPlayer(it) }
     }
 
+    /** 「选集」= 光标跳到当前集：进详情页按一下就能落在分集区里挑。 */
+    private fun pickEpisode() {
+        val data = detail ?: return
+        val range = pagination.page(data.episodes.size, pageIndex)
+        val index = target.index.coerceIn(range.first, range.last)
+        applyFocus(data.episodes.getOrNull(index)?.let { FocusKey(episodeKey(it.vid)) })
+    }
+
     private fun playEpisode(index: Int) {
         val data = detail ?: return
         val progress = host.progress.progressOf(data.series.id)
@@ -291,13 +308,6 @@ internal class EpisodePage(
             renderHero(data)
             applyFocus()
         }
-    }
-
-    private fun toggleIntro() {
-        introExpanded = !introExpanded
-        hero.expandIntro(introExpanded)
-        detail?.let { renderHero(it) }
-        applyFocus()
     }
 
     private fun goPage(delta: Int) {
@@ -336,16 +346,11 @@ internal class EpisodePage(
         val actionKeys = mutableListOf<FocusKey>()
         if (loaded) {
             views[KEY_PLAY] = playButton
+            views[KEY_PICK] = pickButton
             views[KEY_FAVORITE] = favoriteButton
             actionKeys += KEY_PLAY
+            actionKeys += KEY_PICK
             actionKeys += KEY_FAVORITE
-            if (introButton.visibility == View.VISIBLE) {
-                views[KEY_INTRO] = introButton
-                actionKeys += KEY_INTRO
-                // 简介滚动框是动作行的最后一列：右移一格进来，上下键在框里滚简介
-                views[KEY_INTRO_BOX] = hero.introBox
-                actionKeys += KEY_INTRO_BOX
-            }
         }
         val pagerKeys = mutableListOf<FocusKey>()
         if (pager.view.visibility == View.VISIBLE) {
@@ -365,7 +370,8 @@ internal class EpisodePage(
             sections = listOf(
                 FocusSections.section(listOf(KEY_BACK), 1),
                 if (retryButton.visibility == View.VISIBLE) FocusSections.section(listOf(KEY_RETRY), 1) else null,
-                FocusSections.section(actionKeys, actionKeys.size),
+                // 动作列是竖排的：上下在键间移动（mockup 画面3 的右列）
+                FocusSections.section(actionKeys, 1),
                 FocusSections.section(pagerKeys, pagerKeys.size),
                 FocusSections.section(episodeKeys, pagination.columns),
             ),
@@ -380,9 +386,8 @@ internal class EpisodePage(
         val KEY_BACK = FocusKey("detail:back")
         val KEY_RETRY = FocusKey("detail:retry")
         val KEY_PLAY = FocusKey("detail:play")
+        val KEY_PICK = FocusKey("detail:pick")
         val KEY_FAVORITE = FocusKey("detail:favorite")
-        val KEY_INTRO = FocusKey("detail:intro")
-        val KEY_INTRO_BOX = FocusKey("detail:introbox")
         val KEY_PREV = FocusKey("detail:prev")
         val KEY_NEXT = FocusKey("detail:next")
 

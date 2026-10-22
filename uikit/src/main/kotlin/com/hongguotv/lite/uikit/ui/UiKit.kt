@@ -59,6 +59,13 @@ class UiKit(
         allowFocusOverflow()
     }
 
+    /** 底部对齐的行：详情 hero 的动作列贴「记录」行底部用（mockup `align-self:end`）。 */
+    fun rowBottom(): LinearLayout = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.BOTTOM
+        allowFocusOverflow()
+    }
+
     fun column(): LinearLayout = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         allowFocusOverflow()

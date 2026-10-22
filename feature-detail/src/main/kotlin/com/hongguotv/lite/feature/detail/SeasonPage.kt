@@ -46,7 +46,6 @@ internal class SeasonPage(
     private lateinit var playButton: TvButton
     private lateinit var pickButton: TvButton
     private lateinit var favoriteButton: TvButton
-    private lateinit var introButton: TvButton
     private lateinit var seasonHeader: LinearLayout
     private lateinit var seasonCountView: TextView
     private lateinit var sortButton: TvButton
@@ -63,14 +62,13 @@ internal class SeasonPage(
 
     /** 组别是否已按"上次那一季"归位。只在第一次渲染季线时做一次，之后翻组就是用户的选择。 */
     private var pageRestored = false
-    private var introExpanded = false
 
     /** 首屏拿到数据后光标落在主操作上：进这一页是要接着看，不是要看「返回」。 */
     private var preferredOnRender: FocusKey? = null
     private val seasonCards = LinkedHashMap<String, PosterCard>()
     private val confirm = TwoStepConfirm()
 
-    override fun build() {
+    override fun onBuild() {
         // 页头写页面名，剧名交给下面的主视觉：同一行标题重复两遍既占高度又显得乱
         header = scaffold.showHeader("收藏详情") { host.navigator.back() }
         val body = scaffold.scrollBody()
@@ -87,9 +85,9 @@ internal class SeasonPage(
 
         hero = HeroBlock(ui)
         playButton = ui.button("开始播放", variant = ButtonVariant.PRIMARY) { play() }
-        hero.actions.addView(playButton, ui.params(rightGap = tokens.space.s))
+        hero.actions.addView(playButton, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT, bottomGap = tokens.space.xs))
         pickButton = ui.button("选集") { openCurrentSeason() }
-        hero.actions.addView(pickButton, ui.params(rightGap = tokens.space.s))
+        hero.actions.addView(pickButton, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT, bottomGap = tokens.space.xs))
         favoriteButton = ui.button("取消收藏") { toggleFavorite() }
         // 焦点一离开就撤销确认：挪到「继续播放」再回来，一次按键不该把收藏取消掉
         favoriteButton.onFocused = { focused ->
@@ -98,9 +96,7 @@ internal class SeasonPage(
                 renderFavoriteButton()
             }
         }
-        hero.actions.addView(favoriteButton, ui.params(rightGap = tokens.space.s))
-        introButton = ui.button("完整简介") { toggleIntro() }
-        hero.actions.addView(introButton)
+        hero.actions.addView(favoriteButton, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT))
         body.addView(hero.view)
 
         seasonHeader = ui.row().apply {
@@ -110,13 +106,13 @@ internal class SeasonPage(
         // 一行贴左排开：季数 → 翻组 → 排序。三个控件都管下面这排季，
         // 紧跟在"所有季"后面比贴着屏幕右边缘更像一组（维护者口径："所有季的右侧"）。
         // 排序与翻组都是按钮、同高，不做成小号文字链接。
-        seasonCountView = ui.text("", tokens.type.subtitle, tokens.colors.text).apply {
+        seasonCountView = ui.text("", tokens.type.compact, tokens.colors.text).apply {
             setTypeface(null, android.graphics.Typeface.BOLD)
         }
         seasonHeader.addView(seasonCountView, ui.params().apply { rightMargin = ui.dp(tokens.space.m) })
         pager = PagerRow(ui, fillWidth = false).apply { onPage = { delta -> goPage(delta) } }
         seasonHeader.addView(pager.view)
-        sortButton = ui.button("倒序") { toggleSort() }
+        sortButton = ui.button("倒序", variant = ButtonVariant.SMALL) { toggleSort() }
         seasonHeader.addView(sortButton, ui.params().apply { leftMargin = ui.dp(tokens.space.m) })
         body.addView(seasonHeader)
 
@@ -226,27 +222,26 @@ internal class SeasonPage(
         val progress = latestProgress()
         val target = SeasonTargets.of(line, progress, anchor)
         val entryRow = entry
+        val seasons = line?.seasons.orEmpty()
 
         hero.show(
             coverUrl = series.cover,
             title = titleText(series),
-            // 第二行只说"这部剧"：收藏身份、季数、更新到哪、集数、分类。
-            // "上次看到…"（我自己的状态）留给第三行——两件事混在一行会变成一长串，
-            // 中间还夹着「第九季 第 20 集」与「更新到第九季第352集」两种写法。
-            meta = DetailText.seriesMeta(
-                series = series,
-                seasonCount = line?.seasons?.size ?: 1,
-                favorite = entry != null,
-                update = entryRow?.let { TvText.updateProgress(it.latestSeason, it.latestEpisodes) }.orEmpty(),
+            seasonNote = DetailText.seasonNote(
+                seasonCount = seasons.size,
+                releasedCount = seasons.count { it.released },
+                withReleased = true,
             ),
-            status = DetailText.seriesStatus(progress, line, entryRow?.series?.season ?: 0),
-            // 没有简介就把"各季进度分别保存"放进右栏：这句说明正好填上右栏空白，
+            specs = DetailText.seasonSpecs(
+                update = entryRow?.let { TvText.updateProgress(it.latestSeason, it.latestEpisodes) }.orEmpty(),
+                seasonCount = seasons.size,
+                tags = series.tags.replace(" · ", " / "),
+                record = DetailText.seasonRecord(progress, line, entryRow?.series?.season ?: 0),
+            ),
+            // 没有简介就把"各季进度分别保存"放进简介位：这句说明正好填上空白，
             // 比另起一页脚（会被屏幕边界切掉半行）更省高度
             intro = series.intro.ifBlank { DetailText.SEASON_FOOTER },
-            introExpanded = introExpanded,
         )
-        introButton.visibility = if (series.intro.isBlank()) View.GONE else View.VISIBLE
-        introButton.label(if (introExpanded) "收起简介" else "完整简介")
         playButton.label(target.label)
         renderFavoriteButton()
     }
@@ -272,9 +267,9 @@ internal class SeasonPage(
         pageIndex = pageIndex.coerceIn(0, pages - 1)
         val slice = ordered.drop(pageIndex * SEASON_COLUMNS).take(SEASON_COLUMNS)
 
-        val gap = ui.dp(tokens.metrics.cardGap)
-        // 卡宽 = 可用宽度按 8 列均分（像素）：8 列是产品口径，不能像海报网格那样按卡宽反推列数
-        val cardWidth = GridGeometry.cardWidth(ui.availableWidth(seasonHost.width), SEASON_COLUMNS, gap)
+        val gap = ui.dp(tokens.metrics.seasonCardGap)
+        // 卡宽 88 是 B 方案的固定口径（mockup 画面5：8 张 88dp + 10dp 间距 = 774，正好放进内容区）
+        val cardWidth = ui.dp(tokens.metrics.seasonCardWidth)
 
         // 重建前记住"哪一季正被聚焦"：切正序/倒序之后光标要跟着那一季，别落到页面顶上
         val focusedId = seasonCards.entries.firstOrNull { it.value.isFocused }?.key
@@ -406,13 +401,6 @@ internal class SeasonPage(
         }
     }
 
-    private fun toggleIntro() {
-        introExpanded = !introExpanded
-        hero.expandIntro(introExpanded)
-        anchor?.let { renderHero(it) }
-        applyFocus()
-    }
-
     private fun goPage(delta: Int) {
         val seasons = line ?: return
         val ordered = orderedSeasons(seasons)
@@ -444,13 +432,6 @@ internal class SeasonPage(
             actionKeys += KEY_PLAY
             actionKeys += KEY_PICK
             actionKeys += KEY_FAVORITE
-            if (introButton.visibility == View.VISIBLE) {
-                views[KEY_INTRO] = introButton
-                actionKeys += KEY_INTRO
-                // 简介滚动框是动作行的最后一列：右移一格进来，上下键在框里滚简介
-                views[KEY_INTRO_BOX] = hero.introBox
-                actionKeys += KEY_INTRO_BOX
-            }
         }
         if (retryButton.visibility == View.VISIBLE) views[KEY_RETRY] = retryButton
         if (detailOnlyButton.visibility == View.VISIBLE) views[KEY_DETAIL] = detailOnlyButton
@@ -475,7 +456,8 @@ internal class SeasonPage(
                 FocusSections.section(listOf(KEY_BACK), 1),
                 if (retryButton.visibility == View.VISIBLE) FocusSections.section(listOf(KEY_RETRY), 1) else null,
                 if (detailOnlyButton.visibility == View.VISIBLE) FocusSections.section(listOf(KEY_DETAIL), 1) else null,
-                FocusSections.section(actionKeys, actionKeys.size),
+                // 动作列是竖排的：上下在键间移动（mockup 画面5 的右列）
+                FocusSections.section(actionKeys, 1),
                 // 翻组与排序在同一行（"所有季"右侧）：一段焦点图按视觉顺序给它们
                 if (headerKeys.isNotEmpty()) FocusSections.section(headerKeys, headerKeys.size) else null,
                 FocusSections.section(seasonCards.keys.map { FocusKey(seasonKey(it)) }, SEASON_COLUMNS),
@@ -504,8 +486,6 @@ internal class SeasonPage(
         val KEY_PLAY = FocusKey("series:play")
         val KEY_PICK = FocusKey("series:pick")
         val KEY_FAVORITE = FocusKey("series:favorite")
-        val KEY_INTRO = FocusKey("series:intro")
-        val KEY_INTRO_BOX = FocusKey("series:introbox")
         val KEY_SORT = FocusKey("series:sort")
         val KEY_PREV = FocusKey("series:prev")
         val KEY_NEXT = FocusKey("series:next")

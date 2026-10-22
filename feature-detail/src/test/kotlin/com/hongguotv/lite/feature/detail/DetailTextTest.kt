@@ -4,7 +4,9 @@ import com.hongguotv.core.model.Progress
 import com.hongguotv.core.model.SeasonLine
 import com.hongguotv.core.model.Series
 import com.hongguotv.core.usecase.ResumeTarget
+import com.hongguotv.lite.uikit.ui.SpecRow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** 两个页面的文案：用户看到什么，就在这些断言里。 */
@@ -22,22 +24,6 @@ class DetailTextTest {
         completed = completed,
         updatedAt = 1L,
     )
-
-    @Test
-    fun heroMetaReadsAsEpisodeCountPlusCategory() {
-        assertEquals("全 30 集  ·  爱情 / 都市", DetailText.heroMeta(series(), episodeCount = 30))
-        // 集数未知时退回 badge；tags 为空则只剩一段
-        assertEquals("全 12 集", DetailText.heroMeta(series(badge = "全 12 集", tags = ""), episodeCount = 0))
-        assertEquals("全 30 集", DetailText.heroMeta(series(tags = ""), episodeCount = 30))
-    }
-
-    @Test
-    fun heroStatusAlwaysSaysWhereTheUserLeft() {
-        assertEquals("上次看到 第 9 集 · 12:34", DetailText.heroStatus(progress(8, 754_000), watched = false))
-        assertEquals("上次已看完整季", DetailText.heroStatus(progress(29, 0, completed = true), watched = false))
-        assertEquals("整剧已看完", DetailText.heroStatus(null, watched = true))
-        assertEquals("", DetailText.heroStatus(null, watched = false))
-    }
 
     /** 多季剧的状态行必须带季名，否则"上次看到第 9 集"分不清是哪一季。 */
     @Test
@@ -99,11 +85,84 @@ class DetailTextTest {
         assertEquals("未观看", DetailText.seasonState(series(), progress = null, watched = false))
     }
 
+    // ---------- B 方案：两行 hero 的规格表与片名副行 ----------
+
+    /** 片名副行（mockup 画面3/5 的「共 10 季」）。单季剧不写——季号已经在标题里了。 */
     @Test
-    fun seriesMetaCarriesTheSeasonCountOnlyWhenThereAreSeveral() {
-        assertEquals("收藏的剧  ·  共 4 季  ·  全 30 集  ·  爱情/都市", DetailText.seriesMeta(series(), seasonCount = 4, favorite = true))
-        assertEquals("共 2 季  ·  全 30 集  ·  爱情/都市", DetailText.seriesMeta(series(), seasonCount = 2, favorite = false))
-        assertEquals("收藏的剧  ·  全 30 集", DetailText.seriesMeta(series(tags = ""), seasonCount = 1, favorite = true))
+    fun seasonNoteCountsSeasonsAndStatesReleasedOnes() {
+        assertEquals("共 10 季", DetailText.seasonNote(seasonCount = 10, releasedCount = 10, withReleased = false))
+        assertEquals("共 10 季 · 9 季已上线", DetailText.seasonNote(seasonCount = 10, releasedCount = 9, withReleased = true))
+        assertEquals("单季不写副行", "", DetailText.seasonNote(seasonCount = 1, releasedCount = 1, withReleased = true))
+    }
+
+    /** 剧集详情的四行规格表（mockup 画面3）：「记录」是 strong——那是用户回来的理由。 */
+    @Test
+    fun episodeSpecsPutTheRecordInStrong() {
+        val rows = DetailText.episodeSpecs(
+            update = "更新到 第 352 集",
+            total = 352,
+            watchedCount = 20,
+            tags = "古装 / 逆袭",
+            record = "第 20 集 · 05:00",
+        )
+        assertEquals(
+            listOf("更新", "集数", "分类", "记录"),
+            rows.map { it.label },
+        )
+        assertEquals(listOf("更新到 第 352 集", "全 352 集 · 已看 20 集", "古装 / 逆袭", "第 20 集 · 05:00"), rows.map { it.value })
+        assertEquals("只有「记录」一行是 strong", listOf(false, false, false, true), rows.map { it.strong })
+    }
+
+    @Test
+    fun episodeSpecsDropWhatTheyDoNotKnow() {
+        // 没看过的剧没有"已看"半句、没有记录行
+        val rows = DetailText.episodeSpecs(update = "", total = 12, watchedCount = 0, tags = "", record = "")
+        assertEquals(listOf("集数"), rows.map { it.label })
+        assertEquals(listOf("全 12 集"), rows.map { it.value })
+    }
+
+    /** 收藏详情的四行规格表（mockup 画面5）：季数行说"收藏整个系列"。 */
+    @Test
+    fun seasonSpecsStateTheWholeSeries() {
+        val rows = DetailText.seasonSpecs(
+            update = "更新到 第九季第352集",
+            seasonCount = 10,
+            tags = "古装 / 逆袭",
+            record = "第九季 第 20 集 · 05:00",
+        )
+        assertEquals(listOf("更新", "季数", "分类", "记录"), rows.map { it.label })
+        assertEquals("10 季 · 收藏整个系列", rows[1].value)
+        assertEquals("记录行 strong", true, rows[3].strong)
+    }
+
+    /** 记录行：详情页只说"第几集 · 几分几秒"，手动标已看说「已看完」。 */
+    @Test
+    fun episodeRecordIsTheResumePoint() {
+        assertEquals("第 20 集 · 05:00", DetailText.episodeRecord(progress(19, 300_000), watched = false))
+        assertEquals("已看完", DetailText.episodeRecord(progress(19, 300_000), watched = true))
+        assertEquals("", DetailText.episodeRecord(null, watched = false))
+    }
+
+    /** 系列页的记录行带季名：不写季名就分不清是哪一季的"第 20 集"。 */
+    @Test
+    fun seasonRecordPutsTheSeasonInFront() {
+        val line = SeasonLine(
+            listOf(
+                Series("6", "测试书第六季", season = 6),
+                Series("9", "测试书第九季", season = 9),
+            ),
+        )
+        val row = Progress("9", "v20", episodeIndex = 19, positionMs = 300_000, durationMs = 0L, completed = false, updatedAt = 1L)
+        assertEquals("第九季 第 20 集 · 05:00", DetailText.seasonRecord(row, line, fallbackSeason = 0))
+        assertEquals("第六季 第 20 集 · 05:00", DetailText.seasonRecord(row, null, fallbackSeason = 6))
+        assertEquals("", DetailText.seasonRecord(null, line, fallbackSeason = 0))
+    }
+
+    @Test
+    fun specRowsNeverBlankLabels() {
+        // 空值整行去掉，不画"更新：（空）"这种行
+        val rows = DetailText.seasonSpecs(update = "", seasonCount = 0, tags = "", record = "")
+        assertTrue(rows.none { it.value.isBlank() })
     }
 
     @Test

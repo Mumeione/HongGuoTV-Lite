@@ -197,9 +197,13 @@ data class Metrics(
     val seasonCoverHeight: Int = 126,
     val seasonTitleHeight: Int = 24,
     val seasonStatusHeight: Int = 20,
+    /** 季卡之间的间距（mockup `.b-seasons{gap:10px}`）。 */
+    val seasonCardGap: Int = 10,
 
     // ---------- 详情 hero（两行网格） ----------
     val heroCoverWidth: Int = 150,
+    /** 封面高 = 宽 / 0.7（与目录封面同一比例），跨两行、与简介底部平齐。 */
+    val heroCoverHeight: Int = 214,
     val heroColumnGap: Int = 22,
     /** 动作列宽：三个胶囊竖排的固定宽。 */
     val heroActionsWidth: Int = 172,
@@ -276,11 +280,6 @@ data class Metrics(
     val linkMinHeight: Int = 32,
     val iconChip: Int = 15,
     val iconGap: Int = 5,
-    val heroCoverHeight: Int = 124,
-    val heroCoverGap: Int = 20,
-    val heroIntroGap: Int = 28,
-    val introMaxHeight: Int = 92,
-    val introExpandedHeight: Int = 300,
     val sidebarWidthRatio: Float = 0.62f,
     val sidebarPaddingH: Int = 18,
     val sidebarPaddingV: Int = 14,

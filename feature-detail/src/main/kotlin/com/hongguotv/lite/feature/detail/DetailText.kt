@@ -7,6 +7,7 @@ import com.hongguotv.core.model.Series
 import com.hongguotv.core.usecase.ResumeTarget
 import com.hongguotv.core.usecase.SeasonProgress
 import com.hongguotv.lite.uikit.text.TvText
+import com.hongguotv.lite.uikit.ui.SpecRow
 
 /**
  * 两页的文案派生。全部是纯函数（不 import `android.*`），时间/季号/失败文案这类跨 feature 的口径
@@ -14,21 +15,76 @@ import com.hongguotv.lite.uikit.text.TvText
  *
  * 一条硬规矩：**按钮文案必须和落点一致**。按钮写着"继续播放 · 第 9 集"、点进去却是第 1 集，
  * 是最容易让用户失去信任的那种不一致，所以落点由 `ResumePoint` 算、文案由落点派生。
+ *
+ * B 方案：头部信息从"两行拼接"改成**四行规格表**（更新 / 集数·季数 / 分类 / 记录），
+ * 「记录」一行是 strong——它是用户回到这一页的理由。哪一行存在、值是什么，全部在这里派生，
+ * 页面只负责把 `List<SpecRow>` 交给 `SpecTable`。
  */
 internal object DetailText {
 
-    /** 详情页第二行：集数与分类。上游的 `" · "` 分隔换成 `" / "`，与行内的分隔符区分开。 */
-    fun heroMeta(series: Series, episodeCount: Int, update: String = ""): String {
-        val parts = mutableListOf<String>()
-        if (update.isNotBlank()) parts += update
-        if (episodeCount > 0) parts += "全 $episodeCount 集" else if (series.badge.isNotBlank()) parts += series.badge
-        val tags = series.tags.replace(" · ", " / ")
-        if (tags.isNotBlank()) parts += tags
-        return parts.joinToString("  ·  ")
+    /**
+     * 片名副行（「共 10 季」/「共 10 季 · 9 季已上线」）。
+     * [withReleased] 给收藏详情页用（它关心有几季还没上线）；剧集详情页只写季数。
+     * 单季剧返回空串——季号已经在标题里，再写"共 1 季"是废话。
+     */
+    fun seasonNote(seasonCount: Int, releasedCount: Int, withReleased: Boolean): String {
+        if (seasonCount < 2) return ""
+        val unreleased = seasonCount - releasedCount
+        val base = "共 $seasonCount 季"
+        return if (withReleased && unreleased > 0) "$base · $releasedCount 季已上线" else base
     }
 
-    /** 详情页状态行。**有记录就必须说出来**——这是用户回到这一页的理由。 */
-    fun heroStatus(progress: Progress?, watched: Boolean): String = TvText.watchStatus(progress, watched)
+    /**
+     * 剧集详情的规格表：更新 / 集数 / 分类 / 记录。
+     *
+     * [update] 是"这一季现在到第几集"（调用方用集数总数拼「更新到 第 N 集」）；
+     * 空值整行去掉，不画"记录：（空）"这种行。
+     */
+    fun episodeSpecs(update: String, total: Int, watchedCount: Int, tags: String, record: String): List<SpecRow> {
+        val episodeValue = buildString {
+            if (total > 0) append("全 $total 集")
+            if (watchedCount > 0) {
+                if (isNotEmpty()) append(" · ")
+                append("已看 $watchedCount 集")
+            }
+        }
+        return listOf(
+            SpecRow("更新", update),
+            SpecRow("集数", episodeValue),
+            SpecRow("分类", tags),
+            SpecRow("记录", record, strong = true),
+        ).filter { it.value.isNotBlank() }
+    }
+
+    /**
+     * 收藏详情的规格表：更新 / 季数 / 分类 / 记录。
+     * 季数行的后半句是产品口径：收藏的是**整个系列**，进度按季各存各的。
+     */
+    fun seasonSpecs(update: String, seasonCount: Int, tags: String, record: String): List<SpecRow> {
+        val seasonValue = if (seasonCount > 0) "$seasonCount 季 · 收藏整个系列" else ""
+        return listOf(
+            SpecRow("更新", update),
+            SpecRow("季数", seasonValue),
+            SpecRow("分类", tags),
+            SpecRow("记录", record, strong = true),
+        ).filter { it.value.isNotBlank() }
+    }
+
+    /** 剧集详情的「记录」值：**有记录就必须说出来**——这是用户回到这一页的理由。手动标"已看"优先。 */
+    fun episodeRecord(progress: Progress?, watched: Boolean): String = when {
+        watched -> "已看完"
+        progress == null -> ""
+        else -> TvText.progress(progress.episodeIndex, progress.positionMs)
+    }
+
+    /** 系列页的「记录」值：多季剧必须带季名，否则"第 20 集"分不清是哪一季的。 */
+    fun seasonRecord(progress: Progress?, line: SeasonLine?, fallbackSeason: Int): String {
+        if (progress == null) return ""
+        val season = SeasonProgress.seasonOf(progress, line, fallbackSeason)
+        return listOf(TvText.season(season), TvText.progress(progress.episodeIndex, progress.positionMs))
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+    }
 
     /**
      * 系列页状态行：多季剧必须带季名，否则"上次看到第 9 集"分不清是哪一季。
@@ -98,18 +154,6 @@ internal object DetailText {
         val tag = SEASON_TAG.find(name)
         val label = TvText.season(season.season).ifEmpty { tag?.value.orEmpty() }
         return label.ifBlank { name.ifBlank { season.title } }
-    }
-
-    /** 系列页第二行：收藏身份 + 季数 + 集数 + 分类 + 更新进度（都属于"这部剧"）。 */
-    fun seriesMeta(series: Series, seasonCount: Int, favorite: Boolean, update: String = ""): String {
-        val parts = mutableListOf<String>()
-        if (favorite) parts += "收藏的剧"
-        if (seasonCount >= 2) parts += "共 $seasonCount 季"
-        if (update.isNotBlank()) parts += update
-        if (series.badge.isNotBlank()) parts += series.badge
-        val tags = series.tags.replace(" · ", "/")
-        if (tags.isNotBlank()) parts += tags
-        return parts.joinToString("  ·  ")
     }
 
     /** 季线只在已收藏时才有意义：未收藏的剧不必为空标题写占位。 */
