@@ -21,7 +21,7 @@ class PreviewRail internal constructor(private val ui: UiKit) : LinearLayout(ui.
     private val titleView = label(tokens.type.preview, tokens.colors.text).apply {
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     }
-    private val statusView = label(tokens.type.label, tokens.colors.text)
+    private val statusView = label(tokens.type.caption, tokens.colors.text)
     private val metaView = label(tokens.type.caption, tokens.colors.muted)
 
     init {

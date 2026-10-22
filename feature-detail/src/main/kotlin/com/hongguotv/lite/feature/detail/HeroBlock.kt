@@ -30,12 +30,12 @@ internal class HeroBlock(private val ui: UiKit) {
         ellipsize = TextUtils.TruncateAt.END
         setTypeface(null, Typeface.BOLD)
     }
-    private val metaView: TextView = ui.text("", tokens.type.label, tokens.colors.muted).apply {
+    private val metaView: TextView = ui.text("", tokens.type.caption, tokens.colors.muted).apply {
         setPadding(0, ui.dp(tokens.space.s), 0, 0)
         maxLines = 2
         ellipsize = TextUtils.TruncateAt.END
     }
-    private val statusView: TextView = ui.text("", tokens.type.label, tokens.colors.text).apply {
+    private val statusView: TextView = ui.text("", tokens.type.caption, tokens.colors.text).apply {
         setPadding(0, ui.dp(tokens.space.xs), 0, 0)
         maxLines = 2
         ellipsize = TextUtils.TruncateAt.END

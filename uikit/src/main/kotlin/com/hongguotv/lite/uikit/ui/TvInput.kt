@@ -29,9 +29,9 @@ class TvInput internal constructor(
 
     init {
         hint = label
-        textSize = tokens.type.subtitle
+        textSize = tokens.type.body
         setTextColor(tokens.colors.text)
-        setHintTextColor(tokens.colors.muted)
+        setHintTextColor(tokens.colors.dim)
         includeFontPadding = false
         isSingleLine = true
         maxLines = 1
@@ -40,21 +40,20 @@ class TvInput internal constructor(
         imeOptions = EditorInfo.IME_ACTION_SEARCH
         filters = arrayOf<InputFilter>(InputFilter.LengthFilter(maxLength))
         val horizontal = dp(tokens.metrics.controlPaddingH)
-        val vertical = dp(tokens.metrics.controlPaddingV)
-        setPadding(horizontal, vertical, horizontal, vertical)
+        setPadding(horizontal, 0, horizontal, 0)
 
         bindFocus(tokens, paint = { focused ->
             // 焦点 = 白底深字（与按钮同一套语义）：输入框是"光标所在"，整页只有它这一块白
             background = stateShape(
                 tokens = tokens,
                 fill = if (focused) tokens.colors.focus else tokens.colors.surface,
-                radiusDp = tokens.shapes.chip,
+                radiusDp = tokens.shapes.row,
                 selected = false,
                 focused = false,
             )
             setTextColor(if (focused) tokens.colors.onFocus else tokens.colors.text)
             // 白底上的提示文字要用深色，否则（浅灰配白底）读不出来
-            setHintTextColor(if (focused) tokens.colors.outline else tokens.colors.muted)
+            setHintTextColor(if (focused) tokens.colors.outline else tokens.colors.dim)
         })
 
         // 电视上不要"一进页就弹键盘"（清单里是 stateAlwaysHidden）：按一下确认才唤出输入法，

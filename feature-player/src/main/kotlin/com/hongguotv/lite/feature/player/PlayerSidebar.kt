@@ -74,7 +74,7 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
         ellipsize = TextUtils.TruncateAt.END
     }
 
-    private val statusView: TextView = ui.text("", tokens.type.label, tokens.colors.muted).apply {
+    private val statusView: TextView = ui.text("", tokens.type.caption, tokens.colors.muted).apply {
         maxLines = 1
         setPadding(0, ui.dp(tokens.space.xxs), 0, ui.dp(tokens.space.s))
     }

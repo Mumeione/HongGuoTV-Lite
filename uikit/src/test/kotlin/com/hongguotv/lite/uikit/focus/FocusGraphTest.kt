@@ -178,4 +178,61 @@ class FocusGraphTest {
         assertEquals("下格首行往上落到上格末行", key("a2"), graph.neighborsOf(key("b0"))!!.up)
         assertEquals(key("a3"), graph.neighborsOf(key("b2"))!!.up)
     }
+
+    // ---------- 侧段（B 方案的左侧栏：竖排，左右与内容互通） ----------
+
+    /** 左侧栏 4 项（竖排）+ 2 行 × 3 列内容：模拟 B 方案的页面骨架。 */
+    private fun railPlan(): FocusPlan = FocusPlan(
+        listOf(FocusSection(keys("card", 6), columns = 3)),
+        side = FocusSection(keys("nav", 4), columns = 1),
+    )
+
+    @Test
+    fun `rail moves up and down within itself and clamps at both ends`() {
+        val graph = FocusGraph.of(railPlan())
+        assertEquals(key("nav1"), graph.neighborsOf(key("nav0"))!!.down)
+        assertEquals(key("nav2"), graph.neighborsOf(key("nav1"))!!.down)
+        assertEquals(key("nav1"), graph.neighborsOf(key("nav2"))!!.up)
+        assertEquals("侧栏顶端按上键停在原地", key("nav0"), graph.neighborsOf(key("nav0"))!!.up)
+        assertEquals("侧栏底端按下键停在原地", key("nav3"), graph.neighborsOf(key("nav3"))!!.down)
+    }
+
+    @Test
+    fun `rail exits right into the first content section by vertical position`() {
+        val graph = FocusGraph.of(railPlan())
+        assertEquals("侧栏上部往右进内容首行行首", key("card0"), graph.neighborsOf(key("nav0"))!!.right)
+        assertEquals("侧栏下部往右进内容末行行首", key("card3"), graph.neighborsOf(key("nav3"))!!.right)
+        assertEquals("侧栏最左没有更左，夹住自己", key("nav1"), graph.neighborsOf(key("nav1"))!!.left)
+    }
+
+    @Test
+    fun `content exits left into the rail by vertical position`() {
+        val graph = FocusGraph.of(railPlan())
+        assertEquals("内容首行行首往左回侧栏上部", key("nav0"), graph.neighborsOf(key("card0"))!!.left)
+        assertEquals("内容末行行首往左回侧栏下部", key("nav2"), graph.neighborsOf(key("card3"))!!.left)
+        assertEquals("非行首按左键仍在行内（只有行首才出侧栏）", key("card0"), graph.neighborsOf(key("card1"))!!.left)
+    }
+
+    @Test
+    fun `rail order comes first for focus fallback`() {
+        val graph = FocusGraph.of(railPlan())
+        assertEquals("侧栏是页面的第一段（空页兜底落在导航上）", "nav0", graph.order.first().value)
+        assertEquals("card5", graph.order.last().value)
+        assertEquals(10, graph.size)
+    }
+
+    @Test
+    fun `stacked sections still stack among themselves when a rail exists`() {
+        val plan = FocusPlan(
+            listOf(
+                FocusSection(keys("filter", 3), columns = 3),
+                FocusSection(keys("card", 6), columns = 3),
+            ),
+            side = FocusSection(keys("nav", 4), columns = 1),
+        )
+        val graph = FocusGraph.of(plan)
+        assertEquals("段间上下穿行不受侧栏影响", key("filter0"), graph.neighborsOf(key("card0"))!!.up)
+        assertEquals("侧栏往右永远进第一段内容", key("filter0"), graph.neighborsOf(key("nav0"))!!.right)
+        assertEquals("页面顶部的段往上夹住自己（侧栏在左边，不在上边）", key("filter1"), graph.neighborsOf(key("filter1"))!!.up)
+    }
 }

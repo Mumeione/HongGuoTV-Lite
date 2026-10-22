@@ -51,6 +51,14 @@ class PosterGrid internal constructor(
     var persistCovers: Boolean = false
 
     /**
+     * 聚光（B 方案）：非焦点卡压到 [com.hongguotv.lite.uikit.token.Metrics.focusDimAlpha]，
+     * 焦点卡全亮——"屏幕上只有那一张卡是亮的"。搜索结果、季线这类"内容本身是主角"的网格
+     * 不开（结果卡全亮，未上线项用 [CardItem.dim] 表达）；「继续看」、历史这类
+     * "背景墙"网格开。
+     */
+    var spotlight: Boolean = false
+
+    /**
      * 整张卡的高度上限（像素，0 = 不限制）。首屏只放得下一行卡的页面（搜索结果）给这个值，
      * 卡片据此夹短封面，保证标题与角标也在屏内。
      *
@@ -94,10 +102,21 @@ class PosterGrid internal constructor(
             lastColumns = columns
             lastCardWidth = cardWidth
         }
+        applySpotlight()
 
         val views = LinkedHashMap<FocusKey, View>(limited.size)
         limited.forEach { item -> cards[item.id]?.let { views[keyOf(item.id)] = it } }
         return GridRendered(keys = ids.map(::keyOf), views = views, columns = columns)
+    }
+
+    /** 把"哪张卡正亮着"同步给全部卡。焦点落到本网格之外时（全暗）由下一次 render 修正。 */
+    private fun applySpotlight() {
+        if (!spotlight) {
+            cards.values.forEach { it.dimmed = false }
+            return
+        }
+        val focusedId = cards.entries.firstOrNull { it.value.isFocused }?.key
+        cards.forEach { (id, card) -> card.dimmed = id != focusedId }
     }
 
     private fun rebuild(limited: List<CardItem>, columns: Int, cardWidth: Int, gap: Int) {
@@ -134,7 +153,10 @@ class PosterGrid internal constructor(
     }
 
     private fun newCard(widthPx: Int): PosterCard = PosterCard(ui, widthPx, cardHeightLimit).apply {
-        onFocused = { item -> onCardFocused?.invoke(item) }
+        onFocused = { item ->
+            applySpotlight()
+            onCardFocused?.invoke(item)
+        }
         onActivated = { item -> onCardActivated?.invoke(item) }
     }
 }

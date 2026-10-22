@@ -68,7 +68,7 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
 
         footer = scaffold.footer()
         footer.visibility = View.GONE
-        footerLabel = ui.text("", tokens.type.label, tokens.colors.muted).apply {
+        footerLabel = ui.text("", tokens.type.caption, tokens.colors.muted).apply {
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
         }

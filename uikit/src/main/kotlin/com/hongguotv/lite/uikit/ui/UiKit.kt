@@ -148,6 +148,9 @@ class UiKit(
 
     fun preview(): PreviewRail = PreviewRail(this)
 
+    /** 两列规格表（B 方案详情 hero 的信息列）。 */
+    fun specTable(): SpecTable = SpecTable(this)
+
     // ---------- 页面与网格 ----------
 
     fun page(): PageScaffold = PageScaffold(this)
@@ -161,13 +164,13 @@ class UiKit(
     fun grid(section: String = "card"): PosterGrid = PosterGrid(this, section)
 
     /**
-     * 单张海报卡，宽度由调用方给（像素）。
+     * 单张海报卡，宽度由调用方给（像素）；单行信息条的高度可选（0 = 目录卡默认 34dp）。
      *
-     * 给"列数由产品口径决定、不由宽度算出来"的场景用——季线一页 8 张就是这种：
-     * 用 [grid] 的话列数会按卡宽反推，40 季的剧会被 `pageCardLimit` 截断。
+     * 给"列数由产品口径决定、不由宽度算出来"的场景用——季线一页 8 张、历史页两行 6 列
+     * 都是这种：用 [grid] 的话列数会按卡宽反推，40 季的剧会被 `pageCardLimit` 截断。
      * 外观与网格里的卡完全一致，不为一个区块另造一种卡。
      */
-    fun poster(widthPx: Int): PosterCard = PosterCard(this, widthPx)
+    fun poster(widthPx: Int, stripHeightDp: Int = 0): PosterCard = PosterCard(this, widthPx, stripHeightDp = stripHeightDp)
 
     // ---------- 布局参数 ----------
 
@@ -189,23 +192,24 @@ class UiKit(
         bottomMargin = context.dp(bottomGap)
     }
 
-    /** 页边距：屏幕宽/高的固定比例（旧实现 5%），随窗口走而不是随内容走。 */
-    internal fun pageInsetHorizontal(): Int {
-        val metrics = context.resources.displayMetrics
-        return (metrics.widthPixels * tokens.metrics.pageInsetRatio).toInt()
-    }
+    /** 左侧固定占位（侧栏宽），由 [PageScaffold.showRail] 更新；估算可用宽度时扣除。 */
+    internal var leftChromeDp: Int = 0
 
-    internal fun pageInsetVertical(): Int {
-        val metrics = context.resources.displayMetrics
-        return (metrics.heightPixels * tokens.metrics.pageInsetRatio).toInt()
-    }
+    /** 页边距：B 方案固定 40dp（不再按屏幕比例缩放）。 */
+    internal fun pageInsetHorizontal(): Int = dp(tokens.metrics.pagePaddingH)
+
+    internal fun pageInsetVertical(): Int = dp(tokens.metrics.pagePaddingTop)
 
     /**
-     * 内容区可用宽度：已量过就用量过的，没量过按屏幕减页边距估。
+     * 内容区可用宽度：已量过就用量过的，没量过按"屏幕 − 左侧栏 − 页边距"估。
      *
      * 给"列数由产品口径决定"的行用（季线一页 8 张），它没法像网格那样按卡宽反推列数。
      * 第一次渲染时视图还没量过，传 0 即可。
      */
     fun availableWidth(measured: Int): Int =
-        if (measured > 0) measured else (context.resources.displayMetrics.widthPixels - pageInsetHorizontal() * 2)
+        if (measured > 0) {
+            measured
+        } else {
+            context.resources.displayMetrics.widthPixels - dp(tokens.metrics.pagePaddingH) - dp(leftChromeDp)
+        }
 }

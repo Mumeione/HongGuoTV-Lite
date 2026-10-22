@@ -11,26 +11,32 @@ import com.hongguotv.lite.uikit.internal.stateShape
 import com.hongguotv.lite.uikit.internal.tinted
 import com.hongguotv.lite.uikit.token.Tokens
 
-/** 按钮形态。焦点与选中的画法在三种形态里共用，只有尺寸与对齐不同。 */
+/** 按钮形态。焦点与选中的画法共用，只有尺寸与底色不同——B 方案里动作键全是胶囊。 */
 enum class ButtonVariant {
-    /** 常规动作按钮：与卡片同一层，聚焦加白边、亮一档。 */
+    /** 常规动作胶囊：40dp 高、左右 20dp。 */
     STANDARD,
 
-    /** 主操作（播放 / 继续播放）：常驻亮一档底色 + 加粗。 */
+    /** 小号动作胶囊：32dp 高、左右 14dp（翻组、返回、倒序这类）。 */
+    SMALL,
+
+    /**
+     * 主操作（播放 / 继续播放）。B 方案 mockup 里它与常规胶囊同底（surface）——
+     * "主"只靠加粗与位置表达；保留枚举名是为了调用点语义可读。
+     */
     PRIMARY,
 
-    /** 整行左对齐的设置项：占满一行，字靠左。 */
+    /** 整行左对齐的设置项：46dp 高、圆角 10，底色比面板亮一档（`colors.row`）。 */
     ROW,
 
     /**
-     * 紧凑格（分集格）：一行排 20 个时每格只有 40dp 左右，
-     * 常规按钮的左右内边距会把"100"挤到看不见。画法与 [STANDARD] 完全一致，只改尺寸。
+     * 紧凑格（分集格）：26dp 高的胶囊，一行排 20 个。
+     * 画法与胶囊一致，只改尺寸与圆角。
      */
     CELL,
 }
 
 /**
- * 按钮。三种状态各只有一种画法（S9 语义）：
+ * 按钮。三种状态各只有一种画法（S9 语义，B 方案延续）：
  * - **焦点 = 白底深字**（当前按确认会执行的那个）；
  * - **选中 = 白框白字**（当前集 / 当前项，没有填充）；
  * - **已看过 = 略亮一档的底**（只在没焦点也没选中时显出来）。
@@ -50,7 +56,7 @@ class TvButton internal constructor(
 ) : FocusControl(context, tokens) {
 
     /**
-     * 分集格不放大：一行 20 个时格间距只有几 dp，放大 3% 就会压到邻居，
+     * 分集格不放大：一行 20 个时格间距只有几 dp，放大 6% 就会压到邻居，
      * 白框的圆角被后绘制的格子吃掉一条边（维护者实测"变成长方形"）。
      * 白底本身已经是足够强的焦点信号，不需要再叠一层缩放。
      */
@@ -58,19 +64,31 @@ class TvButton internal constructor(
 
     init {
         text = label
-        // 形态只有两种尺寸口径（紧凑格 / 其余），先摊成两个布尔，别在四处重复比同一个枚举
         val cell = variant == ButtonVariant.CELL
         val row = variant == ButtonVariant.ROW
-        textSize = if (cell) tokens.type.compact else tokens.type.body
+        val small = variant == ButtonVariant.SMALL
+        textSize = when {
+            cell -> tokens.type.footnote
+            row -> tokens.type.specValue
+            small -> tokens.type.cardStatus
+            else -> tokens.type.compact
+        }
         gravity = if (row) Gravity.CENTER_VERTICAL else Gravity.CENTER
-        val horizontal = dp(if (cell) tokens.metrics.episodeCellPaddingH else tokens.metrics.controlPaddingH)
-        val vertical = dp(if (cell) 0 else tokens.metrics.controlPaddingV)
-        setPadding(horizontal, vertical, horizontal, vertical)
+        val horizontal = dp(
+            when {
+                cell -> tokens.metrics.episodeCellPaddingH
+                row -> tokens.space.l
+                small -> tokens.metrics.pillSmallPaddingH
+                else -> tokens.metrics.pillPaddingH
+            },
+        )
+        setPadding(horizontal, 0, horizontal, 0)
         minHeight = dp(
             when {
-                row -> tokens.metrics.navHeight
+                row -> tokens.metrics.setRowHeight
                 cell -> tokens.metrics.episodeCellHeight
-                else -> tokens.metrics.controlMinHeight
+                small -> tokens.metrics.pillSmallHeight
+                else -> tokens.metrics.pillHeight
             },
         )
         isSelected = initialSelected
@@ -95,13 +113,17 @@ class TvButton internal constructor(
         val fill = when {
             focused -> colors.focus
             watched -> colors.watched
-            variant == ButtonVariant.PRIMARY -> colors.raised
+            variant == ButtonVariant.ROW -> colors.row
             else -> colors.surface
         }
         background = stateShape(
             tokens = tokens,
             fill = fill,
-            radiusDp = tokens.shapes.card,
+            radiusDp = when {
+                variant == ButtonVariant.ROW -> tokens.shapes.row
+                variant == ButtonVariant.CELL -> tokens.metrics.episodeCellRadius
+                else -> tokens.shapes.pill
+            },
             selected = chosen,
             focused = focused,
         )
@@ -111,11 +133,12 @@ class TvButton internal constructor(
             else -> colors.text
         }
         setTextColor(color)
-        setTypeface(null, if (focused || chosen || variant == ButtonVariant.PRIMARY) Typeface.BOLD else Typeface.NORMAL)
+        // B 方案 mockup：胶囊与格子的文字全部加粗（.b-pill / .b-cell / .setrow 都是 600–700）
+        setTypeface(null, Typeface.BOLD)
     }
 }
 
-/** 胶囊筛选 / 次级切换：焦点白底深字，选中白框白字，其余暗底弱化字。 */
+/** 胶囊筛选 / 次级切换（片库、倒序）：32dp 小号胶囊。焦点白底深字，选中白框白字，其余暗底弱化字。 */
 @SuppressLint("ViewConstructor")
 class TvChip internal constructor(
     context: Context,
@@ -128,10 +151,10 @@ class TvChip internal constructor(
 
     init {
         text = label
-        textSize = tokens.type.compact
+        textSize = tokens.type.cardStatus
         gravity = Gravity.CENTER
-        setPadding(dp(tokens.metrics.chipPaddingH), dp(tokens.metrics.chipPaddingV), dp(tokens.metrics.chipPaddingH), dp(tokens.metrics.chipPaddingV))
-        minHeight = dp(tokens.metrics.chipMinHeight)
+        setPadding(dp(tokens.metrics.pillSmallPaddingH), 0, dp(tokens.metrics.pillSmallPaddingH), 0)
+        minHeight = dp(tokens.metrics.pillSmallHeight)
         if (iconRes != 0) setIcon(iconRes, tokens.metrics.iconChip, tokens.metrics.iconGap)
         isSelected = initialSelected
         setOnClickListener { onTap() }
@@ -153,7 +176,7 @@ class TvChip internal constructor(
         background = stateShape(
             tokens = tokens,
             fill = if (focused) colors.focus else colors.surface,
-            radiusDp = tokens.shapes.chip,
+            radiusDp = tokens.shapes.pill,
             selected = chosen,
             focused = focused,
         )
@@ -163,7 +186,7 @@ class TvChip internal constructor(
             else -> colors.muted
         }
         setTextColor(color)
-        setTypeface(null, if (chosen || focused) Typeface.BOLD else Typeface.NORMAL)
+        setTypeface(null, Typeface.BOLD)
         tintIcon(color)
     }
 }
@@ -229,7 +252,7 @@ class TvLink internal constructor(
 
     init {
         text = label
-        textSize = tokens.type.label
+        textSize = tokens.type.caption
         gravity = Gravity.CENTER
         minHeight = dp(tokens.metrics.linkMinHeight)
         setPadding(dp(tokens.space.m), dp(tokens.space.xs), dp(tokens.space.m), dp(tokens.space.xs))

@@ -14,9 +14,10 @@ object FocusSections {
     fun section(keys: List<FocusKey>, columns: Int = keys.size): FocusSection? =
         if (keys.isEmpty()) null else FocusSection(keys, columns.coerceAtLeast(1))
 
-    /** 从上到下拼成焦点图；一个可聚焦项都没有时返回 null（页面还没内容）。 */
-    fun plan(sections: List<FocusSection?>): FocusPlan? {
+    /** 从上到下拼成焦点图；一个可聚焦项都没有时返回 null（页面还没内容）。[side] 是左侧栏（见 [FocusPlan]）。 */
+    fun plan(sections: List<FocusSection?>, side: FocusSection? = null): FocusPlan? {
         val present = sections.filterNotNull()
-        return if (present.isEmpty()) null else FocusPlan(present)
+        if (present.isEmpty()) return null
+        return FocusPlan(present, side)
     }
 }
