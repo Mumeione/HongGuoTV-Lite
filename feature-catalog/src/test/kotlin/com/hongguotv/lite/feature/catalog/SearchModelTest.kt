@@ -108,6 +108,15 @@ class SearchModelTest {
         assertNull(model.anchor())
     }
 
+    /** 同 IP 的无季号条目也会命中系列键：锚点必须优先取带季号的那张（它才在季线上）。 */
+    @Test
+    fun `anchor prefers the card that carries a season tag`() {
+        val model = SearchModel()
+        model.keyword = "测试书"
+        model.absorb(page(listOf(series("9", "测试书"), seasonSeries(2))))
+        assertEquals("2", model.anchor()?.id)
+    }
+
     @Test
     fun `aggregated view shows only the season line`() {
         val model = SearchModel()

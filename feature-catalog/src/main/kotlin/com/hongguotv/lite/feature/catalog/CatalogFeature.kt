@@ -213,13 +213,18 @@ internal class SearchModel {
     }
 
     /**
-     * 完整剧名的锚点：第 1 页里第一个"去季号归一化后等于关键词归一化"的条目。
+     * 完整剧名的锚点：第 1 页里"去季号归一化后等于关键词归一化"的条目。
      * 只认完整剧名（旧仓库口径）：搜「万妖图录传」命中，搜「万妖图录传第三季」不命中。
+     *
+     * **优先取带季号的那张**（2026-10-24 第二轮）：搜索结果里同时有「万妖图录传第一季」
+     * 和一部无季号的同 IP 作品时，拿同 IP 那张当锚点会把季线拉成另一条线；
+     * 带季号的卡至少证明它属于某条季线。没有带季号的卡才退回第一张。
      */
     fun anchor(): Series? {
         val key = SeasonKeys.normalizeTitle(keyword)
         if (key.isEmpty()) return null
-        return firstPage.firstOrNull { SeasonKeys.seasonKey(it.title) == key }
+        val matches = firstPage.filter { SeasonKeys.seasonKey(it.title) == key }
+        return matches.firstOrNull { it.season > 0 } ?: matches.firstOrNull()
     }
 
     /** 接入完整季线（端口给旧→新，这里转成新→旧的展示存储序）。 */
