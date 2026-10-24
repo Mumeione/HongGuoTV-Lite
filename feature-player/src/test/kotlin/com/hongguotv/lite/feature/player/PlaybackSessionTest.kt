@@ -351,12 +351,23 @@ class PlaybackSessionTest {
 
     @Test
     fun theEndOfTheLastEpisodeWithoutANextSeasonStops() {
+        // 带季号的剧拿不到季线：只能停，**不能**说"全剧播完"（也许还有下一季）
         val f = Fixture(episodes = 2).start(index = 1).ready()
         f.engine.positionMs = 300_000
         f.engine.emitEnded()
         assertNull(f.host.openPlayer)
-        assertEquals(PlaybackState.Ended(1, lastOfSeason = true), f.session.state)
+        assertEquals(PlaybackState.Ended(1, lastOfSeason = true, seriesEnded = false), f.session.state)
         assertEquals(false, f.host.screenOn)
+    }
+
+    @Test
+    fun theEndOfTheLastEpisodeOfTheLastReleasedSeasonSaysTheSeriesIsOver() {
+        // 季线只有本季（最新一季）：最后一集播完 = 没有更新的了，提示要区别于"本季已结束"
+        val f = Fixture(episodes = 2, line = SeasonLine(listOf(Series(id = "s1", title = "某剧第一季", season = 1))))
+            .start(index = 1).ready()
+        f.engine.positionMs = 300_000
+        f.engine.emitEnded()
+        assertEquals(PlaybackState.Ended(1, lastOfSeason = true, seriesEnded = true), f.session.state)
     }
 
     @Test

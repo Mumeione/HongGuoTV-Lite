@@ -96,11 +96,27 @@ class CatalogFeature(
     fun onMenuKey(): Boolean = page?.onMenuKey() ?: false
 }
 
-/** 搜索页的状态：一个关键词、一份原始展示序、一份当前展示序。 */
+/**
+ * 搜索页的状态：一个关键词 + **按页缓存的上游结果**。
+ *
+ * 官网搜索是**服务端分页**（一页 10 条、`totalPages` 可达 20+），所以这里存的是
+ * "第 N 页返回了什么"，而不是一整条季线。翻回看过的页直接用缓存，不再打上游。
+ *
+ * 去重是必要的：上游翻页会重叠（实测第 2 页开头重复第 1 页末尾的季），
+ * 同一部剧在一页里出现两次会让人以为搜索坏了。
+ */
 internal class SearchModel {
     var keyword: String = ""
 
-    /** 端口给的展示序（季线新→旧 + 其余原序），排序开关来回切都从它派生。 */
+    /** 当前页（1 起）。 */
+    var page: Int = 1
+    var totalPages: Int = 1
+    var totalCount: Int = 0
+
+    /** 上游还有下一页（`totalPages` 缺失时靠它兜底，不至于"翻页行整条消失"）。 */
+    var hasMore: Boolean = false
+
+    /** 端口给的展示序（当前页），排序开关来回切都从它派生。 */
     var raw: List<Series> = emptyList()
     var items: List<Series> = emptyList()
     var seasonLine: List<Series> = emptyList()
@@ -108,24 +124,56 @@ internal class SearchModel {
     var error: Throwable? = null
     var hasSearched: Boolean = false
 
+    private val pages = LinkedHashMap<Int, SearchResult>()
+
+    val pageCount: Int get() = totalPages.coerceAtLeast(1)
+
+    /** 下一页是否可用：以 `totalPages` 为准，字段缺失时退回 `hasMore`。 */
+    val hasNext: Boolean get() = page < pageCount || hasMore
+
     fun clearResult() {
+        page = 1
+        totalPages = 1
+        totalCount = 0
+        hasMore = false
         raw = emptyList()
         items = emptyList()
         seasonLine = emptyList()
         error = null
+        pages.clear()
     }
 
     /** 只用到结果的两个字段，抽出来是为了让页面代码读起来像业务。 */
     fun apply(result: SearchResult, ascending: Boolean) {
-        raw = result.items
-        seasonLine = result.seasonLine
+        pages[result.page] = result
+        page = result.page.coerceAtLeast(1)
+        totalPages = result.totalPages.coerceAtLeast(1)
+        totalCount = result.totalCount.coerceAtLeast(0)
+        hasMore = result.hasMore
         hasSearched = true
         error = null
+        seasonLine = result.seasonLine
+        raw = withoutRepeats(result)
         reorder(ascending)
     }
+
+    /** 已经拿过的页：翻回去不再请求。 */
+    fun cached(target: Int): SearchResult? = pages[target]
 
     /** 排序开关来回切都从 [raw] 派生：正序结果不是"另一种原序"，不能拿它再排一次。 */
     fun reorder(ascending: Boolean) {
         items = CatalogText.ordered(raw, seasonLine, ascending)
+    }
+
+    /**
+     * 去掉与**前面几页**重复的条目。只比前面的页（不比后面的），
+     * 所以同一页反复应用的结果稳定，翻回上一页也不会被自己过滤空。
+     */
+    private fun withoutRepeats(result: SearchResult): List<Series> {
+        if (result.page <= 1) return result.items
+        val earlier = pages.filterKeys { it < result.page }.values.flatMap { it.items }
+        if (earlier.isEmpty()) return result.items
+        val seen = earlier.mapTo(HashSet(earlier.size)) { it.id }
+        return result.items.filter { it.id !in seen }
     }
 }

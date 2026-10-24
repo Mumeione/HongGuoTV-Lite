@@ -2,6 +2,7 @@ package com.hongguotv.lite.data.content
 
 import com.hongguotv.core.port.DiagnosticsPort
 import com.hongguotv.core.port.UpstreamError
+import com.hongguotv.core.protocol.DeviceIdentity
 import com.hongguotv.core.protocol.HttpMethod
 import com.hongguotv.core.protocol.SignedRequest
 import com.hongguotv.lite.data.http.HttpTransport
@@ -48,7 +49,7 @@ class DiagnosticsPipelineTest {
     }
 
     private fun repository(record: Recording, respond: (SignedRequest) -> String): ContentRepository =
-        ContentRepository(FakeTransport(respond), diagnostics = record)
+        ContentRepository(FakeTransport(respond), DeviceIdentity.anonymous(), diagnostics = record)
 
     // ---------- ContentPort 的四段 ----------
 
@@ -82,7 +83,7 @@ class DiagnosticsPipelineTest {
         val record = Recording()
         val repo = repository(record) { request ->
             when {
-                request.url.contains("/multi_video_model/preload/") -> preloadBody()
+                request.url.contains("/novel/player/video_model/") -> videoModelBody()
                 request.url.startsWith("https://example.com/") -> badSeedFallback()
                 else -> throw IOException("未预期的请求：${request.url}")
             }
@@ -101,7 +102,7 @@ class DiagnosticsPipelineTest {
         val record = Recording()
         val repo = repository(record) { request ->
             when {
-                request.url.contains("/multi_video_model/preload/") -> preloadBody()
+                request.url.contains("/novel/player/video_model/") -> videoModelBody()
                 request.url.startsWith("https://example.com/") -> """{"video_info":{}}"""
                 else -> throw IOException("未预期的请求：${request.url}")
             }
@@ -185,10 +186,10 @@ class DiagnosticsPipelineTest {
             )))))
         .toString()
 
-    private fun preloadBody(): String = JSONObject()
-        .put("Code", 0)
-        .put("data", JSONObject().put("123", JSONObject()
-            .put("video_model", JSONObject().put("fallback_api", "https://example.com/stream"))))
+    private fun videoModelBody(): String = JSONObject()
+        .put("code", 0)
+        .put("data", JSONObject()
+            .put("video_model", JSONObject().put("fallback_api", "https://example.com/stream")))
         .toString()
 
     /** key_seed 不是合法 base64：能走到 DECRYPT 段，并在那一段失败。 */

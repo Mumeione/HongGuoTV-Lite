@@ -4,6 +4,9 @@ import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.hongguotv.lite.uikit.focus.FocusKey
+import com.hongguotv.lite.uikit.focus.FocusSection
+import com.hongguotv.lite.uikit.focus.FocusSections
 import com.hongguotv.lite.uikit.token.Tokens
 import com.hongguotv.lite.uikit.ui.ButtonVariant
 import com.hongguotv.lite.uikit.ui.TvButton
@@ -68,6 +71,22 @@ class PagerRow(
 
     fun hide() {
         view.visibility = View.GONE
+    }
+
+    /**
+     * 本行在焦点图里的那一段：**禁用的那一侧保留空槽**。
+     *
+     * 三处调用（搜索翻页、分集分组、季线分组）原本各抄一遍"启用才放进 keys"，
+     * 结果少一项就让整行左移，往下映射到卡片时正好错位一张——统一在这里，
+     * 空槽的存在由 [FocusSections.slots] 表达。
+     *
+     * @param views 页面的 key → View 表，会把可用的那两个键填进去。
+     */
+    fun focusSection(views: MutableMap<FocusKey, View>, prevKey: FocusKey, nextKey: FocusKey): FocusSection? {
+        if (view.visibility != View.VISIBLE) return null
+        if (prev.isEnabled) views[prevKey] = prev
+        if (next.isEnabled) views[nextKey] = next
+        return FocusSections.slots(listOf(prevKey.takeIf { prev.isEnabled }, nextKey.takeIf { next.isEnabled }))
     }
 
     private fun enable(button: TvButton, enabled: Boolean) {

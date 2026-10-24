@@ -84,7 +84,7 @@ object Fields {
         const val CONTENT = "content"
     }
 
-    /** 取流：preload → fallback_api → video_list。 */
+    /** 取流：video_model → fallback_api → video_list。 */
     object Stream {
         const val VIDEO_MODEL = "video_model"
         const val FALLBACK_API = "fallback_api"
@@ -99,29 +99,32 @@ object Fields {
         const val KEY_SEED = "key_seed"
         const val SPADE_A = "spade_a"
 
-        /** preload 是批量接口，data 以 vid 为键；只认请求的那一集。 */
-        const val VIDEO_ID_MAP_KEY = "1004"
-
         /** 这些编码在 Android 的 MP4 提取器里可能只有音轨没有视频轨，必须排除。 */
         val INCOMPATIBLE_CODECS = setOf("bytevc2", "bvc2")
     }
 
-    /** 联想。 */
+    /**
+     * 官网联想词（`/incent_resource/suggestion`）：免签名、免设备注册，输入辅助的唯一来源。
+     * `video_data` 与卡片同构；为空对象时这一条只能当查询词用。
+     */
     object Suggest {
-        const val QUERY_RESULT = "query_result_v2"
+        const val SUGGEST_LIST = "suggest_list"
+        const val DISPLAY_WORDS = "display_words"
+        const val NAME = "name"
+        const val KEYWORD = "keyword"
         const val VIDEO_DATA = "video_data"
         const val SERIES_ID = "series_id"
-        const val NAME = "name"
-        const val SUG_ABSTRACT = "sug_abstract"
-        const val COVER = "cover"
     }
 
-    /** 官网 SSR：仅作为搜索条目的来源，不含播放信息。 */
+    /**
+     * 官网内容接口（2026-10-23 起官网换成 React SPA，`_ROUTER_DATA` 不再下发）。
+     * 搜索走页面自己调的 `/api/search/result`：JSON、服务端分页、一页 10 条。
+     */
     object Site {
-        const val ROUTER_DATA = "_ROUTER_DATA"
-        const val LOADER_DATA = "loaderData"
-        const val SEARCH_PAGE = "search_(keyword)/page"
-        const val SEARCH_PAGE_ALT = "search_page"
         const val SEARCH_LIST = "searchList"
+        const val PAGE_NUM = "pageNum"
+        const val TOTAL_PAGES = "totalPages"
+        const val TOTAL_COUNT = "totalCount"
+        const val HAS_MORE = "hasMore"
     }
 }

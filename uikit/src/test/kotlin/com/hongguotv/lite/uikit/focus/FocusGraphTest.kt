@@ -278,4 +278,76 @@ class FocusGraphTest {
         assertEquals("侧栏往右永远进第一段内容", key("filter0"), graph.neighborsOf(key("nav0"))!!.right)
         assertEquals("页面顶部的段往上夹住自己（侧栏在左边，不在上边）", key("filter1"), graph.neighborsOf(key("filter1"))!!.up)
     }
+
+    // ---------- 段级出口（宽窄不一的控件行） ----------
+
+    /**
+     * 搜索页的片库胶囊只占左边半屏，下面一行是「输入框 + 搜索 + 排序」。
+     * 按列号比例映射时，第二个胶囊会落到「搜索」按钮上；页面指名"按下 → 输入框"。
+     */
+    @Test
+    fun `section down override wins over column mapping`() {
+        val plan = FocusPlan(
+            listOf(
+                FocusSection(keys("chip", 3), columns = 3, down = key("input")),
+                FocusSection(listOf(key("input"), key("go"), key("sort")), columns = 3),
+                FocusSection(keys("card", 10), columns = 5),
+            ),
+            side = FocusSection(keys("nav", 4), columns = 1),
+        )
+        val graph = FocusGraph.of(plan)
+        key("chip0").let { assertEquals(key("input"), graph.neighborsOf(it)!!.down) }
+        assertEquals("第二个胶囊也必须进输入框", key("input"), graph.neighborsOf(key("chip1"))!!.down)
+        assertEquals("第三个胶囊也一样", key("input"), graph.neighborsOf(key("chip2"))!!.down)
+        // 覆盖只作用于末行：输入行自己的下移仍按列号落到结果卡
+        assertEquals(key("card0"), graph.neighborsOf(key("input"))!!.down)
+        assertEquals("中间按钮映射到中间那张卡", key("card2"), graph.neighborsOf(key("go"))!!.down)
+    }
+
+    /** 视觉顺序必须与声明顺序一致：翻组键在左、排序在右时，段里也按这个顺序声明。 */
+    @Test
+    fun `horizontal order is the declared order`() {
+        val plan = FocusPlan(listOf(FocusSection(listOf(key("prev"), key("next"), key("sort")), columns = 3)))
+        val graph = FocusGraph.of(plan)
+        assertEquals(key("next"), graph.neighborsOf(key("prev"))!!.right)
+        assertEquals(key("sort"), graph.neighborsOf(key("next"))!!.right)
+        assertEquals(key("next"), graph.neighborsOf(key("sort"))!!.left)
+    }
+
+    /**
+     * 禁用的按钮仍然占着它的列：季线页第一页没有「上一组」，
+     * 「下一组」仍在第二列——从它往下要落到第 4 张（1 起算），不是第 2 张。
+     */
+    @Test
+    fun `a disabled control keeps its column in the row`() {
+        val plan = FocusPlan(
+            listOf(
+                FocusSection(listOf(null, key("next"), key("sort")), columns = 3),
+                FocusSection(keys("card", 8), columns = 8),
+            ),
+        )
+        val graph = FocusGraph.of(plan)
+        assertEquals(key("card3"), graph.neighborsOf(key("next"))!!.down)
+        assertEquals(key("sort"), graph.neighborsOf(key("next"))!!.right)
+        assertEquals(key("next"), graph.neighborsOf(key("sort"))!!.left)
+        // 左边界：第一个可聚焦项的左邻是空槽 → 不跳回行尾
+        assertEquals(key("next"), graph.neighborsOf(key("next"))!!.left)
+    }
+
+    @Test
+    fun `leftmost control goes to the first cell of the row below`() {
+        val plan = FocusPlan(
+            listOf(
+                FocusSection(listOf(key("prev"), key("next"), key("sort")), columns = 3),
+                FocusSection(keys("card", 8), columns = 8),
+            ),
+        )
+        assertEquals(key("card0"), FocusGraph.of(plan).neighborsOf(key("prev"))!!.down)
+    }
+
+    @Test
+    fun `null slots do not appear in the graph order`() {
+        val graph = FocusGraph.of(FocusPlan(listOf(FocusSection(listOf(null, key("only")), columns = 2))))
+        assertEquals(listOf(key("only")), graph.order)
+    }
 }

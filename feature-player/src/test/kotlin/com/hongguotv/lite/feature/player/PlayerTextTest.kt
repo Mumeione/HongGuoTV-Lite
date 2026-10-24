@@ -90,6 +90,10 @@ class PlayerTextTest {
         assertEquals(PlayerText.EPISODE_ENDED, PlayerText.notice(PlaybackState.Ended(0, lastOfSeason = false)))
         assertEquals(PlayerText.SEASON_ENDED, PlayerText.notice(PlaybackState.Ended(0, lastOfSeason = true)))
         assertEquals(
+            PlayerText.SERIES_ENDED,
+            PlayerText.notice(PlaybackState.Ended(0, lastOfSeason = true, seriesEnded = true)),
+        )
+        assertEquals(
             "播放出错了，正在自动重试…",
             PlayerText.notice(PlaybackState.Failed(0, PlaybackFailure.Decode(), RetryState.Scheduled(1L))),
         )

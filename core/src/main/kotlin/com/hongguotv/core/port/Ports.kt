@@ -26,7 +26,8 @@ import com.hongguotv.core.model.Suggestion
 
 /** 内容端口：5 个方法。上游的端点、签名、字段、季线排序、介质过滤全部藏在背后。 */
 interface ContentPort {
-    suspend fun search(keyword: String, filter: ContentFilter): SearchResult
+    /** 搜索：官网服务端分页，一页 10 条；[page] 从 1 起。 */
+    suspend fun search(keyword: String, filter: ContentFilter, page: Int = 1): SearchResult
     suspend fun suggest(keyword: String): List<Suggestion>
 
     /** 详情：分集清单以服务端顺序为准。 */

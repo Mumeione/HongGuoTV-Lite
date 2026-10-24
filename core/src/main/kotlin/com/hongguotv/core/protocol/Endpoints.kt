@@ -8,13 +8,10 @@ import java.net.URLEncoder
 fun urlEncode(value: String): String =
     URLEncoder.encode(value, Charsets.UTF_8.name()).replace("+", "%20").replace("%7E", "~")
 
-/** 端点用哪套签名。三套的 query 组成与头集合完全不同，混用会被风控判为异常并返回 200 空体。 */
+/** 端点用哪套签名。两套的 query 组成与头集合完全不同，混用会被风控判为异常并返回 200 空体。 */
 enum class SignerKind(val id: String) {
     /** 完整套件：x-gorgon + x-helios + x-medusa + x-ladon + x-argus，query 含 ts。 */
     FULL("full"),
-
-    /** preload 简化套件：只有 x-gorgon（0x40 0x1c 变体），query 只有 _rticket。 */
-    PRELOAD("preload"),
 
     /** 无签名（官网 SSR）：不带任何签名头，风控只看 UA 与请求频率。 */
     NONE("none");
@@ -27,10 +24,10 @@ enum class SignerKind(val id: String) {
 
 /** 端点自带 query 之外，是否还要并入一套公共设备常量。 */
 enum class QueryProfile(val id: String) {
-    /** 并入 [VendorConstants.device]（版本 71332）。内容端点用。 */
+    /** 并入 [VendorConstants.device]（版本 71332，身份由签名器注入）。内容端点用。 */
     DEVICE("device"),
 
-    /** 不并入任何公共常量：端点自带全部参数。preload 用，它要的是 73532 的精简集。 */
+    /** 不并入任何公共常量：端点自带全部参数（官网接口、无签名通道）。 */
     NONE("none");
 
     companion object {

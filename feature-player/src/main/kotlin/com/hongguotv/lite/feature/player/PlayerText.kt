@@ -62,7 +62,11 @@ object PlayerText {
             RetryState.None -> failure(state.failure)
         }
 
-        is PlaybackState.Ended -> if (state.lastOfSeason) SEASON_ENDED else EPISODE_ENDED
+        is PlaybackState.Ended -> when {
+            state.seriesEnded -> SERIES_ENDED
+            state.lastOfSeason -> SEASON_ENDED
+            else -> EPISODE_ENDED
+        }
         is PlaybackState.Playing -> if (state.pausedBy == PauseReason.SLEEP) SLEEP_STOPPED else null
         else -> null
     }
@@ -90,6 +94,9 @@ object PlayerText {
     const val EPISODE_ENDED: String = "本集已结束"
 
     const val SEASON_ENDED: String = "本季已结束"
+
+    /** 最后一季的最后一集：没有"下一集"也没有"下一季"，这一句要说明白。 */
+    const val SERIES_ENDED: String = "全剧已播完，暂无最新集"
 
     const val FAST_FORWARD: String = "2 倍速快进"
 

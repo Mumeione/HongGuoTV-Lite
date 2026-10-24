@@ -4,6 +4,7 @@ import com.hongguotv.core.model.ContentFilter
 import com.hongguotv.core.model.SeasonKeys
 import com.hongguotv.core.model.Series
 import com.hongguotv.core.model.SeriesIds
+import com.hongguotv.core.model.Suggestion
 import com.hongguotv.core.port.UpstreamError
 import com.hongguotv.core.protocol.CoverUrls
 import com.hongguotv.core.protocol.Fields
@@ -19,6 +20,15 @@ internal fun JSONObject.str(key: String): String = if (isNull(key)) "" else optS
  * 所以漫剧/短剧的过滤必须发生在 JSON 行上，随卡片一起走。
  */
 internal data class Card(val series: Series, val isComic: Boolean)
+
+/** 官网搜索的一页：卡片 + 分页事实（`totalCount` 为 0 表示上游没给总数）。 */
+internal data class SiteSearchPage(
+    val cards: List<Card>,
+    val page: Int,
+    val totalPages: Int,
+    val totalCount: Int,
+    val hasMore: Boolean,
+)
 
 /**
  * 上游 JSON → 领域模型的全部映射。字段名一律经 [Fields]，映射规则以旧仓库为验收基准。
@@ -103,54 +113,56 @@ internal object Parsers {
     }
 
     /**
-     * 官网搜索结果：HTML → router 数据 → searchList 数组。结构变了带路径报 Shape。
+     * 官网搜索页（`/api/search/result`）：`searchList` + 分页事实。
      *
-     * **例外：官网把搜索页改成纯前端渲染了**（2026-10-23 实测）。页面 body 只剩
-     * `<div id="root"><!--<?- html ?>--></div>` 与一堆 JS，`_ROUTER_DATA` 整个不再下发——
-     * 这不是"结构变了"，客户端拿不到任何可解析的内容，报 Shape 只会让用户看到
-     * 「内容结构发生变化」，而实际上一条结果都没法取。这时按"没有结果"返回，
-     * 由页面显示「没找到」，并把这次降级记进诊断（`ContentRepository.siteCards`）。
-     *
-     * 判据就是标记在不在：标记在、路径不在 → 真的结构变了，照旧报 Shape。
+     * 这里**不再解析 HTML**：官网 2026-10-23 起换成 React SPA，`_ROUTER_DATA` 整个不再下发，
+     * 页面改调这个 JSON 接口。分页是上游的真实能力（`page` 有效），界面据此一页 10 条地翻。
      */
-    fun searchList(html: String): JSONArray {
-        if (!html.contains(Fields.Site.ROUTER_DATA)) return JSONArray()
-        val data = router(html).optJSONObject(Fields.Site.LOADER_DATA)
-            ?: throw UpstreamError.Shape(Fields.Site.LOADER_DATA)
-        val section = data.optJSONObject(Fields.Site.SEARCH_PAGE) ?: data.optJSONObject(Fields.Site.SEARCH_PAGE_ALT)
-            ?: throw UpstreamError.Shape(Fields.Site.SEARCH_PAGE)
-        return section.optJSONArray(Fields.Site.SEARCH_LIST)
-            ?: throw UpstreamError.Shape("${Fields.Site.SEARCH_PAGE}.${Fields.Site.SEARCH_LIST}")
+    fun siteSearchPage(body: String): SiteSearchPage {
+        val root = runCatching { JSONObject(body) }.getOrElse { throw UpstreamError.Shape("body") }
+        val list = root.optJSONArray(Fields.Site.SEARCH_LIST)
+            ?: throw UpstreamError.Shape(Fields.Site.SEARCH_LIST)
+        return SiteSearchPage(
+            cards = list.objects().map(::card),
+            page = root.intOr(Fields.Site.PAGE_NUM, 1).coerceAtLeast(1),
+            totalPages = root.intOr(Fields.Site.TOTAL_PAGES, 1).coerceAtLeast(1),
+            totalCount = root.intOr(Fields.Site.TOTAL_COUNT, 0).coerceAtLeast(0),
+            hasMore = root.optBoolean(Fields.Site.HAS_MORE, false),
+        )
     }
 
-    /** 官网这一页是否已经是"纯前端壳"（没有服务端数据，只有 JS）：诊断与降级共用这一条判据。 */
-    fun clientRendered(html: String): Boolean = !html.contains(Fields.Site.ROUTER_DATA)
+    /** 上游把计数写成字符串（`"totalCount":"204"`）与数字两种形态都有，按字符串兜一层。 */
+    private fun JSONObject.intOr(key: String, fallback: Int): Int = when (val value = opt(key)) {
+        is Number -> value.toInt()
+        is String -> value.trim().toIntOrNull() ?: fallback
+        else -> fallback
+    }
 
     /**
-     * HTML 里扒 _ROUTER_DATA 的 JSON（嵌套花括号配对，SSR 页面没有现成边界）。
-     * 纯函数，供单测。
+     * 官网联想词：`suggest_list[]`。`video_data` 是完整卡片时可以直接进详情，
+     * 空对象时这一条只能当查询词（`word_type` 的后五种都是这样）。
      */
-    fun router(html: String): JSONObject {
-        val marker = html.indexOf(Fields.Site.ROUTER_DATA)
-        if (marker < 0) throw UpstreamError.Shape(Fields.Site.ROUTER_DATA)
-        val first = html.indexOf('{', marker)
-        if (first < 0) throw UpstreamError.Shape(Fields.Site.ROUTER_DATA)
-        var depth = 0
-        var quoted = false
-        var escaped = false
-        for (i in first until html.length) {
-            val ch = html[i]
-            if (quoted) {
-                if (escaped) escaped = false else if (ch == '\\') escaped = true else if (ch == '"') quoted = false
-                continue
+    fun suggestList(body: String): List<Suggestion> {
+        val root = runCatching { JSONObject(body) }.getOrElse { throw UpstreamError.Shape("body") }
+        val rows = root.optJSONArray(Fields.Suggest.SUGGEST_LIST)?.objects() ?: return emptyList()
+        return rows.mapNotNull { row ->
+            val video = row.optJSONObject(Fields.Suggest.VIDEO_DATA)
+            val id = video?.str(Fields.Suggest.SERIES_ID).orEmpty()
+            val name = row.str(Fields.Suggest.NAME)
+                .ifEmpty { row.optJSONArray(Fields.Suggest.DISPLAY_WORDS)?.optString(0).orEmpty() }
+            if (name.isBlank()) return@mapNotNull null
+            val target = if (SeriesIds.ID.matches(id)) {
+                Series(
+                    id = id,
+                    title = name,
+                    cover = cleanUrl(video?.str(Fields.Card.SERIES_COVER).orEmpty()),
+                    badge = video?.str(Fields.Card.EPISODE_RIGHT_TEXT).orEmpty(),
+                )
+            } else {
+                null
             }
-            when (ch) {
-                '"' -> quoted = true
-                '{', '[' -> depth++
-                '}', ']' -> { depth--; if (depth == 0) return JSONObject(html.substring(first, i + 1)) }
-            }
-        }
-        throw UpstreamError.Shape(Fields.Site.ROUTER_DATA)
+            Suggestion(name, target)
+        }.distinctBy { it.keyword }
     }
 
     /**
@@ -201,7 +213,7 @@ internal object Parsers {
     }
 
     /**
-     * preload 响应的条目 → fallback_api 地址。历史上有对象/数组/字符串三种形态，全兼容；
+     * 取流响应的 `data`（含 `video_model`）→ fallback_api 地址。历史上有对象/数组/字符串三种形态，全兼容；
      * 解不出合法地址抛 Shape——宁可响亮失败，不拿空串往下走。
      */
     fun fallbackUrl(entry: JSONObject): String {

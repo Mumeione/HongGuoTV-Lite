@@ -79,7 +79,8 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
     }
 
     /** 状态行：danger 色、只报失败（"播放出错了，正在自动重试…"）。 */
-    private val statusView: TextView = ui.text("", tokens.type.caption, tokens.colors.danger).apply {
+    /** 抽屉的状态行（只报失败）。与播放页大字同色：正文色，不用红。 */
+    private val statusView: TextView = ui.text("", tokens.type.caption, tokens.colors.text).apply {
         maxLines = 1
         ellipsize = TextUtils.TruncateAt.END
         visibility = View.GONE
@@ -400,20 +401,12 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
         val model = this.model ?: return null
         val views = LinkedHashMap<FocusKey, View>()
 
-        val pagerKeys = mutableListOf<FocusKey>()
+        // 禁用的那一侧占空槽：翻组行少一项，下面的选集格就会整体左移
+        var pagerSection: com.hongguotv.lite.uikit.focus.FocusSection? = null
         val bodyKeys = mutableListOf<FocusKey>()
 
         if (mode == Mode.EPISODES) {
-            if (pager.view.visibility == View.VISIBLE) {
-                if (pager.prev.isEnabled) {
-                    views[KEY_PREV] = pager.prev
-                    pagerKeys += KEY_PREV
-                }
-                if (pager.next.isEnabled) {
-                    views[KEY_NEXT] = pager.next
-                    pagerKeys += KEY_NEXT
-                }
-            }
+            pagerSection = pager.focusSection(views, KEY_PREV, KEY_NEXT)
             // 选集格 + 右列设置拼成**一张 11 列的表**：每行末尾挂当行的设置项，
             // 左右键从选集格直接滑进设置、滑回来，上下键逐行走（mockup 画面6 的双列布局）
             val settingKeys = settingRows.mapIndexed { index, row ->
@@ -442,7 +435,7 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
 
         val plan = FocusSections.plan(
             listOf(
-                FocusSections.section(pagerKeys, pagerKeys.size),
+                pagerSection,
                 FocusSections.section(bodyKeys, if (mode == Mode.EPISODES) pagination.columns + 1 else JUMP_COLUMNS),
             ),
         ) ?: return null

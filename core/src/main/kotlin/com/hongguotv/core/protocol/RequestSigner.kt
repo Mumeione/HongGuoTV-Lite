@@ -11,7 +11,7 @@ data class SignedRequest(
 /**
  * 端点 → 请求。两套实现对应 [SignerKind]，由端点表的 `signer` 字段选择。
  *
- * 为什么要有这个接口：完整套件与 preload 简化套件在 query 组成、头集合、gorgon 变体上
+ * 为什么要有这个接口：带签名的 App 接口与无签名的官网接口在 query 组成、头集合上
  * 完全不同，而"哪个端点用哪套"是上游的事实，不该分散在调用点的分支里。
  * 换策略时改表一行，调用方不动。
  */
@@ -22,17 +22,23 @@ interface RequestSigner {
 }
 
 /** 按端点的 queryProfile 组装参数表；顺序 = 公共常量 → 端点参数，签名覆盖这个顺序。 */
-private fun Endpoint.mergedQuery(values: Map<String, String>): LinkedHashMap<String, String> {
+private fun Endpoint.mergedQuery(
+    values: Map<String, String>,
+    identity: DeviceIdentity = DeviceIdentity.LEGACY,
+): LinkedHashMap<String, String> {
     val merged = LinkedHashMap<String, String>()
-    if (queryProfile == QueryProfile.DEVICE) merged.putAll(VendorConstants.device)
+    if (queryProfile == QueryProfile.DEVICE) merged.putAll(VendorConstants.device(identity))
     resolvedQuery(values).forEach { (key, value) -> merged[key] = value }
     return merged
 }
 
 /** 内容端点用：并入公共设备常量，query 含 ts，带五件套头。 */
-class FullSuiteSigner internal constructor(private val crypto: Signer) : RequestSigner {
+class FullSuiteSigner internal constructor(
+    private val crypto: Signer,
+    private val identity: DeviceIdentity = DeviceIdentity.LEGACY,
+) : RequestSigner {
 
-    constructor() : this(Signer())
+    constructor(identity: DeviceIdentity = DeviceIdentity.LEGACY) : this(Signer(identity = identity), identity)
 
     override val kind = SignerKind.FULL
 
@@ -40,37 +46,7 @@ class FullSuiteSigner internal constructor(private val crypto: Signer) : Request
         require(endpoint.signer == kind) {
             "端点 ${endpoint.id} 声明用 ${endpoint.signer.id}，不该走 ${kind.id}"
         }
-        val request = crypto.sign(endpoint.url(values), endpoint.mergedQuery(values), endpoint.resolvedBody(values))
-        return SignedRequest(endpoint.method, request.url, request.headers, request.body)
-    }
-}
-
-/**
- * 取流用：端点自带全部 query，query 不含 ts，只带简化头。
- *
- * 传进来的 `deviceId` / `installId` **必须**是进程级复用的随机十九位（旧实现口径 [1e18, 9e18)），
- * 不能拿 [VendorConstants.device] 里那两个固定值顶替——那组值是内容端点的身份
- * （版本 71332），混进取流请求会被判成另一个客户端，返回 200 空体。
- */
-class PreloadSigner internal constructor(private val crypto: Signer) : RequestSigner {
-
-    constructor() : this(Signer())
-
-    override val kind = SignerKind.PRELOAD
-
-    override fun sign(endpoint: Endpoint, values: Map<String, String>): SignedRequest {
-        require(endpoint.signer == kind) {
-            "端点 ${endpoint.id} 声明用 ${endpoint.signer.id}，不该走 ${kind.id}"
-        }
-        // 这条不是洁癖：一旦把 71332 的设备常量并进 73532 的 preload 请求，
-        // 上游会把它当成另一个客户端，返回 200 空体。
-        require(endpoint.queryProfile == QueryProfile.NONE) {
-            "preload 端点不得并入公共设备常量：${endpoint.id}"
-        }
-        val body = endpoint.resolvedBody(values)
-            ?: throw IllegalArgumentException("端点 ${endpoint.id} 是 POST，必须有 body")
-
-        val request = crypto.signSimple(endpoint.url(values), endpoint.mergedQuery(values), body)
+        val request = crypto.sign(endpoint.url(values), endpoint.mergedQuery(values, identity), endpoint.resolvedBody(values))
         return SignedRequest(endpoint.method, request.url, request.headers, request.body)
     }
 }
@@ -109,7 +85,9 @@ object RequestDefaults {
  * 签名实现的注册表：按端点声明的 [SignerKind] 派发。
  * data 层的 ContentPort 实现从这里取，不再自己判断"这个端点该用哪套"。
  */
-class SignerRegistry(signers: List<RequestSigner> = listOf(FullSuiteSigner(), PreloadSigner(), PlainSigner())) {
+class SignerRegistry(
+    signers: List<RequestSigner> = listOf(FullSuiteSigner(), PlainSigner()),
+) {
 
     private val byKind: Map<SignerKind, RequestSigner> = signers.associateBy { it.kind }
 

@@ -18,7 +18,7 @@ class EndpointsTest {
 
     @Test
     fun bundledTableLoads() {
-        assertEquals(setOf("suggest", "seasonLine", "detail", "siteSearch", "preload"), Endpoints.all.keys)
+        assertEquals(setOf("suggest", "seasonLine", "detail", "siteSearch", "videoModel"), Endpoints.all.keys)
         assertEquals(setOf("content", "stream", "site"), Endpoints.hosts.keys)
     }
 
@@ -38,8 +38,8 @@ class EndpointsTest {
     @Test
     fun baseIsResolvedFromHostAndPath() {
         assertEquals(
-            "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_model/preload/v1/",
-            Endpoints["preload"].base,
+            "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/video_model/v1/",
+            Endpoints["videoModel"].base,
         )
         assertEquals(
             "https://api5-normal-sinfonlinea.fqnovel.com/novel/player/video_detail/v1/",
@@ -49,7 +49,7 @@ class EndpointsTest {
 
     @Test
     fun contentEndpointsShareTheDeviceProfile() {
-        listOf("suggest", "seasonLine", "detail").forEach { id ->
+        listOf("seasonLine", "detail", "videoModel").forEach { id ->
             val endpoint = Endpoints[id]
             assertEquals("$id 用完整套件", SignerKind.FULL, endpoint.signer)
             assertEquals("$id 并入公共设备常量", QueryProfile.DEVICE, endpoint.queryProfile)
@@ -57,16 +57,15 @@ class EndpointsTest {
     }
 
     @Test
-    fun preloadKeepsItsOwnQueryAndNoSharedConstants() {
-        val endpoint = Endpoints["preload"]
-        assertEquals(SignerKind.PRELOAD, endpoint.signer)
-        assertEquals(QueryProfile.NONE, endpoint.queryProfile)
-        assertEquals("preload 的 query 是 20 个键", 20, endpoint.query.size)
-        // 简化签名自己会追加 _rticket；表里再出现 ts / _rticket 会被重复拼进 query
-        assertFalse("表里不该有 ts", endpoint.query.any { it.first == "ts" })
-        assertFalse("表里不该有 _rticket", endpoint.query.any { it.first == "_rticket" })
-        assertTrue(endpoint.query.contains("device_id" to "\$deviceId"))
-        assertTrue(endpoint.query.contains("iid" to "\$installId"))
+    fun siteEndpointsAreUnsignedAndCarryTheirOwnQuery() {
+        listOf("suggest", "siteSearch").forEach { id ->
+            val endpoint = Endpoints[id]
+            assertEquals("$id 走无签名通道", SignerKind.NONE, endpoint.signer)
+            assertEquals("$id 不并入设备常量", QueryProfile.NONE, endpoint.queryProfile)
+            assertFalse("$id 是官网接口，query 里不该有 ts", endpoint.query.any { it.first == "ts" })
+        }
+        assertTrue(Endpoints["suggest"].query.contains("app_id" to "8662"))
+        assertTrue(Endpoints["siteSearch"].query.contains("page" to "\$page"))
     }
 
     @Test
@@ -102,7 +101,7 @@ class EndpointsTest {
         assertThrows(IllegalArgumentException::class.java) { Endpoints.load(tableOf(RELATIVE_PATH)) }
     }
 
-    /** path 占位符：表里允许写，最终地址由调用方填充（官网搜索在用）。 */
+    /** path 占位符：表里允许写，最终地址由调用方填充（自建表仍可声明）。 */
     @Test
     fun pathPlaceholderIsFilledAtRequestTime() {
         val table = Endpoints.load(tableOf(PATH_WITH_PLACEHOLDER))
@@ -114,17 +113,19 @@ class EndpointsTest {
         assertTrue("报错必须点名缺哪个参数：${error.message}", error.message.orEmpty().contains("keyword"))
     }
 
-    /** 官网搜索端点：无签名通道，query 是表自带的 page=1，keyword 只出现在 path 里。 */
+    /** 官网搜索端点：无签名通道，query 带 keyword + page。 */
     @Test
     fun siteSearchGoesThroughTheUnsignedChannel() {
         val endpoint = Endpoints["siteSearch"]
         assertEquals(SignerKind.NONE, endpoint.signer)
         assertEquals(QueryProfile.NONE, endpoint.queryProfile)
         assertEquals(HttpMethod.GET, endpoint.method)
-        assertTrue(endpoint.base.startsWith("https://hongguoduanju.com/search/"))
-        // url() 只负责 path；query 由 resolvedQuery / 签名器拼接
-        assertEquals("https://hongguoduanju.com/search/%E5%87%A1%E4%BA%BA", endpoint.url(mapOf("keyword" to urlEncode("凡人"))))
-        assertEquals(listOf("page" to "1"), endpoint.resolvedQuery(emptyMap()))
+        assertTrue(endpoint.base.startsWith("https://hongguoduanju.com/api/search/result"))
+        // keyword / page 都是 query 占位符：编码由 PlainSigner 统一做，调用方传原文
+        assertEquals(listOf("aid" to "8662", "query" to "凡人", "page" to "2"), endpoint.resolvedQuery(mapOf(
+            "keyword" to "凡人",
+            "page" to "2",
+        )))
     }
 
     @Test

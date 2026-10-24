@@ -22,6 +22,7 @@ import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.focus.FocusSections
 import com.hongguotv.lite.uikit.page.ContentPane
 import com.hongguotv.lite.uikit.page.GridRendered
+import com.hongguotv.lite.uikit.page.PagerRow
 import com.hongguotv.lite.uikit.page.PosterGrid
 import com.hongguotv.lite.uikit.text.TvText
 import com.hongguotv.lite.uikit.ui.ButtonVariant
@@ -53,6 +54,7 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
     private lateinit var searchButton: TvButton
     private lateinit var sortChip: TvChip
     private lateinit var suggestRow: LinearLayout
+    private lateinit var pager: PagerRow
     private val suggestChips = mutableListOf<TvButton>()
     private lateinit var pane: ContentPane
     private lateinit var retry: TvButton
@@ -138,6 +140,13 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         }
         body.addView(suggestRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
+        // 翻页行：官网服务端分页，一页 10 条；两行放满就翻页，不把几十条堆在一屏。
+        // 位置在候选词与结果之间——用户的视线"候选 → 翻页 → 结果"是一条竖线。
+        pager = PagerRow(ui, prevLabel = "‹ 上一页", nextLabel = "下一页 ›").apply {
+            onPage = { delta -> goPage(delta) }
+        }
+        body.addView(pager.view, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
         // 内容区：滚动网格 + 居中空态，二态互斥
         pane = ui.contentPane()
         body.addView(pane, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
@@ -173,6 +182,8 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
 
         resultGrid = ui.grid(RESULT_SECTION).apply {
             visibility = View.GONE
+            // 一页最多两行 10 张：上游一页就是 10 条，剩下的靠翻页
+            itemLimit = CatalogText.PAGE_SIZE
             // 结果是主角：全亮（mockup 画面2），未上线卡用 CardItem.dim 表达
             onCardActivated = { item -> openResult(item) }
         }
@@ -207,35 +218,49 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         runSearch(keyword)
     }
 
-    private fun runSearch(keyword: String, filter: ContentFilter = settings().filter) {
+    /**
+     * 搜索 / 翻页。
+     *
+     * [page] > 1 是翻页：**不清空当前页**，失败也只提示、不把用户手里的结果换成一屏错误；
+     * 第 1 页是新搜索，按旧口径清空并进入加载态。
+     */
+    private fun runSearch(keyword: String, filter: ContentFilter = settings().filter, page: Int = 1) {
         val clean = keyword.trim()
         if (clean.isEmpty() || clean.length > MAX_KEYWORD) return
         if (input.text.toString() != clean) {
             input.setText(clean)
             input.setSelection(clean.length)
         }
-        // setText 会触发联想防抖：这次搜索不需要联想词，按掉它
-        suggestJob?.cancel()
-        hideKeyboard()
-        clearSuggestions()
-
+        val firstPage = page <= 1
+        // 翻页时不动输入区：用户只是翻结果，键盘与候选词保持原样
+        if (firstPage) {
+            // setText 会触发联想防抖：这次搜索不需要联想词，按掉它
+            suggestJob?.cancel()
+            hideKeyboard()
+            clearSuggestions()
+            model.clearResult()
+            continueEntries = emptyList()
+        }
         model.keyword = clean
-        model.clearResult()
         model.loading = true
-        continueEntries = emptyList()
         render()
 
         searchJob?.cancel()
         searchJob = scope.launch {
             try {
-                val result = host.content.search(clean, filter)
+                val result = host.content.search(clean, filter, page)
                 if (model.keyword != clean) return@launch
                 model.apply(result, settings().seasonSortAsc)
                 // 结果到手就把光标交给第一张卡：用户按确认是要看结果，不是要回到搜索框
                 preferredOnRender = model.items.firstOrNull()?.let { resultGrid.keyOf(it.id) }
             } catch (error: UpstreamError) {
                 if (model.keyword != clean) return@launch
-                model.error = error
+                if (firstPage) {
+                    model.error = error
+                } else {
+                    // 翻页失败：保留当前页，只提示一句。换成一屏错误等于把用户已看到的结果扔掉
+                    toast(TvText.error(error))
+                }
             } finally {
                 // 取消时不要回写视图：页面可能已经被切换掉
                 if (isActive) {
@@ -244,6 +269,20 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
                 }
             }
         }
+    }
+
+    /** 翻页：看过的页直接用缓存，没看过的才请求。 */
+    private fun goPage(delta: Int) {
+        val target = (model.page + delta).coerceIn(1, model.pageCount)
+        if (target == model.page) return
+        val cached = model.cached(target)
+        if (cached != null) {
+            model.apply(cached, settings().seasonSortAsc)
+            preferredOnRender = model.items.firstOrNull()?.let { resultGrid.keyOf(it.id) }
+            render()
+            return
+        }
+        runSearch(model.keyword, settings().filter, target)
     }
 
     private val queryWatcher = object : TextWatcher {
@@ -397,10 +436,14 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         val error = model.error
         val showContinue = model.keyword.isBlank() && error == null && continueEntries.isNotEmpty()
         val showResult = error == null && model.items.isNotEmpty()
+        val emptyPage = model.hasSearched && model.page > 1 && model.items.isEmpty()
         val stateText = when {
             model.loading -> "正在搜索…"
             error != null -> TvText.error(error)
             showContinue || showResult -> null
+            emptyPage && current.filter != ContentFilter.ALL ->
+                "这一页没有「${SettingRows.filterLabel(current.filter)}」的结果，翻回上一页看看"
+            emptyPage -> "这一页没有新的结果，翻回上一页看看"
             else -> CatalogText.emptySearch(model.keyword, current.filter)
         }
 
@@ -409,6 +452,17 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         continueHeader.visibility = if (showContinue) View.VISIBLE else View.GONE
         continueGrid.visibility = if (showContinue) View.VISIBLE else View.GONE
         resultGrid.visibility = if (showResult) View.VISIBLE else View.GONE
+        // 翻页行只要"搜过且多页"就在：结果为空的那一页也要留着它，否则用户翻不回去
+        val showPager = error == null && model.hasSearched && (model.pageCount > 1 || model.hasMore || model.page > 1)
+        if (showPager) {
+            pager.show(
+                CatalogText.searchRange(model.page, model.pageCount, model.totalCount),
+                hasPrev = model.page > 1,
+                hasNext = model.hasNext,
+            )
+        } else {
+            pager.hide()
+        }
         // 信息栏伴着卡片出现：焦点落到卡片上时由落定回调显示；没有卡片可说时整条收起，不占 46dp
         if (!showContinue && !showResult) scaffold.hideBand()
 
@@ -457,17 +511,25 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         views[FocusKey("search:sort")] = sortChip
         suggestChips.forEachIndexed { index, chip -> views[FocusKey("suggest:$index")] = chip }
         if (retry.visibility == View.VISIBLE) views[FocusKey("search:retry")] = retry
+        // 翻页行：禁用的那一侧占空槽（第一页没有「上一页」，但「下一页」仍在第二列）
+        val pagerSection = pager.focusSection(views, KEY_PREV, KEY_NEXT)
         continueRendered?.views?.let { views.putAll(it) }
         rendered?.views?.let { views.putAll(it) }
 
         val sections = listOf(
-            FocusSections.section(FocusSections.keys("filter", filterChips.size), filterChips.size),
+            // 片库这一行只有半屏宽：按列号比例映射会落到「搜索」按钮上，显式指到输入框
+            FocusSections.section(
+                FocusSections.keys("filter", filterChips.size),
+                filterChips.size,
+                down = FocusKey("search:input"),
+            ),
             FocusSections.section(
                 listOf(FocusKey("search:input"), FocusKey("search:go"), FocusKey("search:sort")),
                 3,
             ),
             FocusSections.section(FocusSections.keys("suggest", suggestChips.size), suggestChips.size),
             if (retry.visibility == View.VISIBLE) FocusSections.section(listOf(FocusKey("search:retry")), 1) else null,
+            pagerSection,
             continueRendered?.let { FocusSections.section(it.keys, it.columns) },
             rendered?.let { FocusSections.section(it.keys, it.columns) },
         )
@@ -499,5 +561,7 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
          */
         const val CONTINUE_LIMIT = 5
         const val TITLE_NOTE = "输入完整剧名，按确认搜索 · 支持拼音联想"
+        val KEY_PREV = FocusKey("search:prev")
+        val KEY_NEXT = FocusKey("search:next")
     }
 }

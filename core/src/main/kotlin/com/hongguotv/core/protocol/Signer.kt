@@ -7,7 +7,20 @@ import java.net.URLEncoder
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-internal class Signer(private val clock: () -> Long = System::currentTimeMillis, private val random: () -> Double = Math::random) {
+internal class Signer private constructor(
+    private val identity: DeviceIdentity,
+    private val clock: () -> Long,
+    private val random: () -> Double,
+) {
+    /** 测试用：固定时钟与随机源，身份是内置的那一对（签名样本 oracle 就是按它生成的）。 */
+    constructor(
+        clock: () -> Long = System::currentTimeMillis,
+        random: () -> Double = Math::random,
+    ) : this(DeviceIdentity.LEGACY, clock, random)
+
+    /** 生产用：换一份匿名身份，query 与 x-medusa 同步换。 */
+    constructor(identity: DeviceIdentity) : this(identity, System::currentTimeMillis, Math::random)
+
     data class Request(val url: String, val headers: Map<String, String>, val body: ByteArray?)
     private fun rand() = (random() * 4294967296.0).toLong().toInt()
     private fun unsigned(v: Int) = v.toLong() and 0xffffffffL
@@ -88,7 +101,7 @@ internal class Signer(private val clock: () -> Long = System::currentTimeMillis,
         }
         return (hex("8404") + byteArrayOf(random.toByte(),(random shr 8).toByte(),0x40,1) + out).hex()
     }
-    private fun deviceProto() = proto(f(1,1,"sint"),f(2,2,"sint"),f(3,"8662"),f(4,VendorConstants.device.getValue("device_id")),f(5,"Ai6svO3PyrwDOUSmO6ZcResxu"),f(6,"!noperm!"),f(7,-888888,"sint"),f(8,-888888,"sint"),f(9,3,"sint"),f(10,-888888,"sint"),f(11,"!notset!"),f(12,"Asia/Shanghai,8"),f(13,"zh_CN"),f(14,4,"sint"),f(16,255.24993896484375,"float"),f(17,35.58599090576172,"float"),f(18,3.467449188232422,"float"),f(19,3.467449188232422,"float"),f(20,255.1754913330078,"float"),f(21,42.17544174194336,"float"),f(22,"16"),f(23,41,"sint"),f(24,36,"sint"),f(25,1728388016635L,"sint"),f(26,1728388016635L,"sint"),f(27,1728388016635L,"sint"),f(28,1728388016637L,"sint"),f(29,-1,"sint"),f(30,"25053RT47C"),f(31,"Redmi"),f(32,"25053RT47C"),f(33,"25053RT47C"),f(34,"Xiaomi"),f(35,"Redmi"),f(36,"Redmi"),f(38,31,"sint"))
+    private fun deviceProto() = proto(f(1,1,"sint"),f(2,2,"sint"),f(3,"8662"),f(4,identity.deviceId),f(5,"Ai6svO3PyrwDOUSmO6ZcResxu"),f(6,"!noperm!"),f(7,-888888,"sint"),f(8,-888888,"sint"),f(9,3,"sint"),f(10,-888888,"sint"),f(11,"!notset!"),f(12,"Asia/Shanghai,8"),f(13,"zh_CN"),f(14,4,"sint"),f(16,255.24993896484375,"float"),f(17,35.58599090576172,"float"),f(18,3.467449188232422,"float"),f(19,3.467449188232422,"float"),f(20,255.1754913330078,"float"),f(21,42.17544174194336,"float"),f(22,"16"),f(23,41,"sint"),f(24,36,"sint"),f(25,1728388016635L,"sint"),f(26,1728388016635L,"sint"),f(27,1728388016635L,"sint"),f(28,1728388016637L,"sint"),f(29,-1,"sint"),f(30,"25053RT47C"),f(31,"Redmi"),f(32,"25053RT47C"),f(33,"25053RT47C"),f(34,"Xiaomi"),f(35,"Redmi"),f(36,"Redmi"),f(38,31,"sint"))
     private fun xmxor(data: ByteArray, key: ByteArray): ByteArray {
         val encoded = IntArray(data.size)
         for (i in data.indices) {
@@ -115,10 +128,10 @@ internal class Signer(private val clock: () -> Long = System::currentTimeMillis,
         val queryBodyTs = hashF13(querySm3,bodyMd5,ts)
         val nested = proto(f(1,111,"sint"),f(2,10,"sint"),f(3,694367,"sint"),f(5,586952199,"sint"))
         val messageRand = unsigned(rand()); val envLaunch = (random()*21).toInt()+100; val envPid = (random()*2000).toInt()+10001
-        val version = VendorConstants.device.getValue("version_name")
+        val version = VendorConstants.VERSION_NAME
         val env = proto(f(1,envLaunch,"sint"),f(2,146331399,"sint"),f(3,146331396,"sint"),f(5,7,"sint"),f(6,"v04.06.04.03-bugfix"),f(7,envPid,"sint"),f(12,deviceProto()),f(13,proto(f(1,clock()/1000,"sint"),f(2,-2,"sint"),f(4,200,"sint"))),f(14,version))
         val queryHash = sm3(query+bodyMd5+"none".toByteArray())
-        val message = proto(f(1,hex("f7e85ffad7d7dc3bd62ac87057cf6118")),f(2,3,"sint"),f(3,messageRand,"sint"),f(4,"8662"),f(5,VendorConstants.device.getValue("device_id")),f(6,"1588093228"),f(7,version),f(8,"v04.06.04-ml-android"),f(9,67503104,"sint"),f(10,hex("4001000000000000")),f(12,ts,"sint"),f(13,queryBodyTs),f(14,querySm3.copyOf(6)),f(15,nested),f(16,"AXYQOS6n2m60x1fVZHIrH3iol"),f(17,ts,"sint"),f(19,queryHash),f(20,"none"),f(21,312,"sint"),f(23,env),f(24,"""{"cmr":16777216,"cmr2":16777216,"un_h":1879194040,"vpn":0,"kd":0,"fkd":3672518972,"pd":-1872573247,"dyn":"","do":0,"tk":true}"""))
+        val message = proto(f(1,hex("f7e85ffad7d7dc3bd62ac87057cf6118")),f(2,3,"sint"),f(3,messageRand,"sint"),f(4,"8662"),f(5,identity.deviceId),f(6,"1588093228"),f(7,version),f(8,"v04.06.04-ml-android"),f(9,67503104,"sint"),f(10,hex("4001000000000000")),f(12,ts,"sint"),f(13,queryBodyTs),f(14,querySm3.copyOf(6)),f(15,nested),f(16,"AXYQOS6n2m60x1fVZHIrH3iol"),f(17,ts,"sint"),f(19,queryHash),f(20,"none"),f(21,312,"sint"),f(23,env),f(24,"""{"cmr":16777216,"cmr2":16777216,"un_h":1879194040,"vpn":0,"kd":0,"fkd":3672518972,"pd":-1872573247,"dyn":"","do":0,"tk":true}"""))
         val r = rand(); val signKey = hex("8ebdfa3806ecc5cee79423e6029ed82540bc2218bb7eaef71cb691f7aa8aa2f5")
         val hash = sm3(signKey+le32(r)+signKey); val d1 = (r shr 16) and 255
         val seed = le32((((d1 shl 11) or (r ushr 24)) xor (d1 shr 5) xor d1).inv())
@@ -164,36 +177,6 @@ internal class Signer(private val clock: () -> Long = System::currentTimeMillis,
             }
         }
         error("无法生成请求签名")
-    }
-    // onedrama 6905554 同款简化签名：老版 X-Gorgon(0x40 0x1c) + X-Khronos + X-SS-Req-Ticket + X-SS-STUB，
-    // 不带 x-ladon/x-argus/x-helios/x-medusa，query 不含 ts。取流 preload 入口的风控只放行这套。
-    fun signSimple(base: String, values: Map<String,String>, body: ByteArray): Request {
-        val now = clock(); val ts = (now / 1000).toInt()
-        val query = encode(values + mapOf("_rticket" to now.toString()))
-        val headers = linkedMapOf(
-            "User-Agent" to VendorConstants.VIDEO_UA,
-            "Accept" to "application/json",
-            "x-xs-from-web" to "0",
-            "sdk-version" to "2",
-            "x-khronos" to ts.toString(),
-            "x-gorgon" to legacyGorgon(query,body,ts),
-            "x-ss-req-ticket" to now.toString(),
-            "Content-Type" to "application/json; charset=UTF-8",
-            "x-ss-stub" to digest("MD5",body).hex().uppercase()
-        )
-        return Request("$base?$query",headers,body)
-    }
-    private fun legacyGorgon(query: String, body: ByteArray, ts: Int): String {
-        val input = digest("MD5",query.toByteArray()).copyOf(4) + digest("MD5",body).copyOf(4) + ByteArray(4) + byteArrayOf(0,6,11,28) + be32(ts)
-        val key = byteArrayOf(0x44,0xb9.toByte(),0xb9.toByte(),0xd9.toByte(),0xa4.toByte(),0xae.toByte(),0xf9.toByte(),0xfc.toByte(),0xa4.toByte(),0x93.toByte(),0xaa.toByte(),0x75,0x7c,0xa3.toByte(),0xc2.toByte(),0xc4.toByte(),0xa4.toByte(),0x96.toByte(),0x93.toByte(),0x8f.toByte())
-        val out = ByteArray(20) { i -> (input[i].u() xor key[i].u()).toByte() }
-        for (i in out.indices) {
-            val value = ((out[i].u() shr 4) or (out[i].u() shl 4)) and 255
-            val next = out[(i+1)%20].u()
-            val reversed = Integer.reverse((next xor value) and 255) ushr 24
-            out[i] = (reversed xor 20).inv().toByte()
-        }
-        return (hex("8404401c0000")+out).hex()
     }
     companion object {
         fun encode(values: Map<String,String>) = values.entries.joinToString("&") { (k,v) -> "${encode(k)}=${encode(v)}" }

@@ -2,6 +2,7 @@ package com.hongguotv.lite.data.probe
 
 import com.hongguotv.core.model.ContentFilter
 import com.hongguotv.core.port.DiagnosticsPort
+import com.hongguotv.core.protocol.DeviceIdentity
 import com.hongguotv.lite.data.content.ContentRepository
 import com.hongguotv.lite.data.http.OkHttpTransport
 import kotlinx.coroutines.runBlocking
@@ -19,7 +20,7 @@ class SearchFieldsProbe {
     fun probe() {
         assumeTrue("设置 HGTV_PROBE=1 才跑真网探针", System.getenv("HGTV_PROBE") == "1")
         runBlocking {
-            val content = ContentRepository(http = OkHttpTransport(diagnostics = Quiet))
+            val content = ContentRepository(http = OkHttpTransport(diagnostics = Quiet), identity = DeviceIdentity.anonymous())
             val keywords = System.getenv("KEYWORDS")?.split('|')
                 ?: listOf("十八岁的二次回响", "魏家逆子成首辅", "万妖图录传")
             keywords.forEach { keyword ->

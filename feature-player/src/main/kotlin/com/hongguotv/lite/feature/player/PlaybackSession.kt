@@ -395,6 +395,7 @@ class PlaybackSession(
             autoNext = settings.current().autoNext,
             line = seasonLine(),
             currentSeriesId = data.series.id,
+            currentSeason = data.series.season,
         )
         when (action) {
             is EndAction.Play -> playEpisode(action.index, 0L)
@@ -404,8 +405,14 @@ class PlaybackSession(
                 host.keepScreenOn(false)
                 host.openPlayer(action.series.id, 0, 0L)
             }
-            EndAction.Stop -> {
-                setState(PlaybackState.Ended(index, lastOfSeason = index >= data.episodes.lastIndex))
+            is EndAction.Stop -> {
+                setState(
+                    PlaybackState.Ended(
+                        index = index,
+                        lastOfSeason = index >= data.episodes.lastIndex,
+                        seriesEnded = action.seriesEnded,
+                    ),
+                )
                 host.keepScreenOn(false)
             }
         }

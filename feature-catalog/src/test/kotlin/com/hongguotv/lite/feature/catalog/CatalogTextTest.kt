@@ -81,4 +81,16 @@ class CatalogTextTest {
         assertEquals("古装 / 逆袭", CatalogText.historyTags(historyTags = "", favoriteTags = "古装 / 逆袭"))
         assertEquals("", CatalogText.historyTags(historyTags = "", favoriteTags = ""))
     }
+
+    @Test
+    fun searchRangeSaysPageAndTotal() {
+        assertEquals("第 1 / 20 页 · 共 200 条", CatalogText.searchRange(page = 1, totalPages = 20, totalCount = 200))
+        assertEquals("第 3 / 20 页 · 共 200 条", CatalogText.searchRange(page = 3, totalPages = 20, totalCount = 200))
+    }
+
+    @Test
+    fun searchRangeFallsBackToPageNumbersWithoutATotal() {
+        assertEquals("第 2 / 20 页", CatalogText.searchRange(page = 2, totalPages = 20, totalCount = 0))
+        assertEquals("第 1 / 1 页", CatalogText.searchRange(page = 5, totalPages = 0, totalCount = 0))
+    }
 }

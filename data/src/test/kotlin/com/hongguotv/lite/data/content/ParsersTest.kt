@@ -50,48 +50,74 @@ class ParsersTest {
         assertEquals(3, Parsers.filterType(rows, ContentFilter.ALL).size)
     }
 
-    // ---------- 官网 SSR ----------
+    // ---------- 官网搜索接口 ----------
 
-    private fun searchPage(items: List<JSONObject>): String =
-        """<script>_ROUTER_DATA=""" + JSONObject()
-            .put("loaderData", JSONObject().put("search_(keyword)/page", JSONObject().put("searchList", JSONArray(items))))
-            .toString() + """;</script>"""
+    private fun searchBody(items: List<JSONObject>, page: Int = 1, pages: Int = 1, total: Int = items.size, hasMore: Boolean = false): String =
+        JSONObject()
+            .put("searchList", JSONArray(items))
+            .put("pageNum", page)
+            .put("totalPages", pages)
+            .put("totalCount", total.toString())
+            .put("hasMore", hasMore)
+            .toString()
 
     @Test
-    fun routerExtractsTheJsonBlobFromHtml() {
-        val parsed = Parsers.router(searchPage(emptyList()) + "trailing garbage } never reached")
-        assertTrue(parsed.has("loaderData"))
+    fun siteSearchPageReadsCardsAndPaging() {
+        val page = Parsers.siteSearchPage(searchBody(
+            items = listOf(cardJson("1", "万妖图录传第一季", celebs = false), cardJson("2", "万妖图录传第二季", celebs = false)),
+            page = 2,
+            pages = 21,
+            total = 204,
+            hasMore = true,
+        ))
+        assertEquals(listOf("1", "2"), page.cards.map { it.series.id })
+        assertEquals(2, page.page)
+        assertEquals(21, page.totalPages)
+        assertEquals(204, page.totalCount)
+        assertTrue(page.hasMore)
     }
 
     @Test
-    fun routerRejectsPageWithoutData() {
-        assertThrows(UpstreamError.Shape::class.java) { Parsers.router("<html>没有数据</html>") }
+    fun siteSearchPageAcceptsNumericCountersAsWellAsStrings() {
+        val body = JSONObject()
+            .put("searchList", JSONArray())
+            .put("pageNum", 3)
+            .put("totalPages", 5)
+            .put("totalCount", 42)
+            .toString()
+        val page = Parsers.siteSearchPage(body)
+        assertEquals(3, page.page)
+        assertEquals(5, page.totalPages)
+        assertEquals(42, page.totalCount)
     }
 
     @Test
-    fun searchListFallsBackToAlternatePageKey() {
-        val html = """_ROUTER_DATA=""" + JSONObject()
-            .put("loaderData", JSONObject().put("search_page", JSONObject().put("searchList", JSONArray()))).toString()
-        assertEquals(0, Parsers.searchList(html).length())
+    fun siteSearchPageRequiresTheSearchList() {
+        assertThrows(UpstreamError.Shape::class.java) { Parsers.siteSearchPage("""{"totalPages":1}""") }
     }
 
     @Test
-    fun searchListTreatsTheClientRenderedShellAsNoResults() {
-        // 2026-10-23 实测：官网搜索页改成纯前端渲染，body 只有 SSR 占位符与 JS，
-        // `_ROUTER_DATA` 不再下发。这不是"结构变了"——客户端拿不到任何内容，
-        // 报 Shape 会让用户看到「内容结构发生变化」，而正确的降级是「没找到」
-        val shell = """<!doctype html><html><head><script>window.__glue_t=1</script></head>""" +
-            """<body><div id="root"><!--<?- html ?>--></div></body></html>"""
-        assertTrue(Parsers.clientRendered(shell))
-        assertEquals(0, Parsers.searchList(shell).length())
+    fun siteSearchPageRejectsANonJsonBody() {
+        // 上游把接口换回 HTML 是"结构变了"，不是"没有结果"
+        assertThrows(UpstreamError.Shape::class.java) { Parsers.siteSearchPage("<!doctype html><html></html>") }
     }
 
+    // ---------- 官网联想词 ----------
+
     @Test
-    fun searchListStillReportsShapeWhenTheMarkerIsThereButThePathIsGone() {
-        // 标记在、路径不在 = 真的结构变了，必须继续报错（不能被上一条兜底吞掉）
-        val html = """<script>_ROUTER_DATA={"loaderData":{"something_else":{}}};</script>"""
-        assertTrue(!Parsers.clientRendered(html))
-        assertThrows(UpstreamError.Shape::class.java) { Parsers.searchList(html) }
+    fun suggestListKeepsSeriesCardsAndPlainWords() {
+        val body = JSONObject().put("suggest_list", JSONArray(listOf(
+            JSONObject().put("name", "万妖图录传第一季").put("keyword", "7621200213801176126")
+                .put("video_data", JSONObject().put("series_id", "7621200213801176126")
+                    .put("series_cover", "https://img.example/a.jpg").put("episode_right_text", "全81集")),
+            JSONObject().put("name", "万妖图录").put("keyword", "万妖图录")
+                .put("video_data", JSONObject()),
+        ))).toString()
+        val list = Parsers.suggestList(body)
+        assertEquals(listOf("万妖图录传第一季", "万妖图录"), list.map { it.keyword })
+        assertEquals("7621200213801176126", list[0].target?.id)
+        assertEquals("全81集", list[0].target?.badge)
+        assertTrue("空 video_data 只能当查询词", list[1].target == null)
     }
 
     // ---------- plan 季线 ----------

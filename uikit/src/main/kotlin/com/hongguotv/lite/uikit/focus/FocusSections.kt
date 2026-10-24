@@ -11,8 +11,21 @@ object FocusSections {
     /** `prefix:0 … prefix:n-1`。 */
     fun keys(prefix: String, count: Int): List<FocusKey> = List(count) { FocusKey("$prefix:$it") }
 
-    fun section(keys: List<FocusKey>, columns: Int = keys.size): FocusSection? =
-        if (keys.isEmpty()) null else FocusSection(keys, columns.coerceAtLeast(1))
+    fun section(
+        keys: List<FocusKey>,
+        columns: Int = keys.size,
+        down: FocusKey? = null,
+    ): FocusSection? =
+        if (keys.isEmpty()) null else FocusSection(keys, columns.coerceAtLeast(1), down = down)
+
+    /**
+     * 带空槽的一段：禁用的按钮**保留位置**、不参与聚焦（季线页第一页的「上一组」）。
+     *
+     * 与 [section] 的区别只有这一点：空槽会占掉它那一列，让"从翻组键往下"仍然按
+     * 真实列号映射到对应的卡，而不是因为少了一项就整体左移。
+     */
+    fun slots(slots: List<FocusKey?>): FocusSection? =
+        if (slots.all { it == null }) null else FocusSection(slots, slots.size)
 
     /**
      * 从上到下拼成焦点图；一个可聚焦项都没有时返回 null（页面还没内容）。

@@ -445,20 +445,18 @@ internal class SeasonPage(
         }
         if (retryButton.visibility == View.VISIBLE) views[KEY_RETRY] = retryButton
         if (detailOnlyButton.visibility == View.VISIBLE) views[KEY_DETAIL] = detailOnlyButton
-        if (seasonHeader.visibility == View.VISIBLE) views[KEY_SORT] = sortButton
         seasonCards.forEach { (id, card) -> views[FocusKey(seasonKey(id))] = card }
 
-        val headerKeys = mutableListOf<FocusKey>()
-        if (seasonHeader.visibility == View.VISIBLE) headerKeys += KEY_SORT
-        if (pager.view.visibility == View.VISIBLE) {
-            if (pager.prev.isEnabled) {
-                views[KEY_PREV] = pager.prev
-                headerKeys += KEY_PREV
-            }
-            if (pager.next.isEnabled) {
-                views[KEY_NEXT] = pager.next
-                headerKeys += KEY_NEXT
-            }
+        // 焦点顺序就是视觉顺序：‹ 上一组 → 下一组 › → 倒序。
+        // 写成 [倒序, 上一组, 下一组] 会让"从最左边的翻组键按下"落到季卡中间（维护者实测）。
+        // 翻组那一行的空槽由 [PagerRow.focusSection] 统一处理（禁用的「上一组」仍占第 1 列）。
+        val headerSection = if (seasonHeader.visibility == View.VISIBLE) {
+            views[KEY_SORT] = sortButton
+            // 只有一页时翻组行整条 GONE：视觉上「倒序」紧跟季数，列号从 0 起
+            val pagerSlots = pager.focusSection(views, KEY_PREV, KEY_NEXT)
+            FocusSections.slots(pagerSlots?.slots?.plus(KEY_SORT) ?: listOf(KEY_SORT))
+        } else {
+            null
         }
 
         submitPlan(
@@ -468,8 +466,8 @@ internal class SeasonPage(
                 if (detailOnlyButton.visibility == View.VISIBLE) FocusSections.section(listOf(KEY_DETAIL), 1) else null,
                 // 动作列是竖排的：上下在键间移动（mockup 画面5 的右列）
                 FocusSections.section(actionKeys, 1),
-                // 翻组与排序在同一行（"所有季"右侧）：一段焦点图按视觉顺序给它们
-                if (headerKeys.isNotEmpty()) FocusSections.section(headerKeys, headerKeys.size) else null,
+                // 翻组与排序在同一行（"所有季"右侧）：空槽占位，列号与视觉一致
+                headerSection,
                 FocusSections.section(seasonCards.keys.map { FocusKey(seasonKey(it)) }, SEASON_COLUMNS),
             ),
             views = views,

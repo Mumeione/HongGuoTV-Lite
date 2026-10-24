@@ -273,11 +273,10 @@ internal class EpisodePage(
             )
         }
 
-        if (pages > 1) {
-            pager.show(DetailText.rangeLabel(range), hasPrev = pageIndex > 0, hasNext = pageIndex < pages - 1)
-        } else {
-            pager.hide()
-        }
+        // 分组栏**始终占位**：不足 100 集时两个翻组键禁用，但范围文字与那一行高度保留。
+        // 隐藏它会让分集格紧贴 hero（维护者截图：65 集的剧看起来"集数和简介挤在一起"），
+        // 而这一行正是"这一页是第几集到第几集"的唯一说明，不该随集数多少忽有忽无。
+        pager.show(DetailText.rangeLabel(range), hasPrev = pageIndex > 0, hasNext = pageIndex < pages - 1)
     }
 
     private fun renderNextSeason(data: Detail) {
@@ -376,17 +375,8 @@ internal class EpisodePage(
             actionKeys += KEY_PICK
             actionKeys += KEY_FAVORITE
         }
-        val pagerKeys = mutableListOf<FocusKey>()
-        if (pager.view.visibility == View.VISIBLE) {
-            if (pager.prev.isEnabled) {
-                views[KEY_PREV] = pager.prev
-                pagerKeys += KEY_PREV
-            }
-            if (pager.next.isEnabled) {
-                views[KEY_NEXT] = pager.next
-                pagerKeys += KEY_NEXT
-            }
-        }
+        // 分组行：禁用的那一侧占空槽（第一页没有「上一组」，但「下一组」仍在第二列）
+        val pagerSection = pager.focusSection(views, KEY_PREV, KEY_NEXT)
         val episodeKeys = episodeCells.keys.map { FocusKey(it) }
         episodeCells.forEach { (key, cell) -> views[FocusKey(key)] = cell }
 
@@ -396,7 +386,7 @@ internal class EpisodePage(
                 if (retryButton.visibility == View.VISIBLE) FocusSections.section(listOf(KEY_RETRY), 1) else null,
                 // 动作列是竖排的：上下在键间移动（mockup 画面3 的右列）
                 FocusSections.section(actionKeys, 1),
-                FocusSections.section(pagerKeys, pagerKeys.size),
+                pagerSection,
                 FocusSections.section(episodeKeys, pagination.columns),
             ),
             views = views,

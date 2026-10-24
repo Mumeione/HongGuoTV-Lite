@@ -1,7 +1,10 @@
 package com.hongguotv.lite.data.content
 
 import com.hongguotv.core.model.ContentFilter
+import com.hongguotv.core.model.Series
 import com.hongguotv.core.port.UpstreamError
+import com.hongguotv.core.protocol.DeviceIdentity
+import com.hongguotv.core.protocol.Endpoints
 import com.hongguotv.core.protocol.HttpMethod
 import com.hongguotv.core.protocol.SignedRequest
 import com.hongguotv.lite.data.http.HttpTransport
@@ -17,21 +20,29 @@ import kotlin.test.assertFailsWith
 
 /**
  * ContentPort 的行为接线测试：解析规则在 ParsersTest 里已覆盖，这里只验证
- * "端点选得对、映射串得对、失败分类落得对"。样本与旧仓库 ContentRepositoryTest 同源。
+ * "端点选得对、映射串得对、失败分类落得对"。
+ *
+ * 2026-10-24 起上游换了两条路：搜索走官网 `/api/search/result`（服务端分页，一页 10 条），
+ * 取流走 `/novel/player/video_model/v1/`（`video_id` 单值）。后者要求设备身份不在黑名单里，
+ * 所以这里的每个请求都带同一对注入的匿名身份。
  */
 class ContentRepositoryTest {
 
     private class FakeTransport(val respond: (SignedRequest) -> String) : HttpTransport {
         val urls = mutableListOf<String>()
+        val methods = mutableListOf<HttpMethod>()
         override suspend fun text(request: SignedRequest): String {
             urls += request.url
+            methods += request.method
             return respond(request)
         }
     }
 
+    private val identity = DeviceIdentity("7123456789012345678", "8123456789012345678")
+
     private fun repository(respond: (SignedRequest) -> String): ContentRepository {
         val transport = FakeTransport(respond)
-        return ContentRepository(transport).also { repo -> this.transport = transport }
+        return ContentRepository(transport, identity).also { repo -> this.transport = transport }
     }
 
     private var transport: FakeTransport? = null
@@ -42,10 +53,23 @@ class ContentRepositoryTest {
         .put("series_id", id).put("series_name", title)
         .put("celebrities", if (celebs) JSONArray().put(JSONObject().put("nickname", "某演员")) else JSONArray())
 
-    private fun searchPage(items: List<JSONObject>): String =
-        """<script>_ROUTER_DATA=""" + JSONObject()
-            .put("loaderData", JSONObject().put("search_(keyword)/page", JSONObject().put("searchList", JSONArray(items))))
-            .toString() + """;</script>"""
+    private fun searchBody(
+        items: List<JSONObject>,
+        page: Int = 1,
+        pages: Int = 1,
+        total: Int = items.size,
+        hasMore: Boolean = false,
+    ): String = JSONObject()
+        .put("searchList", JSONArray(items))
+        .put("pageNum", page)
+        .put("totalPages", pages)
+        .put("totalCount", total.toString())
+        .put("hasMore", hasMore)
+        .toString()
+
+    private fun suggestBody(rows: List<JSONObject>): String = JSONObject()
+        .put("suggest_list", JSONArray(rows))
+        .toString()
 
     private fun planCard(id: String, title: String, count: Int, tag: String?) = JSONObject()
         .put("video_data", JSONObject().put("series_id", id).put("title", title).put("episode_cnt", count).put("cover", "https://img.example/c.jpg"))
@@ -68,145 +92,76 @@ class ContentRepositoryTest {
                 JSONObject().put("vid", "bad"),
             ))))).toString()
 
-    private fun preloadResponse(): String =
-        """{"Code":0,"data":{"123":{"video_model":{"fallback_api":"https://example.com/stream"}}}}"""
+    private fun videoModelResponse(fallback: String = "https://example.com/stream"): String = JSONObject()
+        .put("code", 0)
+        .put("data", JSONObject().put("video_model", JSONObject()
+            .put("status", 10)
+            .put("fallback_api", fallback).toString()))
+        .toString()
 
-    private fun route(request: SignedRequest, search: String, plan: String = planResponse(emptyList()), detail: String = "", preload: String = preloadResponse()): String = when {
-        request.url.contains("/search/") -> search
+    private fun streamInfo(videoList: JSONObject): String = JSONObject()
+        .put("video_info", JSONObject().put("data", JSONObject().put("video_list", videoList)))
+        .toString()
+
+    private fun route(
+        request: SignedRequest,
+        search: String,
+        plan: String = planResponse(emptyList()),
+        detail: String = "",
+        suggest: String = suggestBody(emptyList()),
+        model: String = videoModelResponse(),
+    ): String = when {
+        request.url.contains("/api/search/result") -> search
+        request.url.contains("/incent_resource/suggestion") -> suggest
         request.url.contains("/reading/bookapi/plan/") -> plan
-        request.url.contains("/reading/bookapi/search/suggest/") -> search
         request.url.contains("/novel/player/video_detail/") -> detail
-        request.url.contains("/novel/player/multi_video_model/preload/") -> preload
-        request.url.startsWith("https://example.com/") -> JSONObject()
-            .put("video_info", JSONObject().put("data", JSONObject().put("video_list", JSONObject()
-                .put("v0", JSONObject().put("vheight", 1080).put("codec_type", "h264").put("main_url", "https://example.com/a.mp4")))))
-            .toString()
+        request.url.contains("/novel/player/video_model/") -> model
+        request.url.startsWith("https://example.com/") -> streamInfo(JSONObject()
+            .put("v0", JSONObject().put("vheight", 1080).put("codec_type", "h264").put("main_url", "https://example.com/a.mp4")))
         else -> throw IOException("未预期的请求：${request.url}")
     }
 
     // ---------- 搜索 ----------
 
     @Test
-    fun exactBaseSearchUsesServerSeasonLine() = runTest {
+    fun searchReturnsOnePageWithUpstreamPaging() = runTest {
         val repo = repository { request ->
-            route(
-                request,
-                search = searchPage(listOf(
-                    seriesJson("9", "完全无关的剧", celebs = false),
-                    seriesJson("1", "凡人测试书第二季", celebs = false),
-                )),
-                plan = planResponse(listOf(
-                    planCard("3", "凡人测试书第八季", 80, "第8季"),
-                    planCard("4", "凡人测试书第三季", 60, "第3季"),
-                )),
-            )
+            route(request, search = searchBody(
+                items = listOf(
+                    seriesJson("1", "万妖图录传第一季", celebs = false),
+                    seriesJson("2", "万妖图录传第二季", celebs = false),
+                ),
+                page = 1,
+                pages = 21,
+                total = 204,
+                hasMore = true,
+            ))
         }
-        val out = repo.search("凡人测试书", ContentFilter.ALL)
-        // 展示序：季线新→旧置顶（S8、S3），锚点 S2 随后；无关条目被滤
-        assertEquals(listOf("3", "4", "1"), out.items.map { it.id })
-        // seasonLine 未过滤、旧→新，锚点按标题季号并入
-        assertEquals(listOf("1", "4", "3"), out.seasonLine.map { it.id })
-        assertEquals("全 80 集", out.items.first().badge)
-        assertEquals(8, out.items.first().season)
-        assertEquals(listOf(2, 3, 8), out.seasonLine.map { it.season })
+        val out = repo.search("万妖图录传", ContentFilter.ALL)
+        assertEquals(listOf("1", "2"), out.items.map { it.id })
+        assertEquals(1, out.page)
+        assertEquals(21, out.totalPages)
+        assertEquals(204, out.totalCount)
+        assertTrue(out.hasMore)
     }
 
     @Test
-    fun seasonLineCardsInheritTheAnchorCategories() = runTest {
-        // plan 卡片没有分类字段；官网搜索命中的锚点有。同一系列的各季共用分类，
-        // 不传播的话搜索结果里只有锚点那张卡有分类（维护者实测"时有时无"）。
-        val anchor = seriesJson("1", "凡人测试书第二季", celebs = false)
-            .put("category_list", JSONArray().put(JSONObject().put("name", "古装")))
+    fun searchAsksForTheRequestedPage() = runTest {
         val repo = repository { request ->
-            route(
-                request,
-                search = searchPage(listOf(anchor)),
-                plan = planResponse(listOf(
-                    planCard("3", "凡人测试书第八季", 80, "第8季"),
-                    planCard("4", "凡人测试书第三季", 60, "第3季"),
-                )),
-            )
+            route(request, search = searchBody(listOf(seriesJson("1", "某剧第二季", celebs = false)), page = 3))
         }
-        val out = repo.search("凡人测试书", ContentFilter.ALL)
-        assertEquals(listOf("3", "4", "1"), out.items.map { it.id })
-        assertTrue(out.items.all { it.tags == "古装" })
+        val out = repo.search("某剧", ContentFilter.ALL, page = 3)
+        assertEquals(3, out.page)
+        val url = transport!!.urls.first()
+        assertTrue("第 3 页要带 page=3：$url", url.contains("page=3"))
+        // keyword 由 PlainSigner 统一编码，调用方不预编码
+        assertTrue("关键词必须编码进 query：$url", url.contains("query=%E6%9F%90%E5%89%A7"))
     }
 
     @Test
-    fun seasonLineCardsReadTheirOwnCategorySchema() = runTest {
-        // 第三个形态：category_schema 是字符串形式的 JSON 数组（plan / 相关作品用它）。
-        // 旧实现只读 tags / category_list，季线卡片因此永远没有分类。
-        val withSchema = planCard("3", "凡人测试书第八季", 80, "第8季").apply {
-            getJSONObject("video_data")
-                .put("category_schema", """[{"category_id":316,"name":"古装"},{"category_id":317,"name":"逆袭"}]""")
-        }
+    fun searchFiltersByMedia() = runTest {
         val repo = repository { request ->
-            route(
-                request,
-                search = searchPage(listOf(seriesJson("1", "凡人测试书第二季", celebs = false))),
-                plan = planResponse(listOf(withSchema, planCard("4", "凡人测试书第三季", 60, "第3季"))),
-            )
-        }
-        val out = repo.search("凡人测试书", ContentFilter.ALL)
-        val season8 = out.items.first { it.id == "3" }
-        assertEquals("古装 · 逆袭", season8.tags)
-    }
-
-    @Test
-    fun searchRetriesWithTheNextAnchorWhenTheFirstHasNoRelatedCell() = runTest {
-        // 正传常常不在「相关作品」里：第一条锚点拿不到季线时，换同系列的下一条候选再试。
-        // 不重试的话，搜完整剧名只会得到官网那 10 条乱序结果（维护器实测"搜不到季"）。
-        val repo = repository { request ->
-            val firstAnchor = request.url.contains("book_id=1")
-            route(
-                request,
-                search = searchPage(listOf(
-                    seriesJson("1", "凡人测试书", celebs = false),
-                    seriesJson("2", "凡人测试书分宗篇", celebs = false),
-                )),
-                plan = if (firstAnchor) planResponse(emptyList()) else planResponse(listOf(
-                    planCard("3", "凡人测试书第八季", 80, "第8季"),
-                )),
-            )
-        }
-        val out = repo.search("凡人测试书", ContentFilter.ALL)
-        assertEquals(2, out.seasonLine.size)
-        // 季线（第 8 季 + 第 1 季，新→旧）在前，其余官网条目在后
-        assertEquals(listOf("3", "2", "1"), out.items.map { it.id })
-    }
-
-    @Test
-    fun planFailureFallsBackToWebsiteOrder() = runTest {
-        val repo = repository { request ->
-            route(request, search = searchPage(listOf(
-                seriesJson("9", "完全无关的剧", celebs = false),
-                seriesJson("1", "凡人测试书第二季", celebs = false),
-            )), plan = "")
-        }
-        val out = repo.search("凡人测试书", ContentFilter.ALL)
-        assertEquals(listOf("9", "1"), out.items.map { it.id })
-        assertTrue(out.seasonLine.isEmpty())
-    }
-
-    @Test
-    fun nonBaseSearchKeepsOfficialOrderAndSkipsPlan() = runTest {
-        val repo = repository { request ->
-            route(request, search = searchPage(listOf(
-                seriesJson("9", "完全无关的剧", celebs = false),
-                seriesJson("8", "凡人测试书第八季", celebs = false),
-            )))
-        }
-        val out = repo.search("测试书", ContentFilter.ALL)
-        assertEquals(listOf("9", "8"), out.items.map { it.id })
-        assertTrue(out.seasonLine.isEmpty())
-        // 搜索词不是任何 base：不应请求 plan
-        assertTrue(transport!!.urls.none { it.contains("/reading/bookapi/plan/") })
-    }
-
-    @Test
-    fun filterAppliesToLineAndRest() = runTest {
-        val repo = repository { request ->
-            route(request, search = searchPage(listOf(
+            route(request, search = searchBody(listOf(
                 seriesJson("1", "漫剧甲", celebs = false),
                 seriesJson("2", "真人乙", celebs = true),
             )))
@@ -217,37 +172,65 @@ class ContentRepositoryTest {
     }
 
     @Test
-    fun siteSearchUrlIsEncodedAndThrottledByTheTable() = runTest {
+    fun emptySearchListIsAnEmptyResultNotAnError() = runTest {
+        val repo = repository { request -> route(request, search = searchBody(emptyList())) }
+        val out = repo.search("不存在的剧", ContentFilter.ALL)
+        assertTrue(out.items.isEmpty())
+        assertEquals(1, out.totalPages)
+    }
+
+    @Test
+    fun seasonLineOfThePageOnlyContainsTheSameSeries() = runTest {
+        // 搜索页的排序开关只排"这一页里与关键词同系列的季"：跨页的季由服务端分页负责。
         val repo = repository { request ->
-            route(request, search = searchPage(listOf(seriesJson("1", "凡人测试书", celebs = false))))
+            route(request, search = searchBody(listOf(
+                seriesJson("3", "万妖图录传第三季", celebs = false),
+                seriesJson("9", "完全无关的剧第二季", celebs = false),
+                seriesJson("1", "万妖图录传第一季", celebs = false),
+            )))
+        }
+        val out = repo.search("万妖图录传", ContentFilter.ALL)
+        assertEquals(listOf("1", "3"), out.seasonLine.map { it.id })
+        assertEquals(3, out.items.size)
+    }
+
+    @Test
+    fun searchUrlShapeIsOwnedByTheEndpointTable() = runTest {
+        val repo = repository { request ->
+            route(request, search = searchBody(listOf(seriesJson("1", "凡人测试书", celebs = false))))
         }
         repo.search("凡人", ContentFilter.ALL)
         val first = transport!!.urls.first()
-        // URL 形状由端点表决定：path 占位符 + page=1，keyword 已编码
-        assertTrue(first.startsWith("https://hongguoduanju.com/search/%E5%87%A1%E4%BA%BA?page=1"))
+        assertTrue("官网搜索接口：$first", first.startsWith("https://hongguoduanju.com/api/search/result?"))
+        assertTrue(first.contains("aid=8662"))
+        assertTrue(first.contains("page=1"))
+    }
+
+    @Test
+    fun searchRejectsAnInvalidPage() = runTest {
+        val repo = repository { request -> route(request, search = searchBody(emptyList())) }
+        assertFailsWith<IllegalArgumentException> { repo.search("凡人", ContentFilter.ALL, page = 0) }
     }
 
     // ---------- 联想 ----------
 
     @Test
-    fun suggestParsesVideoCardsAndSkipsPlainWords() = runTest {
+    fun suggestReadsTheWebsiteSuggestList() = runTest {
         val repo = repository { request ->
             when {
-                request.url.contains("/reading/bookapi/search/suggest/") -> JSONObject()
-                    .put("code", 0)
-                    .put("data", JSONObject().put("query_result_v2", JSONArray(listOf(
-                        JSONObject().put("name", "凡人测试书").put("sug_abstract", "剧情·100万热度")
-                            .put("video_data", JSONObject().put("series_id", "1").put("cover", "https://img.example/a.jpg")),
-                        JSONObject().put("name", "凡人测试书第二季"),
-                        JSONObject().put("name", "杂项").put("video_data", JSONObject().put("series_id", "abc")),
-                    )))).toString()
+                request.url.contains("/incent_resource/suggestion") -> suggestBody(listOf(
+                    JSONObject().put("name", "凡人测试书").put("keyword", "凡人测试书")
+                        .put("video_data", JSONObject().put("series_id", "1").put("series_cover", "https://img.example/a.jpg")),
+                    JSONObject().put("name", "凡人修仙传").put("keyword", "凡人修仙传").put("video_data", JSONObject()),
+                ))
                 else -> throw IOException("不应请求其它端点")
             }
         }
         val list = repo.suggest("凡人")
-        assertEquals(1, list.size)
+        assertEquals(listOf("凡人测试书", "凡人修仙传"), list.map { it.keyword })
         assertEquals("1", list[0].target?.id)
-        assertEquals("剧情·100万热度", list[0].target?.badge)
+        assertTrue("空 video_data 只能当查询词", list[1].target == null)
+        assertTrue(transport!!.urls.first().contains("app_id=8662"))
     }
 
     @Test
@@ -286,19 +269,38 @@ class ContentRepositoryTest {
         assertFailsWith<IllegalArgumentException> { repo.detail("abc") }
     }
 
+    // ---------- 季线 ----------
+
+    @Test
+    fun seasonsMergesTheAnchorAndSortsOldToNew() = runTest {
+        val repo = repository { request ->
+            route(request, search = "", plan = planResponse(listOf(
+                planCard("3", "凡人测试书第八季", 80, "第8季"),
+                planCard("4", "凡人测试书第三季", 60, "第3季"),
+            )))
+        }
+        val anchor = Series(id = "1", title = "凡人测试书第二季", season = 2)
+        val line = repo.seasons(anchor.id, anchor)
+        assertEquals(listOf("1", "4", "3"), line.seasons.map { it.id })
+        assertEquals(listOf(2, 3, 8), line.seasons.map { it.season })
+    }
+
+    @Test
+    fun seasonsRequiresANumericId() = runTest {
+        val repo = repository { "" }
+        assertFailsWith<IllegalArgumentException> { repo.seasons("abc", null) }
+    }
+
     // ---------- 取流 ----------
 
     @Test
     fun streamSelectsCompatibleQualityAndReportsFallback() = runTest {
         val repo = repository { request ->
             when {
-                request.url.contains("/novel/player/multi_video_model/preload/") ->
-                    """{"Code":0,"data":{"123":{"video_model":{"fallback_api":"https://example.com/stream"}}}}"""
-                request.url.startsWith("https://example.com/") -> JSONObject()
-                    .put("video_info", JSONObject().put("data", JSONObject().put("video_list", JSONObject()
-                        .put("v0", JSONObject().put("vheight", 720).put("codec_type", "bytevc2").put("main_url", "https://example.com/bad"))
-                        .put("v1", JSONObject().put("vheight", 1080).put("codec_type", "bytevc1").put("main_url", "https://example.com/hevc")))))
-                    .toString()
+                request.url.contains("/novel/player/video_model/") -> videoModelResponse()
+                request.url.startsWith("https://example.com/") -> streamInfo(JSONObject()
+                    .put("v0", JSONObject().put("vheight", 720).put("codec_type", "bytevc2").put("main_url", "https://example.com/bad"))
+                    .put("v1", JSONObject().put("vheight", 1080).put("codec_type", "bytevc1").put("main_url", "https://example.com/hevc")))
                 else -> throw IOException("未预期的请求：${request.url}")
             }
         }
@@ -313,14 +315,11 @@ class ContentRepositoryTest {
     fun streamPrefersCompatibleWithinLimit() = runTest {
         val repo = repository { request ->
             when {
-                request.url.contains("/novel/player/multi_video_model/preload/") ->
-                    """{"Code":0,"data":{"123":{"video_model":{"fallback_api":"https://example.com/stream"}}}}"""
-                request.url.startsWith("https://example.com/") -> JSONObject()
-                    .put("video_info", JSONObject().put("data", JSONObject().put("video_list", JSONObject()
-                        .put("v0", JSONObject().put("vheight", 720).put("codec_type", "bytevc2").put("main_url", "https://example.com/bad"))
-                        .put("v1", JSONObject().put("vheight", 480).put("codec_type", "h264").put("main_url", "https://example.com/avc"))
-                        .put("v2", JSONObject().put("vheight", 1080).put("codec_type", "bytevc1").put("main_url", "https://example.com/hevc")))))
-                    .toString()
+                request.url.contains("/novel/player/video_model/") -> videoModelResponse()
+                request.url.startsWith("https://example.com/") -> streamInfo(JSONObject()
+                    .put("v0", JSONObject().put("vheight", 720).put("codec_type", "bytevc2").put("main_url", "https://example.com/bad"))
+                    .put("v1", JSONObject().put("vheight", 480).put("codec_type", "h264").put("main_url", "https://example.com/avc"))
+                    .put("v2", JSONObject().put("vheight", 1080).put("codec_type", "bytevc1").put("main_url", "https://example.com/hevc")))
                 else -> throw IOException("未预期的请求：${request.url}")
             }
         }
@@ -334,12 +333,9 @@ class ContentRepositoryTest {
     fun entirelyIncompatibleSourceFailsWithShape() = runTest {
         val repo = repository { request ->
             when {
-                request.url.contains("/novel/player/multi_video_model/preload/") ->
-                    """{"Code":0,"data":{"123":{"video_model":{"fallback_api":"https://example.com/stream"}}}}"""
-                request.url.startsWith("https://example.com/") -> JSONObject()
-                    .put("video_info", JSONObject().put("data", JSONObject().put("video_list", JSONObject()
-                        .put("v0", JSONObject().put("vheight", 720).put("codec_type", "ByteVC2").put("main_url", "https://example.com/bad")))))
-                    .toString()
+                request.url.contains("/novel/player/video_model/") -> videoModelResponse()
+                request.url.startsWith("https://example.com/") -> streamInfo(JSONObject()
+                    .put("v0", JSONObject().put("vheight", 720).put("codec_type", "ByteVC2").put("main_url", "https://example.com/bad")))
                 else -> throw IOException("未预期的请求：${request.url}")
             }
         }
@@ -347,16 +343,22 @@ class ContentRepositoryTest {
     }
 
     @Test
-    fun streamGoesThroughPreloadEndpointWithRandomStreamIdentity(): Unit = runTest {
-        val repo = repository { request ->
-            route(request, search = "")
-        }
+    fun streamUsesTheSingleVideoIdRouteWithTheInjectedIdentity() = runTest {
+        val repo = repository { request -> route(request, search = "") }
         repo.stream("123", 1080)
         val first = transport!!.urls.first()
-        assertTrue(first.startsWith("https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_model/preload/v1/"))
-        // 取流身份必须是随机十九位，不能混入内容端点的 71332 常量
-        val deviceId = Regex("device_id=(\\d{19})").find(first)?.groupValues?.get(1)
-        assertTrue("device_id 应是随机十九位：$first", deviceId != null && deviceId != "1905892595378490")
+        assertTrue(first.startsWith("https://api5-normal-sinfonlineb.fqnovel.com/novel/player/video_model/v1/"))
+        // 身份是注入的那一对；内置的固定值已被平台拉黑
+        assertTrue("必须带注入的 device_id：$first", first.contains("device_id=${identity.deviceId}"))
+        assertFalse("不能带内置身份：$first", first.contains(DeviceIdentity.LEGACY.deviceId))
+    }
+
+    @Test
+    fun streamRequestCarriesTheSingleVideoIdBody() {
+        // FakeTransport 不暴露 body；这里用端点表直接验形状（body 只认 video_id 单值）
+        val body = String(Endpoints["videoModel"].resolvedBody(mapOf("vid" to "123"))!!)
+        assertTrue(body.contains(""""video_id":"123""""))
+        assertFalse(body.contains("mixed_video_id_map"))
     }
 
     @Test

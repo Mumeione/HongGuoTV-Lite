@@ -28,8 +28,13 @@ sealed interface PlaybackState {
     /**
      * 本集结束且没有下一步。
      * [lastOfSeason] 决定文案说"本集已结束"还是"本季已结束"——差一集和差一季对用户是两件事。
+     * [seriesEnded] 再进一步：这已经是**整个系列最后一个已上线集**，要说"没有更新的了"。
      */
-    data class Ended(val index: Int, val lastOfSeason: Boolean) : PlaybackState
+    data class Ended(
+        val index: Int,
+        val lastOfSeason: Boolean,
+        val seriesEnded: Boolean = false,
+    ) : PlaybackState
 
     /** @param retry 自动重试的处境：决定文案与"要不要再等"。 */
     data class Failed(

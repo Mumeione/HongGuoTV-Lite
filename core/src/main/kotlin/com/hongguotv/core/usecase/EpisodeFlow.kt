@@ -15,8 +15,14 @@ sealed interface EndAction {
     /** 跨季：下一季是另一部作品（另一个 `series_id`），交给 `Navigator` 换路由。 */
     data class NextSeason(val series: Series) : EndAction
 
-    /** 停在"本集已结束"。没有下一集、没有下一季，或用户关了自动连播。 */
-    data object Stop : EndAction
+    /**
+     * 停住。
+     *
+     * [seriesEnded] 是"这一集就是整个系列最后一个已上线集"——它与"本季结束"是两件事：
+     * 前者要说"已全部播完、没有更新的了"，后者只是过渡到下一季或等更新。
+     * 详情页与播放页的文案都按这个事实分叉（`本季已结束` vs `全剧已播完`）。
+     */
+    data class Stop(val seriesEnded: Boolean = false) : EndAction
 }
 
 /**
@@ -33,12 +39,23 @@ object EpisodeFlow {
         autoNext: Boolean,
         line: SeasonLine?,
         currentSeriesId: String,
+        currentSeason: Int = 0,
     ): EndAction {
-        if (!autoNext) return EndAction.Stop
         val safeTotal = total.coerceAtLeast(0)
-        if (index < 0 || index >= safeTotal) return EndAction.Stop
-        if (index + 1 < safeTotal) return EndAction.Play(index + 1)
-        val next = line?.let { SeasonChain.next(it, currentSeriesId) }
-        return if (next == null) EndAction.Stop else EndAction.NextSeason(next)
+        if (index < 0 || index >= safeTotal) return EndAction.Stop()
+        if (index + 1 < safeTotal) {
+            return if (autoNext) EndAction.Play(index + 1) else EndAction.Stop()
+        }
+        // 已在最后一集：有没有下一季与"连播开关"无关——它决定的是文案，不是去向。
+        // 没有季线时只有"单季（季号 0）"才能下"全剧播完"的结论：一个带季号的剧
+        // 拿不到季线，只能说明不知道后面还有没有，不能冒充"没有更新的了"。
+        if (line == null) return EndAction.Stop(seriesEnded = currentSeason <= 0)
+        val next = SeasonChain.next(line, currentSeriesId)
+        if (next != null) {
+            return if (autoNext) EndAction.NextSeason(next) else EndAction.Stop()
+        }
+        // 季线里没有本季：说明不了"后面还有没有"，不冒充"全剧播完"
+        val known = line.seasons.any { it.id == currentSeriesId }
+        return EndAction.Stop(seriesEnded = known)
     }
 }

@@ -5,6 +5,7 @@ import com.hongguotv.core.port.ContentPort
 import com.hongguotv.core.port.MediaPort
 import com.hongguotv.core.port.Navigator
 import com.hongguotv.lite.data.artwork.ArtworkLoader
+import com.hongguotv.lite.data.content.AnonymousIdentity
 import com.hongguotv.lite.data.content.ContentRepository
 import com.hongguotv.lite.data.diagnostics.LogcatDiagnostics
 import com.hongguotv.lite.data.http.OkHttpTransport
@@ -50,10 +51,13 @@ internal class AppGraph(
     private val diagnostics = LogcatDiagnostics()
 
     /** 本地库：进度 / 收藏 / 设置三个端口的同一份事实（prefs 文件名 `native-library-v1` 不许改）。 */
-    private val library: PrefsLibrary = PrefsLibrary(SharedPreferencesStore(context))
+    private val store = SharedPreferencesStore(context)
+    private val library: PrefsLibrary = PrefsLibrary(store)
 
     private val content: ContentPort = ContentRepository(
         http = OkHttpTransport(http, diagnostics),
+        // 匿名设备身份：内置那对固定值已被平台拉黑（取流回 200 空体），这里用本机自己的一对。
+        identity = AnonymousIdentity.of(store),
         diagnostics = diagnostics,
     )
 

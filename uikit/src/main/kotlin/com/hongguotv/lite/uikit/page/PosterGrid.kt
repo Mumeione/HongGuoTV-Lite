@@ -67,6 +67,14 @@ class PosterGrid internal constructor(
      */
     var cardHeightLimit: Int = 0
 
+    /**
+     * 本网格**最多画几张**（0 = 令牌默认 `pageCardLimit`）。
+     *
+     * 搜索结果按"两行 10 张"的产品口径用 10：上游一页就是 10 条，翻页交给 PagerRow，
+     * 不把 30 张堆在同一屏里。
+     */
+    var itemLimit: Int = 0
+
     /** 目标卡宽覆盖（dp）：历史页两行 6 列这类"产品口径"网格用；0 = 令牌默认（149）。 */
     var cardWidthTargetDp: Int = 0
 
@@ -100,7 +108,7 @@ class PosterGrid internal constructor(
     }
 
     fun render(items: List<CardItem>): GridRendered {
-        val limited = items.take(tokens.pageCardLimit)
+        val limited = items.take(if (itemLimit > 0) itemLimit else tokens.pageCardLimit)
         val ids = limited.map { it.id }
         val gap = dp(if (columnGapDp > 0) columnGapDp else tokens.metrics.cardGap)
         val rowGap = dp(if (rowGapDp > 0) rowGapDp else tokens.metrics.cardGap)
@@ -118,17 +126,21 @@ class PosterGrid internal constructor(
         val available = (ui.availableWidth(width) - paddingLeft - paddingRight).coerceAtLeast(1)
         val cardWidth = GridGeometry.cardWidth(available, columns, gap)
 
+        // 可用高度是给整个网格的：两行 10 张要先扣行距再均分，否则第二行被切掉
+        val rows = GridGeometry.rowsOf(limited.size, columns).size
+        val limit = GridGeometry.cardHeightForRows(cardHeightLimit, rows, rowGap)
+
         val reusable = ids == lastIds && columns == lastColumns && cardWidth == lastCardWidth && cards.isNotEmpty()
         if (reusable) {
             limited.forEach { item ->
                 cards[item.id]?.let { card ->
-                    card.heightLimit(cardLimit())
+                    card.heightLimit(limit)
                     card.persistCover(persistCovers)
                     card.bind(item)
                 }
             }
         } else {
-            rebuild(limited, columns, cardWidth, gap, rowGap)
+            rebuild(limited, columns, cardWidth, gap, rowGap, limit)
             lastIds = ids
             lastColumns = columns
             lastCardWidth = cardWidth
@@ -140,9 +152,6 @@ class PosterGrid internal constructor(
         return GridRendered(keys = ids.map(::keyOf), views = views, columns = columns)
     }
 
-    /** 高度上限（像素）；0 = 不限制。 */
-    private fun cardLimit(): Int = cardHeightLimit.coerceAtLeast(0)
-
     /** 把"哪张卡正亮着"同步给全部卡。焦点落到本网格之外时（全暗）由下一次 render 修正。 */
     private fun applySpotlight() {
         if (!spotlight) {
@@ -153,7 +162,7 @@ class PosterGrid internal constructor(
         cards.forEach { (id, card) -> card.dimmed = id != focusedId }
     }
 
-    private fun rebuild(limited: List<CardItem>, columns: Int, cardWidth: Int, gap: Int, rowGap: Int) {
+    private fun rebuild(limited: List<CardItem>, columns: Int, cardWidth: Int, gap: Int, rowGap: Int, limit: Int) {
         // 重建会换掉一批 View 实例：先把"哪一张正被聚焦"记下来，建完立刻要回去。
         // 不这么做的话，框架会把焦点交给页面里第一个可聚焦项（顶栏），而那次变化会被
         // 焦点记忆记下来——「切完 tab / 搜索完成后光标跑到顶上」就是这么来的。
@@ -170,7 +179,7 @@ class PosterGrid internal constructor(
             val row = ui.rowTop()
             repeat(count) { indexInRow ->
                 val item = limited[cursor++]
-                val card = cards.getOrPut(item.id) { newCard(cardWidth) }
+                val card = cards.getOrPut(item.id) { newCard(cardWidth, limit) }
                 card.persistCover(persistCovers)
                 card.bind(item)
                 row.addView(
@@ -192,10 +201,10 @@ class PosterGrid internal constructor(
         if (focusedId != null) cards[focusedId]?.requestFocus()
     }
 
-    private fun newCard(widthPx: Int): PosterCard = PosterCard(
+    private fun newCard(widthPx: Int, limit: Int): PosterCard = PosterCard(
         ui = ui,
         widthPx = widthPx,
-        maxHeightPx = cardLimit(),
+        maxHeightPx = limit,
         stripHeightDp = stripHeightDp,
         coverHeightDp = coverHeightDp,
     ).apply {

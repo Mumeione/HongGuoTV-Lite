@@ -29,24 +29,84 @@ fun navKey(index: Int): FocusKey = FocusKey("$NAV_KEY_PREFIX$index")
  * 一个焦点段：内部按 [columns] 分列，从上到下排。
  *
  * 两种常见形态：
- * - 水平一行（顶栏、筛选、搜索动作）：`columns = keys.size`，只有一行。
+ * - 水平一行（顶栏、筛选、搜索动作）：`columns` 是这一行**视觉上的格子数**，只有一行。
  * - 网格（卡片区）：`columns` 是实际列数，末行可以不满。
+ *
+ * **槽位可以为空**（`null`）：禁用的按钮仍然占着它的位置（「上一组」在第一页不可用、
+ * 但「下一组」仍在第二列）。只放可聚焦项、把禁用项从列表里删掉，会让"从翻组键往下"
+ * 按错误的列号映射到别的卡上——维护者实测的"跳位置"就是这个。
  *
  * **空段不允许存在**：空段会成为"按进去出不来"的隐形区域。调用方应整段省略。
  */
-data class FocusSection(val keys: List<FocusKey>, val columns: Int) {
+data class FocusSection(
+    val slots: List<FocusKey?>,
+    val columns: Int,
+    /**
+     * 整段"往下/往上"的显式出口（只作用于本段的末行/首行）。
+     *
+     * 用在**控件宽度与网格不一致**的行上：搜索页的片库胶囊只占屏幕左边一小段，
+     * 按列号比例映射会让第二、三个胶囊落到「搜索」按钮上；用户按下的意图是"去搜索框"。
+     * 与列号无关的出口只有页面知道，所以由页面指名。
+     */
+    val down: FocusKey? = null,
+) {
     init {
-        require(keys.isNotEmpty()) { "焦点段不能为空：调用方应整段省略，而不是传空列表" }
+        require(slots.any { it != null }) { "焦点段不能为空：调用方应整段省略，而不是传空列表" }
         require(columns >= 1) { "焦点段的列数至少为 1，实际 $columns" }
     }
 
-    val rows: Int get() = (keys.size + columns - 1) / columns
+    /** 可聚焦项（不含空槽）。 */
+    val keys: List<FocusKey> = slots.filterNotNull()
 
-    /** 某一行的 key 下标区间。行越界时返回空区间。 */
+    val rows: Int get() = (slots.size + columns - 1) / columns
+
+    /** 某一行的槽位下标区间。行越界时返回空区间。 */
     fun rowRange(row: Int): IntRange {
         val start = row * columns
-        val end = minOf(keys.size, start + columns) - 1
+        val end = minOf(slots.size, start + columns) - 1
         return if (start <= end) start..end else IntRange.EMPTY
+    }
+
+    /** 这一行里离 [column] 最近的可用项：先看本格，再左右各退一格。 */
+    fun nearestInRow(row: Int, column: Int): FocusKey? {
+        val range = rowRange(row)
+        if (range.isEmpty()) return null
+        val wanted = range.first + column
+        // 目标列可能落在末行之外（末行不满）：搜索半径要覆盖到整行的宽度
+        for (distance in 0..columns) {
+            listOf(wanted - distance, wanted + distance).forEach { index ->
+                if (index in range) slots[index]?.let { return it }
+            }
+        }
+        return null
+    }
+
+    /** 同一行里向左的下一个可用项。 */
+    fun previousInRow(row: Int, column: Int): FocusKey? {
+        val range = rowRange(row)
+        if (range.isEmpty()) return null
+        for (index in (range.first + column - 1) downTo range.first) {
+            slots.getOrNull(index)?.let { return it }
+        }
+        return null
+    }
+
+    /** 同一行里向右的下一个可用项。 */
+    fun nextInRow(row: Int, column: Int): FocusKey? {
+        val range = rowRange(row)
+        if (range.isEmpty()) return null
+        for (index in (range.first + column + 1)..range.last) {
+            slots.getOrNull(index)?.let { return it }
+        }
+        return null
+    }
+
+    /** 从行的左缘（或右缘）找第一个可用项。 */
+    fun edgeOfRow(row: Int, fromStart: Boolean): FocusKey? {
+        val range = rowRange(row)
+        if (range.isEmpty()) return null
+        val indices = if (fromStart) range else range.reversed()
+        return indices.firstNotNullOfOrNull { slots.getOrNull(it) }
     }
 }
 
@@ -126,29 +186,33 @@ class FocusGraph private constructor(
                 val columns = section.columns
                 order.addAll(section.keys)
 
-                section.keys.forEachIndexed { index, key ->
+                section.slots.forEachIndexed { index, key ->
+                    if (key == null) return@forEachIndexed
                     val row = index / columns
                     val column = index % columns
-                    val range = section.rowRange(row)
 
                     // 行首/行尾夹住自己：按左键不跨行，也不交给系统做几何猜测。
                     // 行首按左键的唯一出口是侧段（竖排在屏幕左缘）——优先落页面指名的当前 tab，
                     // 没指名才按竖直位置选侧栏项。
                     val left = if (column > 0) {
-                        section.keys[index - 1]
+                        section.previousInRow(row, column)
+                            ?: plan.side?.let { side -> leftIntoSide(plan, side, row, section.rows) }
+                            ?: key
                     } else {
                         plan.side?.let { side -> leftIntoSide(plan, side, row, section.rows) } ?: key
                     }
-                    val right = if (index < range.last) section.keys[index + 1] else key
+                    val right = section.nextInRow(row, column) ?: key
                     val up = if (row > 0) {
-                        nearestInRow(section, row - 1, column)
+                        section.nearestInRow(row - 1, column)
+                            ?: crossSection(plan, sectionIndex, -1, column, columns, key)
                     } else {
                         crossSection(plan, sectionIndex, -1, column, columns, key)
                     }
                     val down = if (row < section.rows - 1) {
-                        nearestInRow(section, row + 1, column)
+                        section.nearestInRow(row + 1, column)
+                            ?: crossSection(plan, sectionIndex, 1, column, columns, key)
                     } else {
-                        crossSection(plan, sectionIndex, 1, column, columns, key)
+                        section.down ?: crossSection(plan, sectionIndex, 1, column, columns, key)
                     }
                     require(!map.containsKey(key)) {
                         "焦点 key 重复：${key.value}。同一个 key 不能出现在两个位置，否则焦点会指向两处"
@@ -157,13 +221,6 @@ class FocusGraph private constructor(
                 }
             }
             return FocusGraph(map, order)
-        }
-
-        /** 同一段内上下移动：目标行的同一列；该格不存在时取最近的一格（末行不满的情形）。 */
-        private fun nearestInRow(section: FocusSection, row: Int, column: Int): FocusKey {
-            val range = section.rowRange(row)
-            val wanted = range.first + column
-            return section.keys[minOf(wanted, range.last)]
         }
 
         /**
@@ -192,7 +249,8 @@ class FocusGraph private constructor(
             val width = range.last - range.first + 1
             val center = (column + 0.5f) * width / columns - 0.5f
             val offset = center.toInt().coerceIn(0, width - 1)
-            return target.keys[range.first + offset]
+            // 目标行可能带着空槽（禁用的翻组键）：取离这一列最近的可用项
+            return target.nearestInRow(row, offset) ?: self
         }
 
         /**
@@ -215,8 +273,7 @@ class FocusGraph private constructor(
             val rows = target.rows
             val center = (sourceRow + 0.5f) * rows / sourceRows - 0.5f
             val row = center.toInt().coerceIn(0, rows - 1)
-            val range = target.rowRange(row)
-            return if (fromStart) target.keys[range.first] else target.keys[range.last]
+            return target.edgeOfRow(row, fromStart) ?: target.keys.first()
         }
     }
 }

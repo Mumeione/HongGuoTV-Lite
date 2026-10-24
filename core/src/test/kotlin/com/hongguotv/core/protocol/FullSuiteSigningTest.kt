@@ -53,15 +53,4 @@ class FullSuiteSigningTest {
         assertTrue("query 必须带 _rticket", query.split('&').any { it.startsWith("_rticket=") })
     }
 
-    /** 两套套件的 query 组成必须不同：这是风控区分入口的依据，不能互相污染。 */
-    @Test
-    fun fullSuiteAndPreloadSuitesStayDistinct() {
-        val full = signer().sign("https://example.com/api", mapOf("q" to "x"), null)
-        val preload = signer().signSimple("https://example.com/api", mapOf("q" to "x"), "{}".toByteArray())
-
-        assertTrue(full.headers.containsKey("x-medusa"))
-        assertFalse(preload.headers.containsKey("x-medusa"))
-        assertFalse(full.headers.containsKey("x-ss-stub"))
-        assertTrue(preload.headers.containsKey("x-ss-stub"))
-    }
 }

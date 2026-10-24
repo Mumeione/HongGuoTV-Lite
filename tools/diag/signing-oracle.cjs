@@ -65,68 +65,6 @@ for (let variant = 0; variant < 12; variant += 1) {
 }
 fs.writeFileSync(path.join(resDir, 'signing.json'), JSON.stringify(rows, null, 2) + '\n');
 
-// ── 2. preload 简化签名（0x40 0x1c 变体）：端到端向量 ────────────────────────
-// 这是唯一还活着的取流路径所用签名，旧仓库里此前没有任何向量。
-// 每行的 query 与 Kotlin 里 signSimple 构造出来的完全一致，因此测试可以直接断言
-// 请求 URL 和 x-gorgon / x-ss-stub 头的**值**，而不必绕过接口去测内部函数。
-const enc = (v) => encodeURIComponent(String(v));
-const joinQuery = (pairs) => pairs.map(([k, v]) => `${enc(k)}=${enc(v)}`).join('&');
-
-const preloadCases = [
-    { body: '', digits: 18 },
-    { body: '{}', digits: 19 },
-    { body: '{"biz_param":{"detail_page_version":0,"device_level":3}}', digits: 20 },
-    { body: JSON.stringify({ x: 'y'.repeat(200) }), digits: 18 },
-    { body: JSON.stringify({ x: '短剧'.repeat(30) }), digits: 19 },
-];
-const preloadRows = [];
-for (let i = 0; i < 10; i += 1) {
-    const c = preloadCases[i % preloadCases.length];
-    // 让 ts 跨不同量级与进位，避免所有行落在同一段取值
-    const ticket = 1_750_000_000_000 + i * 86_400_123;
-    const ts = Math.floor(ticket / 1000);
-    const digits = c.digits;
-    const values = [
-        ['aid', '8662'],
-        ['app_name', i % 5 === 4 ? '短剧阅读' : 'novelread'], // 含一个非 ASCII 值，验证两边编码口径一致
-        ['version_code', '73532'],
-        ['version_name', '7.3.5.32'],
-        ['manifest_version_code', '73532'],
-        ['update_version_code', '73532'],
-        ['channel', 'update_64'],
-        ['device_platform', 'android'],
-        ['os', 'android'],
-        ['ssmix', 'a'],
-        ['device_type', '25053RT47C'],
-        ['device_brand', 'Redmi'],
-        ['language', 'zh'],
-        ['os_api', '36'],
-        ['os_version', '16'],
-        ['resolution', '1280*2772'],
-        ['dpi', '520'],
-        ['ac', 'wifi'],
-        ['device_id', ('7' + String(i % 10).repeat(digits - 1)).slice(0, digits)],
-        ['iid', ('8' + String((i + 5) % 10).repeat(digits - 1)).slice(0, digits)],
-    ];
-    const body = Buffer.from(c.body);
-    // signSimple 把 _rticket 追加在末尾，值为毫秒
-    const query = joinQuery([...values, ['_rticket', String(ticket)]]);
-    preloadRows.push({
-        ticket,
-        ts,
-        base: 'https://example.com/novel/player/multi_video_model/preload/v1/',
-        values,
-        body: c.body,
-        query,
-        gorgon: oracle.legacyGorgon(query, body, ts),
-        stub: crypto.createHash('md5').update(body).digest('hex').toUpperCase(),
-    });
-}
-fs.writeFileSync(
-    path.join(resDir, 'preload-signing.json'),
-    JSON.stringify({ variant: 'x-gorgon/0x40-0x1c', rows: preloadRows }, null, 2) + '\n',
-);
-
 // ── 3. 来源追溯（放在 tools 下，不进测试资源；不写时间戳以保证重跑无 diff）────────
 const sha256 = crypto.createHash('sha256').update(source).digest('hex');
 fs.writeFileSync(
@@ -138,6 +76,5 @@ fs.writeFileSync(
     }, null, 2) + '\n',
 );
 
-console.log(`✓ signing.json         ${rows.length} 组（完整套件）`);
-console.log(`✓ preload-signing.json ${preloadRows.length} 组（preload 简化签名，端到端）`);
-console.log(`✓ 来源 sha256          ${sha256.slice(0, 16)}…`);
+console.log(`✓ signing.json ${rows.length} 组（完整套件）`);
+console.log(`✓ 来源 sha256  ${sha256.slice(0, 16)}…`);

@@ -46,7 +46,7 @@ internal class PlayerNotice(
 
     private val tokens: Tokens = ui.tokens
 
-    /** 画面中央的错误大字。失败用 danger 一档（Colors.danger 的唯一用途），结束/暂停用正文色。 */
+    /** 画面中央的大字（错误 / 结束 / 定时停止）。一律正文色——红字在深色画面上像系统报错。 */
     private val headlineView: TextView = ui.text("", tokens.type.display).apply {
         gravity = Gravity.CENTER
         maxLines = 3
@@ -160,9 +160,8 @@ internal class PlayerNotice(
         view.visibility = View.VISIBLE
         headlineView.visibility = View.VISIBLE
         headlineView.text = headline
-        headlineView.setTextColor(
-            if (loadFailure != null || state is PlaybackState.Failed) tokens.colors.danger else tokens.colors.text,
-        )
+        // 正文色，不用红：电视上红字在深色画面里既刺眼又像"系统报错"（维护者口径：改白字）
+        headlineView.setTextColor(tokens.colors.text)
         titleView.text = title
         // 原因只在"主句没说清"时给：解码失败解释为什么换清晰度有用，渠道问题说清不是用户的网
         val reason = if (loadFailure == null) (state as? PlaybackState.Failed)?.let { PlayerText.failureHint(it.failure) } else null

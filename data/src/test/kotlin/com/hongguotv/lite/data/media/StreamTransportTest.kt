@@ -39,7 +39,7 @@ class StreamTransportTest {
             return info
         }
 
-        override suspend fun search(keyword: String, filter: ContentFilter): SearchResult = error("未使用")
+        override suspend fun search(keyword: String, filter: ContentFilter, page: Int): SearchResult = error("未使用")
         override suspend fun suggest(keyword: String): List<Suggestion> = error("未使用")
         override suspend fun detail(seriesId: String): Detail = error("未使用")
         override suspend fun seasons(seriesId: String, anchor: Series?): SeasonLine = error("未使用")

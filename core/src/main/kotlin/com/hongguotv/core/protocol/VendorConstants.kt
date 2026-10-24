@@ -2,11 +2,17 @@
 package com.hongguotv.core.protocol
 
 internal object VendorConstants {
+    /** x-medusa 的环境段与 query 的 version_name 必须同源（71332 / 7.1.3.32）。 */
+    const val VERSION_NAME = "7.1.3.32"
     const val VIDEO_UA = "com.phoenix.read/73532 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3; Cronet/TTNetVersion:04657795 2026-01-23 QuicVersion:c67e9834 2025-09-08)"
     const val APP_UA = "com.phoenix.read/72232 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3)"
-    val device = linkedMapOf(
-        "iid" to "1905892595382586",
-        "device_id" to "1905892595378490",
+    /**
+     * 内容端点（71332）的公共 query。**身份是参数，不是常量**：那对内置值已被平台拉黑，
+     * 生产必须注入 [DeviceIdentity.anonymous] 生成的一对；这里保留无参形式只为表形状测试。
+     */
+    fun device(identity: DeviceIdentity = DeviceIdentity.LEGACY): LinkedHashMap<String, String> = linkedMapOf(
+        "iid" to identity.installId,
+        "device_id" to identity.deviceId,
         "ac" to "wifi",
         "channel" to "update_64",
         "aid" to "8662",

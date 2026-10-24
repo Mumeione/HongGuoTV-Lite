@@ -215,13 +215,15 @@ internal class PlayerPage(
     }
 
     /**
-     * 季线预取：跨季连播要读 `FavoritesPort.seasonLine`，而它只在"收藏过的剧 + 详情页收藏时"才落库。
-     * 从历史里直接"继续播放"的路径不会经过详情页，这里补一次，失败静默（少连一季，不该打断播放）。
+     * 季线预取：跨季连播要读 `FavoritesPort.seasonLine`，而缓存只在"详情页收藏时"才落库。
+     * 从历史/搜索直接"继续播放"的路径不会经过详情页，这里补一次，失败静默（少连一季，不该打断播放）。
+     *
+     * **不要求已收藏**：未收藏的多季剧同样要跨季续播；而且拿不到季线时
+     * 播放器无法判断"是不是最后一季"，片尾就不敢说"全剧已播完"。
      */
     private fun preloadSeasonLine(data: Detail) {
         val key = SeasonKeys.seasonKey(data.series.title)
         if (key.isBlank()) return
-        if (!host.favorites.isFavorite(key)) return
         if (host.favorites.seasonLine(key) != null) return
         // 读请求挂页面作用域：用户离开播放页就不必再为"也许有下一季"发请求
         scope.launch {

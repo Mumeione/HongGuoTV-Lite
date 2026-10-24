@@ -18,12 +18,10 @@ node tools/diag/signing-oracle.cjs --source /path/to/hongguo.cjs
 | 文件 | 内容 | 谁在用 |
 | --- | --- | --- |
 | `core/src/test/resources/signing.json` | 完整签名套件 12 组：hash / gorgon / helios / medusa | `SignerTest` |
-| `core/src/test/resources/preload-signing.json` | preload 简化签名 10 组，**端到端**：请求参数、query、x-gorgon、x-ss-stub | `PreloadSigningTest` |
 | `tools/diag/signing.provenance.json` | 参考实现的 sha256（不含时间戳，重跑不产生 diff） | 人看 |
 
-`preload-signing.json` 之所以存**参数表**而不只存签名结果：测试要拿它去调用
-`Signer.signSimple()`，再断言产出的 URL 与头值。这样测的是整条路径，
-而不是绕过接口去测内部函数——后者在「接口接错线」时会照样全绿。
+2026-10-24 起只剩完整套件：`preload` 简化签名随失效端点一起删除（取流改走
+`/novel/player/video_model/v1/` + 完整套件），向量文件与它的测试已移除。
 
 ### 为什么需要它
 
@@ -36,7 +34,7 @@ node tools/diag/signing-oracle.cjs --source /path/to/hongguo.cjs
 ### 注意
 
 - 输出是确定性的：固定了 `Date.now` 与 `Math.random`，时间戳采用显式小端写入，
-  同一份参考实现每次产出一致。若重跑后 `preload-signing.json` 大面积变化，
+  同一份参考实现每次产出一致。若重跑后 `signing.json` 大面积变化，
   先比对 `signing.provenance.json` 的 sha256，确认参考实现本身是否被改过。
 - 只生成 hash branch 0 的向量：`sign()` 会调整 `_rticket` 直到落在 branch 0。
   参考实现若只吐出别的 branch，说明它的输入构造变了，需要同步调整脚本。

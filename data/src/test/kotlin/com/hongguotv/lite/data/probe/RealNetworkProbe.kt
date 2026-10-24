@@ -7,6 +7,7 @@ import com.hongguotv.core.model.SeasonLine
 import com.hongguotv.core.model.StreamInfo
 import com.hongguotv.core.model.Suggestion
 import com.hongguotv.core.port.ContentPort
+import com.hongguotv.core.protocol.DeviceIdentity
 import com.hongguotv.core.port.DiagnosticsPort
 import com.hongguotv.core.port.MediaStream
 import com.hongguotv.lite.data.content.ContentRepository
@@ -39,18 +40,24 @@ class RealNetworkProbe {
             val diagnostics = PrintingDiagnostics()
             val content = ContentRepository(
                 http = OkHttpTransport(diagnostics = diagnostics),
+                // 与生产同一条路：匿名身份（内置那对已被拉黑，取流会回 200 空体）
+                identity = DeviceIdentity.anonymous(),
                 diagnostics = diagnostics,
             )
             val report = ProbeReport()
 
-            // 1) 搜索：官网 SSR（无签名）→ 卡片
-            // 选一个有多季的系列：季线（plan）只有这时才真的走多卡片分支。
+            // 1) 搜索：官网 /api/search/result（无签名、服务端分页、一页 10 条）
             val keyword = "万妖图录传"
             val found = report.step<SearchResult>("SEARCH", keyword) { content.search(keyword, ContentFilter.ALL) }
             found?.let { result ->
-                report.line("  items=${result.items.size} seasonLine=${result.seasonLine.size}")
-                result.items.take(5).forEach { report.line("  - ${it.id} ${it.title}") }
+                report.line(
+                    "  page=${result.page}/${result.totalPages} total=${result.totalCount} " +
+                        "items=${result.items.size} seasonLine=${result.seasonLine.size}",
+                )
+                result.items.forEach { report.line("  - ${it.id} ${it.title}") }
             }
+            report.step<SearchResult>("SEARCH#2", keyword) { content.search(keyword, ContentFilter.ALL, page = 2) }
+                ?.let { second -> second.items.forEach { report.line("  - p2 ${it.id} ${it.title}") } }
 
             // 搜索首条可能是未上线季（episode_cnt=0，detail 没有 video_list）。
             // 页面会拦住这类卡片（SearchPage.openResult），探针照同样的口径只点已上线的。
@@ -75,8 +82,8 @@ class RealNetworkProbe {
                 it.seasons.take(5).forEach { s -> report.line("  - ${s.id} ${s.title}") }
             }
 
-            // 4) 取流：preload 简化签名 → fallback → 解密
-            //    上游会随机回 200 空体（风控抽样），探针里重试几次，先确认这条链路本身通不通。
+            // 4) 取流：video_model（video_id 单值）→ fallback → 解密
+            //    身份被拉黑时回 200 空体；这里用匿名身份，重试几次排除偶发网络抖动。
             val vid = detail?.episodes?.firstOrNull()?.vid ?: return@runBlocking
             var stream: StreamInfo? = null
             for (attempt in 1..4) {

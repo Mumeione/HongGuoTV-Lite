@@ -35,6 +35,23 @@ object GridGeometry {
         return width.coerceAtLeast(1)
     }
 
+    /**
+     * 多行网格里**单张卡**的高度上限。
+     *
+     * 可用高度是给"整个网格"的：两行 10 张要都落在首屏内，就得先扣掉行距再均分。
+     * 直接把可用高度当单卡上限会让第二行被屏幕切掉（搜索结果实测）。
+     *
+     * @param availablePx 内容区给整个网格的高度；0 表示不限制
+     * @param rows 行数（至少 1）
+     * @param rowGapPx 行距
+     */
+    fun cardHeightForRows(availablePx: Int, rows: Int, rowGapPx: Int): Int {
+        if (availablePx <= 0) return 0
+        val safeRows = rows.coerceAtLeast(1)
+        val gaps = rowGapPx.coerceAtLeast(0) * (safeRows - 1)
+        return ((availablePx - gaps) / safeRows).coerceAtLeast(1)
+    }
+
     /** 每行的项数，末行可以不满。空列表返回空。 */
     fun rowsOf(itemCount: Int, columns: Int): List<Int> {
         require(columns >= 1) { "列数至少为 1，实际 $columns" }

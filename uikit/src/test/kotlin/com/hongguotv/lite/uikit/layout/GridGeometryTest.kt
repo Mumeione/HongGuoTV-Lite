@@ -49,6 +49,18 @@ class GridGeometryTest {
     }
 
     @Test
+    fun `card height is shared by all rows`() {
+        // 两行、行距 14：可用 600 → 每张 (600-14)/2 = 293
+        assertEquals(293, GridGeometry.cardHeightForRows(availablePx = 600, rows = 2, rowGapPx = 14))
+        // 一行时就是可用高度本身
+        assertEquals(600, GridGeometry.cardHeightForRows(availablePx = 600, rows = 1, rowGapPx = 14))
+        // 0 = 不限制（页面还没量到视口）
+        assertEquals(0, GridGeometry.cardHeightForRows(availablePx = 0, rows = 2, rowGapPx = 14))
+        // 极端窄的高度也不能给出 0：视图高度为 0 等于卡片消失
+        assertEquals(1, GridGeometry.cardHeightForRows(availablePx = 10, rows = 3, rowGapPx = 14))
+    }
+
+    @Test
     fun `invalid configuration is rejected loudly`() {
         assertTrue(runCatching { GridGeometry.columns(100, 150, 14, minColumns = 0, maxColumns = 6) }.isFailure)
         assertTrue(runCatching { GridGeometry.columns(100, 150, 14, minColumns = 6, maxColumns = 3) }.isFailure)

@@ -1,6 +1,6 @@
 {
-  "version": 2,
-  "note": "上游协议形状的唯一事实来源。改端点、改参数、改 body 结构、改变签名策略，都只改这个文件。Kotlin 侧由 protocol/Endpoints.kt 读取。query 用数组而不是对象：签名覆盖 query 的字节顺序，顺序是协议的一部分，不能被 JSON 对象的重排吞掉。模板里的 $name 全部是占位符（path/query/body 通用），body 中不要出现字面量 $；path 占位符的值要求调用方已按 urlEncode 编码。",
+  "version": 3,
+  "note": "上游协议形状的唯一事实来源。改端点、改参数、改 body 结构、改变签名策略，都只改这个文件。Kotlin 侧由 protocol/Endpoints.kt 读取。query 用数组而不是对象：签名覆盖 query 的字节顺序，顺序是协议的一部分，不能被 JSON 对象的重排吞掉。模板里的 $name 全部是占位符（path/query/body 通用），body 中不要出现字面量 $；path 占位符的值要求调用方已按 urlEncode 编码，query 占位符由 PlainSigner 统一编码、调用方传原文。",
   "hosts": {
     "content": "https://api5-normal-sinfonlinea.fqnovel.com",
     "stream": "https://api5-normal-sinfonlineb.fqnovel.com",
@@ -8,19 +8,26 @@
   },
   "endpoints": {
     "suggest": {
-      "host": "content",
-      "path": "/reading/bookapi/search/suggest/v:version/",
+      "host": "site",
+      "path": "/incent_resource/suggestion",
       "method": "GET",
-      "signer": "full",
-      "queryProfile": "device",
+      "signer": "none",
+      "queryProfile": "none",
       "query": [
-        ["q", "$keyword"],
-        ["search_source", "1"],
-        ["tab_name", "feed"],
-        ["count", "0"],
-        ["need_preload", "true"]
+        [
+          "app_id",
+          "8662"
+        ],
+        [
+          "query",
+          "$keyword"
+        ],
+        [
+          "count",
+          "10"
+        ]
       ],
-      "note": "联想词允许不完整（实测漏第六、第十季），只作输入辅助，不作为季数上线的判据。"
+      "note": "官网联想词：免签名、免设备注册、约 70ms。app_id 必填（缺了 500），query 空值也 500；count 有效上限 20。video_data 是卡片，空对象表示只能当查询词。"
     },
     "seasonLine": {
       "host": "content",
@@ -29,13 +36,28 @@
       "signer": "full",
       "queryProfile": "device",
       "query": [
-        ["scene", "10"],
-        ["from", "detail_page_more_related"],
-        ["book_id", "$seriesId"],
-        ["limit", "0"],
-        ["offset", "0"]
+        [
+          "scene",
+          "10"
+        ],
+        [
+          "from",
+          "detail_page_more_related"
+        ],
+        [
+          "book_id",
+          "$seriesId"
+        ],
+        [
+          "limit",
+          "0"
+        ],
+        [
+          "offset",
+          "0"
+        ]
       ],
-      "note": "详情页「相关作品」cell（show_type=547）。季数排序的唯一事实来源；同 IP 卡片解析但不展示。"
+      "note": "详情页「相关作品」cell（show_type=547）。季数排序的唯一事实来源；同 IP 卡片解析但不展示。设备身份必须是未被拉黑的一对（见 DeviceIdentity）。"
     },
     "detail": {
       "host": "content",
@@ -45,49 +67,39 @@
       "queryProfile": "device",
       "query": [],
       "body": "{\"biz_param\":{\"detail_page_version\":1,\"disable_digg_stat\":false,\"disable_video_relate_book\":false,\"need_all_video_definition\":false,\"need_mp4_align\":false,\"screen_width_px\":\"1920\",\"source\":5,\"use_os_player\":false,\"use_server_dns\":false,\"video_id_type\":1},\"series_id\":\"$seriesId\"}",
-      "note": "全集顺序即播出顺序，本地不重排。官网详情页 2026-10 起全网 404，不再回退。"
+      "note": "全集顺序即播出顺序，本地不重排。官网详情页 2026-10-23 起只下发前 10 集（visible_episode_cnt），所以分集清单只能用这个接口。"
     },
     "siteSearch": {
       "host": "site",
-      "path": "/search/$keyword",
+      "path": "/api/search/result",
       "method": "GET",
       "signer": "none",
       "queryProfile": "none",
       "query": [
-        ["page", "1"]
+        [
+          "aid",
+          "8662"
+        ],
+        [
+          "query",
+          "$keyword"
+        ],
+        [
+          "page",
+          "$page"
+        ]
       ],
-      "note": "官网 SSR 搜索：HTML 响应、无签名，每词固定前 10 条、无法翻页。$keyword 必须先经 urlEncode。调用方必须走 data 层的统一节流（最少间隔 400ms），否则补搜多季时会触发限流。"
+      "note": "官网 2026-10-23 起换 React SPA，SSR 的 _ROUTER_DATA 整个不再下发；这是页面自己调的接口（HTML 里 search.*.js）。page 有效、一页固定 10 条，totalPages 可达 21。keyword 传原文，编码由 PlainSigner 统一做。"
     },
-    "preload": {
+    "videoModel": {
       "host": "stream",
-      "path": "/novel/player/multi_video_model/preload/v1/",
+      "path": "/novel/player/video_model/v1/",
       "method": "POST",
-      "signer": "preload",
-      "queryProfile": "none",
-      "query": [
-        ["aid", "8662"],
-        ["app_name", "novelread"],
-        ["version_code", "73532"],
-        ["version_name", "7.3.5.32"],
-        ["manifest_version_code", "73532"],
-        ["update_version_code", "73532"],
-        ["channel", "update_64"],
-        ["device_platform", "android"],
-        ["os", "android"],
-        ["ssmix", "a"],
-        ["device_type", "25053RT47C"],
-        ["device_brand", "Redmi"],
-        ["language", "zh"],
-        ["os_api", "36"],
-        ["os_version", "16"],
-        ["resolution", "1280*2772"],
-        ["dpi", "520"],
-        ["ac", "wifi"],
-        ["device_id", "$deviceId"],
-        ["iid", "$installId"]
-      ],
-      "body": "{\"biz_param\":{\"detail_page_version\":0,\"device_level\":3,\"disable_digg_stat\":false,\"need_all_video_definition\":true,\"need_mp4_align\":false,\"use_os_player\":false,\"use_server_dns\":false,\"video_platform\":1024},\"mixed_video_id_map\":{\"1004\":[\"$vid\"]}}",
-      "note": "旧入口 video_model / multi_video_model 自 2026-10 起返回 200 空体，preload 是唯一还吐数据的入口。风控只放行 onedrama 6905554 同款：精简 query（无 ts）+ 老版 X-Gorgon，且版本号是 73532——与内容端点的 71332 不同，不要为了统一而合并，那会被判成另一个客户端。"
+      "signer": "full",
+      "queryProfile": "device",
+      "query": [],
+      "body": "{\"video_id\":\"$vid\",\"biz_param\":{\"detail_page_version\":0,\"device_level\":3,\"disable_digg_stat\":false,\"need_all_video_definition\":true,\"need_mp4_align\":false,\"use_os_player\":false,\"use_server_dns\":false,\"video_platform\":1024}}",
+      "note": "播放地址第一候选（2026-10-14 起的当前路由）。body 只认 video_id 单值：给 mixed_video_id_map / vid / 数组一律 100001 或 400。设备身份被拉黑时回 200 空体——这正是旧实现「所有影片都放不了」的真正原因，不是端点下线。"
     }
   }
 }

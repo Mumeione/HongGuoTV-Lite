@@ -13,6 +13,9 @@ import com.hongguotv.core.model.Series
  */
 internal object CatalogText {
 
+    /** 搜索页一页几张：两行 × 5 列（1080p 的实测列数），也是上游一页的条数。 */
+    const val PAGE_SIZE = 10
+
     /**
      * 预览第三行：这部剧本身的属性——收藏的更新进度、集数、分类。
      *
@@ -58,8 +61,21 @@ internal object CatalogText {
     }
 
     /**
-     * 搜索结果的展示序。端口给的 [raw] 已是"季线新→旧 + 其余原序"；
-     * 用户切到正序时把**季线成员**按季线（旧→新）重排，其余条目保持原序。
+     * 搜索分页行：`第 2 / 20 页 · 共 200 条`。
+     *
+     * **不按"第 11—20 条"写**：`shown` 是筛选/去重之后的条数，用它推区间会与
+     * "共 200 条"（未筛选总数）自相矛盾——短剧筛选下第一页只有 6 张时说"第 1—6 条"
+     * 就会被读成"一共只有 6 条"。页码 + 总数两句都是上游给的事实。
+     */
+    fun searchRange(page: Int, totalPages: Int, totalCount: Int): String {
+        val pages = totalPages.coerceAtLeast(1)
+        val current = page.coerceIn(1, pages)
+        return if (totalCount > 0) "第 $current / $pages 页 · 共 $totalCount 条" else "第 $current / $pages 页"
+    }
+
+    /**
+     * 搜索结果的展示序。[raw] 是**当前这一页**的服务端原序；
+     * 用户切到正序时把同系列的季按季号（旧→新）提前，其余条目保持原序。
      *
      * 调用方每次都传 [raw]，不要拿上一次的结果再排一次——正序结果不是"另一种原序"。
      */
