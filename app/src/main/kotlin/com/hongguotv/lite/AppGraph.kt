@@ -4,9 +4,10 @@ import android.content.Context
 import com.hongguotv.core.port.ContentPort
 import com.hongguotv.core.port.MediaPort
 import com.hongguotv.core.port.Navigator
+import com.hongguotv.core.protocol.DeviceProfile
 import com.hongguotv.lite.data.artwork.ArtworkLoader
-import com.hongguotv.lite.data.content.AnonymousIdentity
 import com.hongguotv.lite.data.content.ContentRepository
+import com.hongguotv.lite.data.content.DeviceSession
 import com.hongguotv.lite.data.diagnostics.LogcatDiagnostics
 import com.hongguotv.lite.data.http.OkHttpTransport
 import com.hongguotv.lite.data.library.PrefsLibrary
@@ -20,6 +21,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 
 /**
@@ -54,15 +56,38 @@ internal class AppGraph(
     private val store = SharedPreferencesStore(context)
     private val library: PrefsLibrary = PrefsLibrary(store)
 
+    private val transport = OkHttpTransport(http, diagnostics)
+
+    /**
+     * 设备注册：**一台设备只注册一次**（2026-10-24 维护者口径）。
+     *
+     * 本地没有注册结果时启动就发一次匿名 `device_register`，之后一直用这一对身份；
+     * 只有内容接口回风控特征时才换下一份平板档案（12 小时冷却）。搜索走官网、不需要身份，
+     * 所以注册失败也不挡首页。
+     */
+    private val devices = DeviceSession(store, transport, diagnostics)
+
     private val content: ContentPort = ContentRepository(
-        http = OkHttpTransport(http, diagnostics),
-        // 匿名设备身份：内置那对固定值已被平台拉黑（取流回 200 空体），这里用本机自己的一对。
-        identity = AnonymousIdentity.of(store),
+        http = transport,
+        devices = devices,
         diagnostics = diagnostics,
     )
 
-    /** 取流：`ContentPort.stream` + Range 分段 + CENC 逐样本解密，播放器只拿到一条可读流。 */
-    private val media: MediaPort = StreamTransport.of(content, http, diagnostics)
+    init {
+        // 注册是后台动作：失败不炸启动，内容端点要用时会由 withDevice 再 ensure 一次
+        scope.launch { runCatching { devices.ensure() } }
+    }
+
+    /**
+     * 取流：`ContentPort.stream` + Range 分段 + CENC 逐样本解密，播放器只拿到一条可读流。
+     * 分段请求的 UA 也取注册档案：从签名到 CDN 不能从平板切回手机。
+     */
+    private val media: MediaPort = StreamTransport.of(
+        content = content,
+        http = http,
+        diagnostics = diagnostics,
+        userAgent = { devices.snapshot()?.profile?.userAgent ?: DeviceProfile.DEFAULT.userAgent },
+    )
 
     /** 封面端口。宿主在 `onTrimMemory` / 换路由时直接驱动它（`trim` / `cancelPage`）。 */
     val artwork: ArtworkLoader = ArtworkLoader(context, artworkHttp)

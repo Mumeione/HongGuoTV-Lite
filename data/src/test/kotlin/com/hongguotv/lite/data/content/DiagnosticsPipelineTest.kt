@@ -3,6 +3,7 @@ package com.hongguotv.lite.data.content
 import com.hongguotv.core.port.DiagnosticsPort
 import com.hongguotv.core.port.UpstreamError
 import com.hongguotv.core.protocol.DeviceIdentity
+import com.hongguotv.core.protocol.DeviceProfile
 import com.hongguotv.core.protocol.HttpMethod
 import com.hongguotv.core.protocol.SignedRequest
 import com.hongguotv.lite.data.http.HttpTransport
@@ -49,7 +50,13 @@ class DiagnosticsPipelineTest {
     }
 
     private fun repository(record: Recording, respond: (SignedRequest) -> String): ContentRepository =
-        ContentRepository(FakeTransport(respond), DeviceIdentity.anonymous(), diagnostics = record)
+        ContentRepository(
+            http = FakeTransport(respond),
+            devices = FixedDeviceIdentity(
+                DeviceSnapshot(DeviceIdentity("7123456789012345678", "8123456789012345678"), DeviceProfile.DEFAULT),
+            ),
+            diagnostics = record,
+        )
 
     // ---------- ContentPort 的四段 ----------
 

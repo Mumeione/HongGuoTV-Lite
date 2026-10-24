@@ -1,12 +1,13 @@
 package com.hongguotv.core.protocol
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** 无签名通道：官网 SSR 请求的 URL 拼装。它没有签名头可断言，能钉住的只有 URL 形状。 */
+/** 无签名通道：官网 SSR 请求的 URL 拼装 + "UA 也必须是注册档案那份"。 */
 class PlainSignerTest {
 
     private fun endpoint(json: String): Endpoint =
@@ -20,7 +21,11 @@ class PlainSignerTest {
         val signed = PlainSigner().sign(endpoint, mapOf("name" to urlEncode("凡人"), "term" to "a b"))
         assertEquals(HttpMethod.GET, signed.method)
         assertEquals("https://example.com/list/%E5%87%A1%E4%BA%BA?page=1&q=a%20b", signed.url)
-        assertTrue("无签名通道不带签名头：${signed.headers.keys}", signed.headers.isEmpty())
+        assertFalse(
+            "无签名通道不带签名头：${signed.headers.keys}",
+            signed.headers.keys.any { it.startsWith("x-") },
+        )
+        assertEquals("UA 与注册档案同源", DeviceProfile.DEFAULT.userAgent, signed.headers["User-Agent"])
         assertNull(signed.body)
     }
 

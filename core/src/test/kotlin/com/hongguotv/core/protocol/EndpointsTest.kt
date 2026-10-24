@@ -18,8 +18,11 @@ class EndpointsTest {
 
     @Test
     fun bundledTableLoads() {
-        assertEquals(setOf("suggest", "seasonLine", "detail", "siteSearch", "videoModel"), Endpoints.all.keys)
-        assertEquals(setOf("content", "stream", "site"), Endpoints.hosts.keys)
+        assertEquals(
+            setOf("deviceRegister", "suggest", "seasonLine", "detail", "siteSearch", "videoModel"),
+            Endpoints.all.keys,
+        )
+        assertEquals(setOf("content", "stream", "site", "log"), Endpoints.hosts.keys)
     }
 
     @Test
@@ -28,7 +31,11 @@ class EndpointsTest {
             assertTrue("${endpoint.id} 的 base 必须是绝对地址", endpoint.base.startsWith("https://"))
             assertTrue("${endpoint.id} 的 base 不该带 query", !endpoint.base.contains('?'))
             when (endpoint.method) {
-                HttpMethod.POST -> assertNotNull("${endpoint.id} 是 POST，必须带 body 模板", endpoint.bodyTemplate)
+                HttpMethod.POST -> if (endpoint.binary) {
+                    assertNull("${endpoint.id} 的 body 由调用方给，不该有模板", endpoint.bodyTemplate)
+                } else {
+                    assertNotNull("${endpoint.id} 是 POST，必须带 body 模板", endpoint.bodyTemplate)
+                }
                 HttpMethod.GET -> assertNull("${endpoint.id} 是 GET，不该带 body 模板", endpoint.bodyTemplate)
             }
         }

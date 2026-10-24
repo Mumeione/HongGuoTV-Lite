@@ -106,6 +106,7 @@ object TvText {
         is UpstreamError.RiskControl -> "请求被限制（${cause.code}），请稍后再试。"
         is UpstreamError.Shape -> "内容结构发生变化，暂时无法显示。"
         is UpstreamError.Decrypt -> "内容解析失败，请稍后重试。"
+        is UpstreamError.Device -> "设备验证没有通过，请稍后重试。"
         is LocalError -> "读取本机数据失败，请重试。"
         else -> "内容加载失败，请稍后重试。"
     }

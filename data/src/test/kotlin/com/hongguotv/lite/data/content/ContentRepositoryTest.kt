@@ -4,6 +4,7 @@ import com.hongguotv.core.model.ContentFilter
 import com.hongguotv.core.model.Series
 import com.hongguotv.core.port.UpstreamError
 import com.hongguotv.core.protocol.DeviceIdentity
+import com.hongguotv.core.protocol.DeviceProfile
 import com.hongguotv.core.protocol.Endpoints
 import com.hongguotv.core.protocol.HttpMethod
 import com.hongguotv.core.protocol.SignedRequest
@@ -42,7 +43,10 @@ class ContentRepositoryTest {
 
     private fun repository(respond: (SignedRequest) -> String): ContentRepository {
         val transport = FakeTransport(respond)
-        return ContentRepository(transport, identity).also { repo -> this.transport = transport }
+        return ContentRepository(
+            http = transport,
+            devices = FixedDeviceIdentity(DeviceSnapshot(identity, DeviceProfile.DEFAULT)),
+        ).also { repo -> this.transport = transport }
     }
 
     private var transport: FakeTransport? = null
@@ -366,5 +370,65 @@ class ContentRepositoryTest {
         val repo = repository { """{"Code":9,"data":{}}""" }
         val e = assertFailsWith<UpstreamError.RiskControl> { repo.stream("123", 1080) }
         assertEquals(9, e.code)
+    }
+
+    /**
+     * 风控特征（200 空体）→ 换一台设备重试一次。
+     *
+     * 这是"一台设备只注册一次，封了才换"的落地点：不换的话，被拉黑的设备会一直空体，
+     * 换得太勤又会把设备数刷起来——所以只重试一次，冷却在 DeviceSession 里。
+     */
+    @Test
+    fun riskControlRenewsTheDeviceAndRetriesOnce() = runTest {
+        var detailCalls = 0
+        val renewals = mutableListOf<String>()
+        val transport = FakeTransport { request ->
+            if (request.url.contains("/novel/player/video_detail/")) {
+                detailCalls++
+                if (detailCalls == 1) throw UpstreamError.EmptyBody()
+            }
+            route(request, search = "", detail = videoDetailResponse())
+        }
+        var current = DeviceSnapshot(identity, DeviceProfile.DEFAULT)
+        val devices = object : DeviceIdentitySource {
+            override fun snapshot(): DeviceSnapshot = current
+            override suspend fun ensure(): DeviceSnapshot = current
+            override suspend fun renew(reason: String): DeviceSnapshot {
+                renewals += reason
+                current = DeviceSnapshot(
+                    identity = DeviceIdentity("7111111111111111111", "8111111111111111111"),
+                    profile = DeviceProfile.of(1),
+                    registeredAt = current.registeredAt,
+                    renewedAt = 1L,
+                )
+                return current
+            }
+        }
+        val repo = ContentRepository(transport, devices)
+        val detail = repo.detail("7")
+
+        assertEquals("重试后要正常返回", 3, detail.episodes.size)
+        assertEquals("只重试一次", 2, detailCalls)
+        assertEquals(listOf("EmptyBody"), renewals)
+        assertTrue(
+            "重试必须用新身份签名：${transport.urls.last()}",
+            transport.urls.last().contains("device_id=7111111111111111111"),
+        )
+    }
+
+    @Test
+    fun nonRiskFailuresDoNotReRegister() = runTest {
+        var renewals = 0
+        val devices = object : DeviceIdentitySource {
+            override fun snapshot(): DeviceSnapshot = DeviceSnapshot(identity, DeviceProfile.DEFAULT)
+            override suspend fun ensure(): DeviceSnapshot = snapshot()
+            override suspend fun renew(reason: String): DeviceSnapshot? {
+                renewals++
+                return null
+            }
+        }
+        val repo = ContentRepository(FakeTransport { """{"code":0,"data":{}}""" }, devices)
+        assertFailsWith<UpstreamError.Shape> { repo.detail("7") }
+        assertEquals("结构错误不是风控，不要换设备", 0, renewals)
     }
 }

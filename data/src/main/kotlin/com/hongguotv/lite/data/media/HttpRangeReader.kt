@@ -14,11 +14,13 @@ import java.io.IOException
  * - **`Content-Range` 必须与请求逐字节吻合**：错位的字节解出来是花屏；
  * - **总长前后不能变**：变了说明这条播放地址已经指向别的资源，继续播只会越来越乱。
  *
- * UA 用取流那套（`RequestDefaults.USER_AGENT`，版本 73532）：同一个视频地址换 UA 会被判成别的客户端。
+ * UA 与注册档案同源（默认取 `RequestDefaults.USER_AGENT`）：同一个视频地址换 UA
+ * 会被判成别的客户端。
  */
 class HttpRangeReader(
     private val http: OkHttpClient,
     private val url: String,
+    private val userAgent: String = RequestDefaults.USER_AGENT,
 ) : RangeReader {
 
     @Volatile
@@ -30,7 +32,7 @@ class HttpRangeReader(
         require(endInclusive - start < MAX_RANGE) { "单次分段过大：$start-$endInclusive" }
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", RequestDefaults.USER_AGENT)
+            .header("User-Agent", userAgent)
             .header("Referer", VIDEO_REFERER)
             .header("Range", "bytes=$start-$endInclusive")
             .header("Accept-Encoding", "identity")

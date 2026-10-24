@@ -21,9 +21,18 @@ import java.util.concurrent.TimeUnit
  * 上游 HTTP 的唯一出口。所有运行期网络失败在这里分类成 [UpstreamError]，
  * 调用方（ContentRepository）不再碰 IOException，也不再用中文字符串区分错误。
  */
+/** 一次 HTTP 响应里除正文之外还需要的东西：注册接口要读 `Set-Cookie`。 */
+data class HttpResponse(val body: String, val setCookies: List<String> = emptyList())
+
 interface HttpTransport {
     /** 执行一个已签名（或声明无签名）的请求，返回响应体文本。失败一律抛 [UpstreamError]。 */
     suspend fun text(request: SignedRequest): String
+
+    /**
+     * 需要响应头的场合（设备注册读 `Set-Cookie`）。
+     * 默认实现只回正文：既有的假体只关心 body，不必为此改一遍。
+     */
+    suspend fun response(request: SignedRequest): HttpResponse = HttpResponse(text(request))
 }
 
 class OkHttpTransport(
@@ -31,7 +40,9 @@ class OkHttpTransport(
     private val diagnostics: DiagnosticsPort = SilentDiagnostics,
 ) : HttpTransport {
 
-    override suspend fun text(request: SignedRequest): String = withContext(Dispatchers.IO) {
+    override suspend fun text(request: SignedRequest): String = response(request).body
+
+    override suspend fun response(request: SignedRequest): HttpResponse = withContext(Dispatchers.IO) {
         // 日志只到 host + path：query 里有设备号、时间戳与搜索词，不能落进 logcat。
         val target = request.url.toHttpUrlOrNull()?.let { "${it.scheme}://${it.host}:${it.port}${it.encodedPath}" } ?: "invalid-url"
         val started = System.nanoTime()
@@ -53,7 +64,7 @@ class OkHttpTransport(
         request.headers.forEach { (key, value) -> builder.header(key, value) }
         val bodyBytes = request.body
         if (bodyBytes != null) {
-            builder.post(bodyBytes.toRequestBody("application/json; charset=utf-8".toMediaType()))
+            builder.post(bodyBytes.toRequestBody(request.contentType.toMediaType()))
         }
         try {
             http.newCall(builder.build()).execute().use { response ->
@@ -68,7 +79,7 @@ class OkHttpTransport(
                 // 200 空体是风控的强特征，单独成类，绝不能归成"这部剧没有剧集"
                 if (text.isBlank()) throw UpstreamError.EmptyBody()
                 report(true, response.code.toString())
-                text
+                HttpResponse(text, response.headers("Set-Cookie"))
             }
         } catch (e: UpstreamError) {
             // 200 空体的现场必须带上状态码：只写 "empty body" 会让人分不清是风控还是解析失败

@@ -7,11 +7,12 @@ import com.hongguotv.core.model.SeasonLine
 import com.hongguotv.core.model.StreamInfo
 import com.hongguotv.core.model.Suggestion
 import com.hongguotv.core.port.ContentPort
-import com.hongguotv.core.protocol.DeviceIdentity
 import com.hongguotv.core.port.DiagnosticsPort
 import com.hongguotv.core.port.MediaStream
 import com.hongguotv.lite.data.content.ContentRepository
+import com.hongguotv.lite.data.content.DeviceSession
 import com.hongguotv.lite.data.http.OkHttpTransport
+import com.hongguotv.lite.data.library.KeyValueStore
 import com.hongguotv.lite.data.media.HttpRangeReader
 import com.hongguotv.lite.data.media.StreamTransport
 import kotlinx.coroutines.runBlocking
@@ -38,12 +39,12 @@ class RealNetworkProbe {
         assumeTrue("设置 HGTV_PROBE=1 才跑真网探针", System.getenv("HGTV_PROBE") == "1")
         runBlocking {
             val diagnostics = PrintingDiagnostics()
-            val content = ContentRepository(
-                http = OkHttpTransport(diagnostics = diagnostics),
-                // 与生产同一条路：匿名身份（内置那对已被拉黑，取流会回 200 空体）
-                identity = DeviceIdentity.anonymous(),
-                diagnostics = diagnostics,
-            )
+            val transport = OkHttpTransport(diagnostics = diagnostics)
+            // 与生产同一条路：先匿名注册一次（内置那对已被拉黑），之后所有请求都用这一对身份。
+            // 探针的 store 只在内存里：每次跑探针注册一台新设备，不污染真机上的注册结果。
+            val devices = DeviceSession(MemoryStore(), transport, diagnostics)
+            devices.ensure()
+            val content = ContentRepository(http = transport, devices = devices, diagnostics = diagnostics)
             val report = ProbeReport()
 
             // 1) 搜索：官网 /api/search/result（无签名、服务端分页、一页 10 条）
@@ -117,6 +118,15 @@ class RealNetworkProbe {
             report.line("  count=${suggestions?.size}")
 
             report.print()
+        }
+    }
+
+    /** 探针用的内存键值库：注册结果不落盘，跑一次算一次。 */
+    private class MemoryStore : KeyValueStore {
+        private val values = LinkedHashMap<String, Any?>()
+        override fun all(): Map<String, Any?> = LinkedHashMap(values)
+        override fun commit(batch: Map<String, Any?>) {
+            batch.forEach { (key, value) -> if (value == null) values.remove(key) else values[key] = value }
         }
     }
 

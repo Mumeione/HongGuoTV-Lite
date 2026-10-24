@@ -15,7 +15,6 @@ import com.hongguotv.core.port.DiagnosticsPort
 import com.hongguotv.core.port.SilentDiagnostics
 import com.hongguotv.core.port.UpstreamError
 import com.hongguotv.core.protocol.Fields
-import com.hongguotv.core.protocol.DeviceIdentity
 import com.hongguotv.core.protocol.FullSuiteSigner
 import com.hongguotv.core.protocol.HttpMethod
 import com.hongguotv.core.protocol.MediaCrypto
@@ -43,17 +42,68 @@ import org.json.JSONObject
 class ContentRepository(
     private val http: HttpTransport,
     /**
-     * 匿名设备身份。**内容端点与取流共用这一对**：内置的固定值已被平台拉黑，
+     * 设备身份来源。**内容端点与取流共用这一份**：内置的固定值已被平台拉黑，
      * 带它签名的取流请求一律 200 空体（看起来像"所有影片都放不了"）。
      *
      * 没有默认值：默认成内置那对等于把"所有影片都放不了"设成出厂状态。
-     * 生产由 `AppGraph` 传 `AnonymousIdentity.of(store)`，测试传固定值。
+     * 生产由 `AppGraph` 传 [DeviceSession]（注册下发的一对），测试传 [FixedDeviceIdentity]。
      */
-    identity: DeviceIdentity,
+    private val devices: DeviceIdentitySource,
     private val diagnostics: DiagnosticsPort = SilentDiagnostics,
 ) : ContentPort {
 
-    private val signers = SignerRegistry(listOf(FullSuiteSigner(identity), PlainSigner()))
+    /**
+     * 当前身份对应的签名器。身份可能在运行期被风控换新（[DeviceIdentitySource.renew]），
+     * 所以不能像以前那样在构造时就固化一份。
+     *
+     * 初始只有无签名通道：官网搜索不依赖设备身份，注册完成前也能用；
+     * 内容端点走 [withDevice]，`apply` 之后才有 FULL 签名器——不会拿内置黑名单身份签名。
+     */
+    @Volatile
+    private var signers: SignerRegistry = SignerRegistry(listOf(PlainSigner()))
+
+    @Volatile
+    private var applied: DeviceSnapshot? = null
+
+    init {
+        // 启动时已有注册结果就先用上：首个请求不必等一次 ensure 的挂起
+        devices.snapshot()?.let(::apply)
+    }
+
+    /** 换一份身份后重建签名器。内容端点与取流读的是同一个 [signers]。 */
+    private fun apply(snapshot: DeviceSnapshot) {
+        if (applied == snapshot) return
+        applied = snapshot
+        signers = SignerRegistry(
+            listOf(
+                FullSuiteSigner(snapshot.identity, snapshot.profile, snapshot.cookies),
+                PlainSigner(snapshot.profile),
+            ),
+        )
+    }
+
+    /**
+     * 带设备注册的请求：先确保有身份，再执行；遇到风控特征（200 空体 / 风控码）
+     * 换一台设备重试一次。
+     *
+     * **只重试一次**，而且换新本身有冷却（见 `DeviceSession.renew`）：风控是"这台设备被拦"，
+     * 不是"这个请求参数错了"，无限重试只会把设备数刷起来。
+     */
+    private suspend fun <T> withDevice(action: suspend () -> T): T {
+        apply(devices.ensure())
+        return try {
+            action()
+        } catch (error: UpstreamError) {
+            if (!error.isRiskControl()) throw error
+            val renewed = devices.renew(error.javaClass.simpleName) ?: throw error
+            diagnostics.event("device.retry", mapOf("reason" to error.javaClass.simpleName))
+            apply(renewed)
+            action()
+        }
+    }
+
+    private fun UpstreamError.isRiskControl(): Boolean =
+        this is UpstreamError.EmptyBody || this is UpstreamError.RiskControl
 
     /**
      * 签名统一入口。端点 id 是日志里唯一允许出现的"请求目标"——
@@ -141,7 +191,9 @@ class ContentRepository(
 
     // ---------- 详情 ----------
 
-    override suspend fun detail(seriesId: String): Detail {
+    override suspend fun detail(seriesId: String): Detail = withDevice { loadDetail(seriesId) }
+
+    private suspend fun loadDetail(seriesId: String): Detail {
         require(SeriesIds.ID.matches(seriesId)) { "剧集 id 无效：$seriesId" }
         // 全集顺序以服务端下发为准（本地不重排）；官网详情页 2026-10 起全网 404，不再回退。
         val signed = sign("detail", mapOf("seriesId" to seriesId))
@@ -177,7 +229,7 @@ class ContentRepository(
 
     override suspend fun seasons(seriesId: String, anchor: Series?): SeasonLine =
         // 端口只传 Series（无介质信息）：季线的介质不被任何消费方使用，传播链到 port 为止。
-        planCells(seriesId, anchor)
+        withDevice { planCells(seriesId, anchor) }
 
     /**
      * plan 接口返回「相关作品」cell（show_type=547）：本系列全部季（第 2 季起）自带季标签与集数；
@@ -204,7 +256,9 @@ class ContentRepository(
 
     // ---------- 取流 ----------
 
-    override suspend fun stream(vid: String, maxHeight: Int): StreamInfo {
+    override suspend fun stream(vid: String, maxHeight: Int): StreamInfo = withDevice { streamOnce(vid, maxHeight) }
+
+    private suspend fun streamOnce(vid: String, maxHeight: Int): StreamInfo {
         require(SeriesIds.ID.matches(vid)) { "剧集 id 无效：$vid" }
         // 播放地址第一候选：/novel/player/video_model/v1/，body 只认 video_id 单值。
         // 空响应体（设备被拉黑 / 网关拦下）由 HTTP 层抛 EmptyBody——绝不能当成功往下解析。
@@ -220,8 +274,10 @@ class ContentRepository(
         // `fallbackUrl` 的结构错也算 RESOLVE：它回答的是"地址从哪来"。
         val info = diagnostics.stageTimedSuspend(DiagnosticsPort.Stage.RESOLVE, "stream.fallback") {
             val fallback = Parsers.fallbackUrl(entry)
+            // 第二跳是无签名 GET，但 UA 仍然用注册档案那份（不能从平板切回手机）
+            val headers = applied?.profile?.let { mapOf("User-Agent" to it.userAgent) }.orEmpty()
             runCatchingIo {
-                JSONObject(http.text(SignedRequest(HttpMethod.GET, fallback, emptyMap(), null)))
+                JSONObject(http.text(SignedRequest(HttpMethod.GET, fallback, headers, null)))
                     .optJSONObject(Fields.Stream.VIDEO_INFO)?.optJSONObject(Fields.Envelope.DATA)
             }.getOrNull() ?: throw UpstreamError.Shape("video_info.data")
         }

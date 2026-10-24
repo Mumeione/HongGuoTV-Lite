@@ -4,9 +4,25 @@
   "hosts": {
     "content": "https://api5-normal-sinfonlinea.fqnovel.com",
     "stream": "https://api5-normal-sinfonlineb.fqnovel.com",
-    "site": "https://hongguoduanju.com"
+    "site": "https://hongguoduanju.com",
+    "log": "https://log5-applog-lf.fqnovel.com"
   },
   "endpoints": {
+    "deviceRegister": {
+      "host": "log",
+      "path": "/service/2/device_register/",
+      "method": "POST",
+      "signer": "none",
+      "queryProfile": "none",
+      "binary": true,
+      "query": [
+        ["tt_data", "a"],
+        ["cronet_version", "8d40f833_2026-03-03"],
+        ["ttnet_version", "4.2.243.31-douyin"],
+        ["use_store_region_cookie", "1"]
+      ],
+      "note": "匿名设备注册：body 是 ttEncrypt(gzip(JSON)) 原始二进制（binary=true，无 body 模板），不带任何签名头。一台设备只发一次；只有被风控才换新（见 data/DeviceSession）。"
+    },
     "suggest": {
       "host": "site",
       "path": "/incent_resource/suggestion",

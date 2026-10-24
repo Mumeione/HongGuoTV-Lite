@@ -45,7 +45,13 @@ class StreamTransport(
             content: ContentPort,
             http: OkHttpClient,
             diagnostics: DiagnosticsPort = SilentDiagnostics,
-        ): StreamTransport = StreamTransport(content, { url -> HttpRangeReader(http, url) }, diagnostics)
+            /** 分段请求的 UA：与注册档案同源（默认平板档案）。 */
+            userAgent: () -> String = { com.hongguotv.core.protocol.RequestDefaults.USER_AGENT },
+        ): StreamTransport = StreamTransport(
+            content,
+            { url -> HttpRangeReader(http, url, userAgent()) },
+            diagnostics,
+        )
     }
 
     /**

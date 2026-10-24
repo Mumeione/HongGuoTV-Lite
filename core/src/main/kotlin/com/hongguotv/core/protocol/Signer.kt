@@ -9,6 +9,13 @@ import java.nio.ByteOrder
 
 internal class Signer private constructor(
     private val identity: DeviceIdentity,
+    /**
+     * 注册与签名共用的设备档案（机型 / 系统 / 分辨率）：**不能与注册时的档案分家**，
+     * 否则"注册是平板、签名是手机"，风控直接判异常。
+     */
+    private val profile: DeviceProfile,
+    /** 注册下发的 Cookie（`install_id` / `ttreq` / `store-region`）：有就随签名请求带上。 */
+    private val cookies: Map<String, String>,
     private val clock: () -> Long,
     private val random: () -> Double,
 ) {
@@ -16,10 +23,14 @@ internal class Signer private constructor(
     constructor(
         clock: () -> Long = System::currentTimeMillis,
         random: () -> Double = Math::random,
-    ) : this(DeviceIdentity.LEGACY, clock, random)
+    ) : this(DeviceIdentity.LEGACY, DeviceProfile.SIGNING_SAMPLE, emptyMap(), clock, random)
 
-    /** 生产用：换一份匿名身份，query 与 x-medusa 同步换。 */
-    constructor(identity: DeviceIdentity) : this(identity, System::currentTimeMillis, Math::random)
+    /** 生产用：换一份注册下发的身份 + 档案 + Cookie，query 与 x-medusa 同步换。 */
+    constructor(
+        identity: DeviceIdentity,
+        profile: DeviceProfile = DeviceProfile.DEFAULT,
+        cookies: Map<String, String> = emptyMap(),
+    ) : this(identity, profile, cookies, System::currentTimeMillis, Math::random)
 
     data class Request(val url: String, val headers: Map<String, String>, val body: ByteArray?)
     private fun rand() = (random() * 4294967296.0).toLong().toInt()
@@ -101,7 +112,22 @@ internal class Signer private constructor(
         }
         return (hex("8404") + byteArrayOf(random.toByte(),(random shr 8).toByte(),0x40,1) + out).hex()
     }
-    private fun deviceProto() = proto(f(1,1,"sint"),f(2,2,"sint"),f(3,"8662"),f(4,identity.deviceId),f(5,"Ai6svO3PyrwDOUSmO6ZcResxu"),f(6,"!noperm!"),f(7,-888888,"sint"),f(8,-888888,"sint"),f(9,3,"sint"),f(10,-888888,"sint"),f(11,"!notset!"),f(12,"Asia/Shanghai,8"),f(13,"zh_CN"),f(14,4,"sint"),f(16,255.24993896484375,"float"),f(17,35.58599090576172,"float"),f(18,3.467449188232422,"float"),f(19,3.467449188232422,"float"),f(20,255.1754913330078,"float"),f(21,42.17544174194336,"float"),f(22,"16"),f(23,41,"sint"),f(24,36,"sint"),f(25,1728388016635L,"sint"),f(26,1728388016635L,"sint"),f(27,1728388016635L,"sint"),f(28,1728388016637L,"sint"),f(29,-1,"sint"),f(30,"25053RT47C"),f(31,"Redmi"),f(32,"25053RT47C"),f(33,"25053RT47C"),f(34,"Xiaomi"),f(35,"Redmi"),f(36,"Redmi"),f(38,31,"sint"))
+    /**
+     * x-medusa 的环境段。机型 / 系统 / 分辨率全部来自 [profile]：
+     * 这一段与 query 是同一台设备的两份描述，任何一项对不上都会被判异常客户端。
+     */
+    private fun deviceProto() = proto(
+        f(1,1,"sint"),f(2,2,"sint"),f(3,"8662"),f(4,identity.deviceId),f(5,"Ai6svO3PyrwDOUSmO6ZcResxu"),
+        f(6,"!noperm!"),f(7,-888888,"sint"),f(8,-888888,"sint"),f(9,3,"sint"),f(10,-888888,"sint"),
+        f(11,"!notset!"),f(12,"Asia/Shanghai,8"),f(13,"zh_CN"),f(14,4,"sint"),
+        f(16,255.24993896484375,"float"),f(17,35.58599090576172,"float"),f(18,3.467449188232422,"float"),
+        f(19,3.467449188232422,"float"),f(20,255.1754913330078,"float"),f(21,42.17544174194336,"float"),
+        f(22,profile.osVersion),f(23,41,"sint"),f(24,profile.osApi,"sint"),
+        f(25,1728388016635L,"sint"),f(26,1728388016635L,"sint"),f(27,1728388016635L,"sint"),
+        f(28,1728388016637L,"sint"),f(29,-1,"sint"),
+        f(30,profile.model),f(31,profile.brand),f(32,profile.model),f(33,profile.model),
+        f(34,profile.manufacturer),f(35,profile.brand),f(36,profile.brand),f(38,31,"sint"),
+    )
     private fun xmxor(data: ByteArray, key: ByteArray): ByteArray {
         val encoded = IntArray(data.size)
         for (i in data.indices) {
@@ -171,7 +197,9 @@ internal class Signer private constructor(
             if (branch(query,body,ts) == 0) {
                 val url = "$base?$query"
                 val random = (random()*65536).toInt()
-                val headers = linkedMapOf("User-Agent" to (if (body != null) VendorConstants.VIDEO_UA else VendorConstants.APP_UA),"Accept" to "application/json; charset=utf-8,application/x-protobuf", "x-ss-req-ticket" to ticket.toString(),"x-tt-request-tag" to "t=0;n=0","sdk-version" to "2","passport-sdk-version" to "50561","x-xs-from-web" to "0","x-khronos" to ts.toString(),"x-ladon" to be32(ts).base64(),"x-argus" to le32(ts).base64(),"x-gorgon" to gorgon(query,body,ts,random),"x-helios" to helios(ts),"x-medusa" to medusa(url,body,ts),"x-tt-dt" to "")
+                val headers = linkedMapOf("User-Agent" to profile.userAgent,"Accept" to "application/json; charset=utf-8,application/x-protobuf", "x-ss-req-ticket" to ticket.toString(),"x-tt-request-tag" to "t=0;n=0","sdk-version" to "2","passport-sdk-version" to "50561","x-xs-from-web" to "0","x-khronos" to ts.toString(),"x-ladon" to be32(ts).base64(),"x-argus" to le32(ts).base64(),"x-gorgon" to gorgon(query,body,ts,random),"x-helios" to helios(ts),"x-medusa" to medusa(url,body,ts),"x-tt-dt" to "")
+                // 注册下发的 Cookie 随所有签名请求带上：这是"同一台设备"的另一半证据
+                if (cookies.isNotEmpty()) headers["Cookie"] = cookies.entries.joinToString("; ") { (name, value) -> "$name=$value" }
                 if (body != null) { headers["Content-Type"]="application/json; charset=UTF-8"; headers["x-vc-bdturing-sdk-version"]="3.7.2.cn"; headers["x-ss-stub"]=digest("MD5",body).hex().uppercase() }
                 return Request(url,headers,body)
             }

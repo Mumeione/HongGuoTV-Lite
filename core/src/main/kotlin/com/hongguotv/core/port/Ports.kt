@@ -164,6 +164,8 @@ sealed class UpstreamError(message: String, cause: Throwable? = null) : Exceptio
     class Shape(val path: String) : UpstreamError("shape $path")
     class RiskControl(val code: Int) : UpstreamError("risk control $code")
     class Decrypt(val step: String) : UpstreamError("decrypt $step")
+    /** 设备注册失败（被拒或响应没有下发身份）：内容接口按设备放行，没有身份就取不到数据。 */
+    class Device(val step: String) : UpstreamError("device $step")
 }
 
 sealed class LocalError(message: String, cause: Throwable? = null) : Exception(message, cause) {

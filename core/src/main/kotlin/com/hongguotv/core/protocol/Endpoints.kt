@@ -66,6 +66,11 @@ data class Endpoint(
     /** 顺序即协议：签名覆盖 query 的字节顺序。 */
     val query: List<Pair<String, String>>,
     val bodyTemplate: String?,
+    /**
+     * POST 的 body 不是模板拼出来的 JSON，而是调用方给的二进制（设备注册的
+     * `ttEncrypt(gzip(JSON))`）。这类端点没有 body 模板，`resolvedBody` 返回 null。
+     */
+    val binary: Boolean = false,
 ) {
     /** 最终请求地址：base 的占位符填好（无占位符时等于 base）。query 不在这里拼。 */
     fun url(values: Map<String, String>): String = fill(base, values)
@@ -130,9 +135,13 @@ object Endpoints {
         // 因为"表里写了占位符但没人填"与"调用方少传了参数"是两种错误，后一种才有修复价值。
 
         val method = HttpMethod.of(o.getString("method"))
+        val binary = o.optBoolean("binary", false)
         val body = if (o.has("body")) o.getString("body") else null
-        if (method == HttpMethod.POST) require(body != null) { "端点 $id 是 POST，必须有 body 模板" }
+        if (method == HttpMethod.POST) {
+            require(body != null || binary) { "端点 $id 是 POST，必须有 body 模板（或声明 binary）" }
+        }
         if (method == HttpMethod.GET) require(body == null) { "端点 $id 是 GET，不该有 body 模板" }
+        require(!(binary && body != null)) { "端点 $id 的 binary 与 body 模板不能并存" }
 
         val queryJson = o.optJSONArray("query") ?: JSONArray()
         val query = (0 until queryJson.length()).map { i ->
@@ -149,6 +158,7 @@ object Endpoints {
             queryProfile = QueryProfile.of(o.getString("queryProfile")),
             query = query,
             bodyTemplate = body,
+            binary = binary,
         )
     }
 

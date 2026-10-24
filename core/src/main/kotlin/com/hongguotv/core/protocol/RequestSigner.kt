@@ -6,6 +6,8 @@ data class SignedRequest(
     val url: String,
     val headers: Map<String, String>,
     val body: ByteArray?,
+    /** 请求体的 Content-Type：注册接口是 octet-stream，其余都是 JSON。 */
+    val contentType: String = "application/json; charset=utf-8",
 )
 
 /**
@@ -25,9 +27,10 @@ interface RequestSigner {
 private fun Endpoint.mergedQuery(
     values: Map<String, String>,
     identity: DeviceIdentity = DeviceIdentity.LEGACY,
+    profile: DeviceProfile = DeviceProfile.DEFAULT,
 ): LinkedHashMap<String, String> {
     val merged = LinkedHashMap<String, String>()
-    if (queryProfile == QueryProfile.DEVICE) merged.putAll(VendorConstants.device(identity))
+    if (queryProfile == QueryProfile.DEVICE) merged.putAll(VendorConstants.device(identity, profile))
     resolvedQuery(values).forEach { (key, value) -> merged[key] = value }
     return merged
 }
@@ -36,9 +39,14 @@ private fun Endpoint.mergedQuery(
 class FullSuiteSigner internal constructor(
     private val crypto: Signer,
     private val identity: DeviceIdentity = DeviceIdentity.LEGACY,
+    private val profile: DeviceProfile = DeviceProfile.DEFAULT,
 ) : RequestSigner {
 
-    constructor(identity: DeviceIdentity = DeviceIdentity.LEGACY) : this(Signer(identity = identity), identity)
+    constructor(
+        identity: DeviceIdentity = DeviceIdentity.LEGACY,
+        profile: DeviceProfile = DeviceProfile.DEFAULT,
+        cookies: Map<String, String> = emptyMap(),
+    ) : this(Signer(identity = identity, profile = profile, cookies = cookies), identity, profile)
 
     override val kind = SignerKind.FULL
 
@@ -46,7 +54,11 @@ class FullSuiteSigner internal constructor(
         require(endpoint.signer == kind) {
             "端点 ${endpoint.id} 声明用 ${endpoint.signer.id}，不该走 ${kind.id}"
         }
-        val request = crypto.sign(endpoint.url(values), endpoint.mergedQuery(values, identity), endpoint.resolvedBody(values))
+        val request = crypto.sign(
+            endpoint.url(values),
+            endpoint.mergedQuery(values, identity, profile),
+            endpoint.resolvedBody(values),
+        )
         return SignedRequest(endpoint.method, request.url, request.headers, request.body)
     }
 }
@@ -54,8 +66,11 @@ class FullSuiteSigner internal constructor(
 /**
  * 官网 SSR 用：无签名、无公共常量，query 原样拼接（值经 [urlEncode]）。
  * 风控只看 UA 与请求频率——节流是调用方（data 层）的职责，签名层不管。
+ *
+ * UA 仍然带**注册档案那份**（平板机型 + 对应 Android 版本）：无签名不等于可以
+ * 用另一台设备的身份，同一个 App 在服务端看来必须始终是同一台机器。
  */
-class PlainSigner : RequestSigner {
+class PlainSigner(private val profile: DeviceProfile = DeviceProfile.DEFAULT) : RequestSigner {
 
     override val kind = SignerKind.NONE
 
@@ -67,17 +82,24 @@ class PlainSigner : RequestSigner {
             "${urlEncode(key)}=${urlEncode(value)}"
         }
         val url = endpoint.url(values) + if (query.isEmpty()) "" else "?$query"
-        // 头集合为空是刻意的：签名层不替无签名通道做主，UA 等默认头由 HTTP 层统一补。
-        return SignedRequest(endpoint.method, url, emptyMap(), null)
+        return SignedRequest(
+            method = endpoint.method,
+            url = url,
+            headers = linkedMapOf(
+                "User-Agent" to profile.userAgent,
+                "Accept-Language" to RequestDefaults.ACCEPT_LANGUAGE,
+            ),
+            body = null,
+        )
     }
 }
 
 /**
  * HTTP 公共头默认值。签名请求的头集合（含 UA）由各 Signer 组装，不走这里；
- * 这里只服务无签名通道（官网 SSR、fallback 取流），保证 UA 这种风控身份字段只有一处事实来源。
+ * 这里服务"连档案都还没有"的无签名通道（图片、兜底地址），默认就是平板档案。
  */
 object RequestDefaults {
-    const val USER_AGENT = VendorConstants.VIDEO_UA
+    val USER_AGENT: String = DeviceProfile.DEFAULT.userAgent
     const val ACCEPT_LANGUAGE = "zh-CN,zh;q=0.9"
 }
 
