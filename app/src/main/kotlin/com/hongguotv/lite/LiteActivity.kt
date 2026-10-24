@@ -3,6 +3,7 @@ package com.hongguotv.lite
 import android.app.Activity
 import android.content.res.Configuration
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
@@ -14,6 +15,7 @@ import com.hongguotv.lite.nav.NavResult
 import com.hongguotv.lite.nav.Route
 import com.hongguotv.lite.nav.RouteStack
 import com.hongguotv.lite.nav.backFromCatalog
+import com.hongguotv.lite.uikit.focus.KeyRepeatGate
 
 /**
  * 导航宿主：**唯一把六个页面和七个模块装在一起的地方**。
@@ -185,9 +187,21 @@ class LiteActivity : Activity(), Navigator {
 
     // ---------- 按键 ----------
 
+    /**
+     * 长按方向键的重复闸门（原仓库 `KeyRepeatGate(110)` 口径）：系统连发约 50ms 一格，
+     * 焦点格（详情分集、播放选集、目录网格）会"一按飞过一行"。首次按下不受影响，
+     * 只有长按的连发被节流到 [FOCUS_REPEAT_GATE_MS] 一格。
+     */
+    private val focusRepeatGate = KeyRepeatGate(FOCUS_REPEAT_GATE_MS)
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         // 播放页先看：焦点系统会把方向键吃掉，而播放页在"没有可聚焦项"时正是靠按键表工作
         if (painted is Route.Player && graph.player.onKeyEvent(event)) return true
+        if (event.action == KeyEvent.ACTION_DOWN && event.keyCode in MOVE_KEY_CODES) {
+            // 首次按下重置闸门：换一个方向按，上一轮的节流节奏不该带过来
+            if (event.repeatCount == 0) focusRepeatGate.reset()
+            else if (!focusRepeatGate.accept(SystemClock.uptimeMillis())) return true
+        }
         // 目录页接 MENU（B 方案：历史页"管理走 MENU"）；只认无重复的按下，长按不连发
         if (painted is Route.Catalog &&
             event.action == KeyEvent.ACTION_DOWN &&
@@ -246,5 +260,18 @@ class LiteActivity : Activity(), Navigator {
             graph.close()
         }
         super.onDestroy()
+    }
+
+    private companion object {
+        /** 长按方向键的重复间隔（原仓库详情页 `KeyRepeatGate(110)` 口径）。 */
+        const val FOCUS_REPEAT_GATE_MS = 110L
+
+        /** 需要节流的四个方向键（遥控器导航键）。 */
+        val MOVE_KEY_CODES = intArrayOf(
+            KeyEvent.KEYCODE_DPAD_UP,
+            KeyEvent.KEYCODE_DPAD_DOWN,
+            KeyEvent.KEYCODE_DPAD_LEFT,
+            KeyEvent.KEYCODE_DPAD_RIGHT,
+        )
     }
 }

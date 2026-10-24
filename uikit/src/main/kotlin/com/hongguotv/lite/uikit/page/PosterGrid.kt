@@ -173,6 +173,10 @@ class PosterGrid internal constructor(
         while (iterator.hasNext()) if (iterator.next().key !in keep) iterator.remove()
 
         removeAllViews()
+        // removeAllViews 只摘到"行"这一层：保留下来的卡片的 parent 还是刚被摘掉的行容器，
+        // 直接往新行里 addView 会抛"child already has a parent"——同 id 集合**重排**（季线聚合
+        // 到手、排序开关切换）时正好整批保留，必崩。先把卡片从旧行里摘干净再建新行。
+        cards.values.forEach { card -> (card.parent as? ViewGroup)?.removeView(card) }
         val rowCounts = GridGeometry.rowsOf(limited.size, columns)
         var cursor = 0
         rowCounts.forEachIndexed { rowIndex, count ->

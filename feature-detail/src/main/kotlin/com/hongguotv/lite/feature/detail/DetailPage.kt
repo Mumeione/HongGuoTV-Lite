@@ -72,6 +72,8 @@ internal abstract class DetailPage(
         views: Map<FocusKey, View>,
         preferred: FocusKey? = null,
         ladder: List<FocusKey> = emptyList(),
+        leftFlank: FocusSection? = null,
+        rightFlank: FocusSection? = null,
     ) {
         val side = FocusSections.section(rail.keys(), columns = 1)
         val plan = FocusSections.plan(
@@ -79,6 +81,8 @@ internal abstract class DetailPage(
             side = side,
             // 详情两页的当前项固定亮「收藏」：内容往左要回到它，而不是按竖直位置落到别的 tab
             sideAnchor = navKey(RAIL_SELECTED),
+            leftFlank = leftFlank,
+            rightFlank = rightFlank,
         ) ?: return
         focus.bind(plan, views)
         // 没有跨页记忆时把阶梯第一项升格成显式目标（回退链里显式 > 记忆）：

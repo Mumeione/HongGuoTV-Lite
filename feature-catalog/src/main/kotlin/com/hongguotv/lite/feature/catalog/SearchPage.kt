@@ -37,13 +37,13 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * 搜索页（B 方案，mockup 画面 1/2）。
+ * 搜索页（B 方案，mockup 画面 1/2；2026-10-24 下午聚合改造）。
  *
- * 从上到下：标题与说明 → 片库胶囊 → 输入行 → 候选词（有才占位）→ 内容区；底部信息栏。
- * 与 S9 版的三处不同：
- * - **片库固定在输入框上方、候选词固定在输入框下方**（B 方案用户故事：互相不被挤走）；
- * - **预览区退役**：聚焦卡的信息由底部 [InfoBand] 说——空态只写片名，结果态写"片名 + 已收藏 + 分类"；
- * - 「继续看」网格开**聚光**（非焦点卡 0.62），结果网格全亮（未上线卡用暗档表达）。
+ * 从上到下：标题与说明 → 片库胶囊 → 输入行 → 候选词（有才占位）→ 内容区（网格 + 翻页）；底部信息栏。
+ * 与 S10 版的三处不同：
+ * - **完整剧名聚合季线**（2026-10-24 规格）：季线整段进内存、只显示季线，翻页/正倒序不再反复打上游；
+ * - **翻页行与卡片同层**（内容底部）：信息栏出现/收起不再推它上下；
+ * - **结果卡不再被视口夹短**：按令牌自然比例显示，第二行探出一截滚动看全。
  */
 internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.SEARCH) {
 
@@ -140,12 +140,12 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         }
         body.addView(suggestRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-        // 翻页行：官网服务端分页，一页 10 条；两行放满就翻页，不把几十条堆在一屏。
-        // 位置在候选词与结果之间——用户的视线"候选 → 翻页 → 结果"是一条竖线。
+        // 翻页行：官网服务端分页 + 内存滑窗，一页 10 张。
+        // 位置在**结果网格之后、与卡片同层**（2026-10-24 口径）：信息栏出现/收起不再
+        // 推它上下，翻了十个都没有想要的才往下翻到「下一页」。
         pager = PagerRow(ui, prevLabel = "‹ 上一页", nextLabel = "下一页 ›").apply {
             onPage = { delta -> goPage(delta) }
         }
-        body.addView(pager.view, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         // 内容区：滚动网格 + 居中空态，二态互斥
         pane = ui.contentPane()
@@ -189,6 +189,14 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         }
         content.addView(resultGrid)
 
+        // 翻页行与卡片同层：跟着内容滚动，不随信息栏的出现/收起而移动
+        content.addView(
+            pager.view,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = ui.dp(tokens.space.s)
+            },
+        )
+
         // 内容区按真实视口夹一次卡片高度：布局前量不到，只能先按比例画一帧，
         // 首帧之后（下一次布局）再来一次——卡片就地改高度，不重建视图，焦点不受影响
         pane.addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
@@ -221,8 +229,10 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
     /**
      * 搜索 / 翻页。
      *
-     * [page] > 1 是翻页：**不清空当前页**，失败也只提示、不把用户手里的结果换成一屏错误；
-     * 第 1 页是新搜索，按旧口径清空并进入加载态。
+     * [page] > 1 是翻页：**不清空当前页**，窗口数据在手就纯内存切换；
+     * 缺数据才按序补拉服务端，失败也只提示、不把用户手里的结果换成一屏错误。
+     * 第 1 页是新搜索，按旧口径清空并进入加载态；完整剧名命中锚点后
+     * 追加一次季线请求做聚合（失败静默回退网页结果）。
      */
     private fun runSearch(keyword: String, filter: ContentFilter = settings().filter, page: Int = 1) {
         val clean = keyword.trim()
@@ -248,11 +258,37 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         searchJob?.cancel()
         searchJob = scope.launch {
             try {
-                val result = host.content.search(clean, filter, page)
-                if (model.keyword != clean) return@launch
-                model.apply(result, settings().seasonSortAsc)
-                // 结果到手就把光标交给第一张卡：用户按确认是要看结果，不是要回到搜索框
-                preferredOnRender = model.items.firstOrNull()?.let { resultGrid.keyOf(it.id) }
+                if (firstPage) {
+                    val result = host.content.search(clean, filter, 1)
+                    if (model.keyword != clean) return@launch
+                    model.absorb(result)
+                    presentAndRender(1)
+                    // 完整剧名 → 追加拉完整季线（含未上线新季）。失败静默：网页结果已经在屏上。
+                    // 只捕 UpstreamError 不用 runCatching：取消必须原样传播（ARCHITECTURE 口径）。
+                    // 单季剧（<2 季）没有"线"可言，保持网页结果。
+                    val anchor = model.anchor()
+                    if (anchor != null) {
+                        val line = try {
+                            host.content.seasons(anchor.id, anchor)
+                        } catch (error: UpstreamError) {
+                            null
+                        }
+                        if (line != null && line.seasons.size >= 2 && model.keyword == clean) {
+                            model.setSeasonLine(line.seasons)
+                            model.present(model.page, settings().seasonSortAsc)
+                            render()
+                        }
+                    }
+                } else {
+                    // 翻页：窗口缺数据才补拉（按服务端顺序，去重要求前面的页在场）
+                    while (!model.hasWindow(page)) {
+                        val next = model.nextServerPage() ?: break
+                        val fetched = host.content.search(clean, filter, next)
+                        if (model.keyword != clean) return@launch
+                        model.absorb(fetched)
+                    }
+                    presentAndRender(page)
+                }
             } catch (error: UpstreamError) {
                 if (model.keyword != clean) return@launch
                 if (firstPage) {
@@ -271,17 +307,17 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         }
     }
 
-    /** 翻页：看过的页直接用缓存，没看过的才请求。 */
+    /** 窗口切到 [target]、光标交给第一张卡（用户按翻页/搜索是要看结果，不是要回到搜索框）。 */
+    private fun presentAndRender(target: Int) {
+        model.present(target, settings().seasonSortAsc)
+        preferredOnRender = model.items.firstOrNull()?.let { resultGrid.keyOf(it.id) }
+        render()
+    }
+
+    /** 翻页：窗口在手直接内存切换，缺数据才走 [runSearch] 的补拉路径。 */
     private fun goPage(delta: Int) {
         val target = (model.page + delta).coerceIn(1, model.pageCount)
-        if (target == model.page) return
-        val cached = model.cached(target)
-        if (cached != null) {
-            model.apply(cached, settings().seasonSortAsc)
-            preferredOnRender = model.items.firstOrNull()?.let { resultGrid.keyOf(it.id) }
-            render()
-            return
-        }
+        if (target == model.page && model.items.isNotEmpty()) return
         runSearch(model.keyword, settings().filter, target)
     }
 
@@ -362,6 +398,7 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         val ascending = !settings().seasonSortAsc
         scope.launch { host.settings.update { it.copy(seasonSortAsc = ascending) } }
         sortChip.label(SettingRows.sortLabel(ascending))
+        // 内存聚合视图整体重排（不发请求），页码不变
         model.reorder(ascending)
         render()
     }
@@ -414,7 +451,11 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         }
         scaffold.band().show(
             title = series.title,
-            segments = CatalogText.bandSegments(favorite = favoriteOf(series) != null, tags = series.tags),
+            segments = CatalogText.bandSegments(
+                favorite = favoriteOf(series) != null,
+                tags = series.tags,
+                badge = CatalogText.searchBadge(series, aggregated = false),
+            ),
             keys = listOf("OK" to "打开"),
         )
     }
@@ -438,7 +479,8 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         val showResult = error == null && model.items.isNotEmpty()
         val emptyPage = model.hasSearched && model.page > 1 && model.items.isEmpty()
         val stateText = when {
-            model.loading -> "正在搜索…"
+            // 加载中但手里还有结果（翻页补拉）：旧窗口继续在屏上，不闪"正在搜索…"
+            model.loading -> if (model.items.isEmpty()) "正在搜索…" else null
             error != null -> TvText.error(error)
             showContinue || showResult -> null
             emptyPage && current.filter != ContentFilter.ALL ->
@@ -452,11 +494,11 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         continueHeader.visibility = if (showContinue) View.VISIBLE else View.GONE
         continueGrid.visibility = if (showContinue) View.VISIBLE else View.GONE
         resultGrid.visibility = if (showResult) View.VISIBLE else View.GONE
-        // 翻页行只要"搜过且多页"就在：结果为空的那一页也要留着它，否则用户翻不回去
-        val showPager = error == null && model.hasSearched && (model.pageCount > 1 || model.hasMore || model.page > 1)
+        // 翻页行只要"搜过且多页"就在（页脚）：结果为空的那一页也要留着它，否则用户翻不回去
+        val showPager = error == null && model.hasSearched && (model.pageCount > 1 || model.page > 1)
         if (showPager) {
             pager.show(
-                CatalogText.searchRange(model.page, model.pageCount, model.totalCount),
+                CatalogText.searchRange(model.page, model.pageCount, model.estimatedTotal),
                 hasPrev = model.page > 1,
                 hasNext = model.hasNext,
             )
@@ -473,20 +515,19 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         } else {
             null
         }
-        rendered = if (showResult) resultGrid.render(model.items.map { CatalogCards.search(it) }) else null
+        rendered = if (showResult) resultGrid.render(model.items.map { CatalogCards.search(it, model.aggregated) }) else null
 
         applyFocus()
     }
 
     /**
-     * 把内容区视口高度交给两个网格：首屏只放得下一行卡时，封面按它夹短。
+     * 把内容区视口高度交给「继续看」网格：首屏只放得下一行卡时，封面按它夹短。
      *
-     * 「继续看」上方还有一行小标题，那一块要从可用高度里扣掉；首帧量不到它的高度时先不扣，
-     * 下一次布局会按实测值重算（卡片就地改高度，不重建、不丢焦点）。
+     * **结果网格不再夹**（2026-10-24 口径）：视口强夹把两行硬塞首屏，封面被裁、
+     * 卡片变小——结果卡按令牌自然比例显示，第二行自然探出一截、滚动看全。
      */
     private fun applyCardLimit() {
         if (viewport <= 0) return
-        resultGrid.cardHeightLimit = viewport
         val header = if (continueHeader.visibility == View.VISIBLE) continueHeader.height else 0
         continueGrid.cardHeightLimit = (viewport - header).coerceAtLeast(0)
     }
@@ -529,9 +570,10 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
             ),
             FocusSections.section(FocusSections.keys("suggest", suggestChips.size), suggestChips.size),
             if (retry.visibility == View.VISIBLE) FocusSections.section(listOf(FocusKey("search:retry")), 1) else null,
-            pagerSection,
             continueRendered?.let { FocusSections.section(it.keys, it.columns) },
             rendered?.let { FocusSections.section(it.keys, it.columns) },
+            // 翻页行与卡片同层（内容底部）：声明顺序 = 视觉顺序，网格之后声明
+            pagerSection,
         )
         applyPlan(sections, views)
     }

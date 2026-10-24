@@ -14,6 +14,7 @@ import com.hongguotv.lite.uikit.page.ContentPane
 import com.hongguotv.lite.uikit.page.GridRendered
 import com.hongguotv.lite.uikit.page.PosterGrid
 import com.hongguotv.lite.uikit.ui.CardItem
+import com.hongguotv.lite.uikit.ui.ButtonVariant
 import com.hongguotv.lite.uikit.ui.TvButton
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
@@ -49,7 +50,8 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
         // B 方案：顶层页用大标题（与详情片名同档）
         header.titleSize(tokens.type.display)
         // 顺序按维护者口径：我的收藏 → 检查更新 → 更新说明，三者贴在一起靠左，不推到屏幕右边。
-        checkButton = ui.button("检查更新") { startCheck(force = true) }
+        // 2026-10-24 口径：按钮与说明都缩小一档（小号胶囊 + footnote），它是低频动作不抢主视觉。
+        checkButton = ui.button("检查更新", variant = ButtonVariant.SMALL) { startCheck(force = true) }
         // 定宽（不是 minWidth）：文案在「检查更新」↔「正在检查…」间切换时右侧说明不重排（审计 #10）。
         // minWidth 只保下限，长文案仍会把说明顶走——这条要的是"宽度不变"。
         header.lead().addView(
@@ -58,7 +60,7 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
                 leftMargin = ui.dp(tokens.space.m)
             },
         )
-        statusView = header.leadNote("")
+        statusView = header.leadNote("").apply { textSize = tokens.type.footnote }
 
         val body = scaffold.body()
         pane = ui.contentPane()

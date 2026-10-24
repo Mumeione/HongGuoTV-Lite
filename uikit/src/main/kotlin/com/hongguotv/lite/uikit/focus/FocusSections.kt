@@ -15,8 +15,9 @@ object FocusSections {
         keys: List<FocusKey>,
         columns: Int = keys.size,
         down: FocusKey? = null,
+        flanked: Boolean = false,
     ): FocusSection? =
-        if (keys.isEmpty()) null else FocusSection(keys, columns.coerceAtLeast(1), down = down)
+        if (keys.isEmpty()) null else FocusSection(keys, columns.coerceAtLeast(1), down = down, flanked = flanked)
 
     /**
      * 带空槽的一段：禁用的按钮**保留位置**、不参与聚焦（季线页第一页的「上一组」）。
@@ -38,9 +39,11 @@ object FocusSections {
         sections: List<FocusSection?>,
         side: FocusSection? = null,
         sideAnchor: FocusKey? = null,
+        leftFlank: FocusSection? = null,
+        rightFlank: FocusSection? = null,
     ): FocusPlan? {
         val present = sections.filterNotNull()
         if (present.isEmpty()) return null
-        return FocusPlan(present, side, sideAnchor)
+        return FocusPlan(present, side, sideAnchor, leftFlank, rightFlank)
     }
 }

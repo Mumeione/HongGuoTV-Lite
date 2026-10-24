@@ -30,26 +30,28 @@ class CatalogTextTest {
     }
 
     @Test
-    fun ascendingOrderReplaysTheSeasonLineAndKeepsTheRest() {
-        val line = listOf(series("1", "剧第一季", 1), series("2", "剧第二季", 2), series("3", "剧第三季", 3))
-        // 端口给的展示序：季线新→旧 + 其余原序
-        val raw = listOf(line[2], line[1], line[0], series("9", "另一部"))
-
-        assertEquals(raw, CatalogText.ordered(raw, line, ascending = false))
-        assertEquals(listOf("1", "2", "3", "9"), CatalogText.ordered(raw, line, ascending = true).map { it.id })
+    fun searchBadgeKeepsThePlainCountForWebResults() {
+        assertEquals("全 352 集", CatalogText.searchBadge(Series(id = "1", title = "剧", episodeCount = 352), aggregated = false))
+        // 没有集数的条目不编一句空话
+        assertEquals("", CatalogText.searchBadge(series("2"), aggregated = false))
     }
 
     @Test
-    fun ascendingOrderIgnoresLineMembersThatTheFilterRemoved() {
-        val line = listOf(series("1", "剧第一季", 1), series("2", "剧第二季", 2))
-        val raw = listOf(series("2", "剧第二季", 2))
-        assertEquals(listOf("2"), CatalogText.ordered(raw, line, ascending = true).map { it.id })
+    fun searchBadgeMarksTheSeasonForAggregatedCards() {
+        // 聚合态：季线卡带「第N季」，不用聚焦就能分清同一部剧的各季
+        val s9 = Series(id = "9", title = "剧第九季", season = 9, episodeCount = 120)
+        assertEquals("第九季 · 全 120 集", CatalogText.searchBadge(s9, aggregated = true))
+        assertEquals("第九季", CatalogText.searchBadge(Series(id = "9", title = "剧第九季", season = 9), aggregated = true))
+        // 单季剧（无季号）维持"全 N 集"
+        assertEquals("全 80 集", CatalogText.searchBadge(Series(id = "5", title = "剧", episodeCount = 80), aggregated = true))
     }
 
     @Test
-    fun aSingleSeasonLineLeavesTheOrderAlone() {
-        val raw = listOf(series("2"), series("1"))
-        assertEquals(raw, CatalogText.ordered(raw, listOf(series("1")), ascending = true))
+    fun searchBadgeKeepsUnreleasedAsIs() {
+        // 未上线永远只写「未上线」，聚合与否都不变
+        val unreleased = Series(id = "16", title = "剧第十六季", season = 16, released = false)
+        assertEquals("未上线", CatalogText.searchBadge(unreleased, aggregated = true))
+        assertEquals("未上线", CatalogText.searchBadge(unreleased, aggregated = false))
     }
 
     // ---------- 底部信息栏（B 方案） ----------
@@ -57,10 +59,15 @@ class CatalogTextTest {
     @Test
     fun infoBandOnlyStatesTheSeriesAndItsFacts() {
         // B 方案口径："信息栏只写信息和收藏状态、更新情况，不写观看记录"
-        // 搜索/历史结果：片名 + 已收藏 + 分类（我的状态在卡片与详情页说）
-        assertEquals(listOf("已收藏", "古装 / 逆袭"), CatalogText.bandSegments(favorite = true, tags = "古装 / 逆袭"))
+        // 搜索/历史结果：片名 + 集数 + 已收藏 + 分类（我的状态在卡片与详情页说）
+        assertEquals(
+            listOf("全 90 集", "已收藏", "古装 / 逆袭"),
+            CatalogText.bandSegments(favorite = true, tags = "古装 / 逆袭", badge = "全 90 集"),
+        )
         assertEquals(listOf("古装 / 逆袭"), CatalogText.bandSegments(favorite = false, tags = "古装 / 逆袭"))
         assertEquals(emptyList<String>(), CatalogText.bandSegments(favorite = false, tags = ""))
+        // 集数段没有就跳过（早期记录/plan 卡可能没有 badge）
+        assertEquals(listOf("已收藏", "古装 / 逆袭"), CatalogText.bandSegments(favorite = true, tags = "古装 / 逆袭"))
         // 上游给的分隔符是「 · 」（详情页那套），信息栏按 mockup 用「 / 」读作"分类"
         assertEquals(listOf("逆袭 / 朝堂权谋"), CatalogText.bandSegments(favorite = false, tags = "逆袭 · 朝堂权谋"))
     }

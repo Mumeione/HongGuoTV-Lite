@@ -49,6 +49,12 @@ data class FocusSection(
      * 与列号无关的出口只有页面知道，所以由页面指名。
      */
     val down: FocusKey? = null,
+    /**
+     * 本段的左右两侧有**长条翻组键**侧翼（[FocusPlan.leftFlank]/[rightFlank]）：
+     * 行首按左、行尾按右都落到侧翼，不再夹住自己或进导航侧栏。
+     * 只有被侧翼包夹的网格段声明它（分集格、季线卡）；动作列这类竖排段保持夹住自己。
+     */
+    val flanked: Boolean = false,
 ) {
     init {
         require(slots.any { it != null }) { "焦点段不能为空：调用方应整段省略，而不是传空列表" }
@@ -129,6 +135,13 @@ data class FocusPlan(
     val sections: List<FocusSection>,
     val side: FocusSection? = null,
     val sideAnchor: FocusKey? = null,
+    /**
+     * 贴着 [sections] 里 `flanked` 段左右两侧的长条翻组键（分集格、季线卡两侧的 ‹ › 长条）。
+     * 各是**单列竖条**：行首按左 / 行尾按右落到条上（按竖直行号映射），条上按右/左回到内容行缘。
+     * 与 [side]（导航侧栏）互不干扰：侧栏接没被侧翼声明的段。
+     */
+    val leftFlank: FocusSection? = null,
+    val rightFlank: FocusSection? = null,
 ) {
     init { require(sections.isNotEmpty()) { "焦点图至少需要一段" } }
 }
@@ -164,7 +177,10 @@ class FocusGraph private constructor(
 
     companion object {
         fun of(plan: FocusPlan): FocusGraph {
-            val total = plan.sections.sumOf { it.keys.size } + (plan.side?.keys?.size ?: 0)
+            val total = plan.sections.sumOf { it.keys.size } +
+                (plan.side?.keys?.size ?: 0) +
+                (plan.leftFlank?.keys?.size ?: 0) +
+                (plan.rightFlank?.keys?.size ?: 0)
             val map = LinkedHashMap<FocusKey, Neighbors>(total)
             val order = ArrayList<FocusKey>(total)
 
@@ -182,6 +198,35 @@ class FocusGraph private constructor(
                 }
             }
 
+            // 侧翼长条（分集格/季线卡两侧的 ‹ › ）：与内容行缘互为出入，按竖直行号映射。
+            // 只允许一段被包夹：出现两段时第二个会静默接错侧翼，直接拒绝。
+            require(plan.sections.count { it.flanked } <= 1) {
+                "侧翼长条只能包夹一段：当前声明了 ${plan.sections.count { it.flanked }} 个 flanked 段"
+            }
+            val flankedSection = plan.sections.firstOrNull { it.flanked }
+            plan.leftFlank?.let { flank ->
+                order.addAll(flank.keys)
+                flank.keys.forEachIndexed { index, key ->
+                    map[key] = Neighbors(
+                        left = key,
+                        right = flankedSection?.let { crossToRow(it, index, flank.keys.size, fromStart = true) } ?: key,
+                        up = if (index > 0) flank.keys[index - 1] else key,
+                        down = if (index < flank.keys.lastIndex) flank.keys[index + 1] else key,
+                    )
+                }
+            }
+            plan.rightFlank?.let { flank ->
+                order.addAll(flank.keys)
+                flank.keys.forEachIndexed { index, key ->
+                    map[key] = Neighbors(
+                        left = flankedSection?.let { crossToRow(it, index, flank.keys.size, fromStart = false) } ?: key,
+                        right = key,
+                        up = if (index > 0) flank.keys[index - 1] else key,
+                        down = if (index < flank.keys.lastIndex) flank.keys[index + 1] else key,
+                    )
+                }
+            }
+
             plan.sections.forEachIndexed { sectionIndex, section ->
                 val columns = section.columns
                 order.addAll(section.keys)
@@ -191,17 +236,16 @@ class FocusGraph private constructor(
                     val row = index / columns
                     val column = index % columns
 
-                    // 行首/行尾夹住自己：按左键不跨行，也不交给系统做几何猜测。
-                    // 行首按左键的唯一出口是侧段（竖排在屏幕左缘）——优先落页面指名的当前 tab，
-                    // 没指名才按竖直位置选侧栏项。
+                    // 行首/行尾的去处：被侧翼包夹的段先找长条，否则夹住自己或进导航侧栏。
+                    // 按左键不跨行，也不交给系统做几何猜测。
                     val left = if (column > 0) {
-                        section.previousInRow(row, column)
-                            ?: plan.side?.let { side -> leftIntoSide(plan, side, row, section.rows) }
-                            ?: key
+                        section.previousInRow(row, column) ?: leftNeighborOf(plan, section, row, key)
                     } else {
-                        plan.side?.let { side -> leftIntoSide(plan, side, row, section.rows) } ?: key
+                        leftNeighborOf(plan, section, row, key)
                     }
-                    val right = section.nextInRow(row, column) ?: key
+                    val right = section.nextInRow(row, column)
+                        ?: (if (section.flanked) plan.rightFlank?.let { crossToRow(it, row, section.rows, fromStart = false) } else null)
+                        ?: key
                     val up = if (row > 0) {
                         section.nearestInRow(row - 1, column)
                             ?: crossSection(plan, sectionIndex, -1, column, columns, key)
@@ -251,6 +295,19 @@ class FocusGraph private constructor(
             val offset = center.toInt().coerceIn(0, width - 1)
             // 目标行可能带着空槽（禁用的翻组键）：取离这一列最近的可用项
             return target.nearestInRow(row, offset) ?: self
+        }
+
+        /**
+         * 行首往左的去处（按优先级）：被侧翼包夹的段先落长条，否则进导航侧栏（页面指名的
+         * 当前 tab 优先，其次按竖直位置映射），都没有才夹住自己。
+         */
+        private fun leftNeighborOf(plan: FocusPlan, section: FocusSection, row: Int, key: FocusKey): FocusKey {
+            if (section.flanked) {
+                plan.leftFlank?.let { flank -> return crossToRow(flank, row, section.rows, fromStart = true) }
+                return key
+            }
+            plan.side?.let { side -> return leftIntoSide(plan, side, row, section.rows) }
+            return key
         }
 
         /**

@@ -18,18 +18,16 @@ import com.hongguotv.lite.uikit.ui.CardItem
 internal object CatalogCards {
 
     /**
-     * 搜索结果卡：封面 + 一行集数（B 方案，mockup 画面2）——
-     * 未上线写「未上线」，其余写「全 N 集」；收藏状态在底部信息栏说，不占卡片。
+     * 搜索结果卡：封面 + 一行角标（B 方案，mockup 画面2）。
+     *
+     * 角标文案见 [CatalogText.searchBadge]：未上线写「未上线」，聚合态的季线卡带
+     * 「第N季」，纯网页结果写「全 N 集」；收藏状态在底部信息栏说，不占卡片。
      */
-    fun search(series: Series): CardItem = CardItem(
+    fun search(series: Series, aggregated: Boolean = false): CardItem = CardItem(
         id = series.id,
         title = "",
         coverUrl = series.cover,
-        badge = when {
-            !series.released -> "未上线"
-            series.episodeCount > 0 -> "全 ${series.episodeCount} 集"
-            else -> ""
-        },
+        badge = CatalogText.searchBadge(series, aggregated),
         // 未上线季：暗一档。是否拦点击由页面决定（旧版是点进去再提示，那是产品文案）
         dim = !series.released,
         artworkTitle = series.title,

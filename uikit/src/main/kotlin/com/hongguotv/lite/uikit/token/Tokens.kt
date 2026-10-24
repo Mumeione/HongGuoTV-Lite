@@ -65,7 +65,7 @@ data class Colors(
     /** 封面「当前」角标的底：深底压住亮色封面，保证白字与白框读得出。 */
     val cornerScrim: Int = 0xE60B0F15.toInt(),
     /** 播放抽屉打开时的整屏压暗层。 */
-    val scrim: Int = 0x94040609.toInt(),
+    val scrim: Int = 0xC0040609.toInt(),
 )
 
 /**
@@ -176,7 +176,10 @@ data class Metrics(
     val pillPaddingH: Int = 20,
     val pillSmallPaddingH: Int = 14,
     /** 页头贴身动作胶囊（「检查更新」）的定宽：文案在「检查更新」↔「正在检查…」间切换时不重排（审计 #10）。 */
-    val leadActionWidth: Int = 124,
+    val leadActionWidth: Int = 100,
+
+    /** 分集格/季线卡两侧长条翻组键的宽（2026-10-24 取代顶行翻组胶囊）。 */
+    val sideStripWidth: Int = 40,
 
     // ---------- 卡片（目录，宽 149） ----------
     val catalogCardWidth: Int = 149,

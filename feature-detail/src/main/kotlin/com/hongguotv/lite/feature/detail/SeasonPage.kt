@@ -15,7 +15,7 @@ import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.focus.FocusSections
 import com.hongguotv.lite.uikit.layout.GridGeometry
 import com.hongguotv.lite.uikit.page.PageHeader
-import com.hongguotv.lite.uikit.page.PagerRow
+import com.hongguotv.lite.uikit.page.SideStrips
 import com.hongguotv.lite.uikit.page.TwoStepConfirm
 import com.hongguotv.lite.uikit.text.TvText
 import com.hongguotv.lite.uikit.ui.ButtonVariant
@@ -50,7 +50,8 @@ internal class SeasonPage(
     private lateinit var seasonCountView: TextView
     private lateinit var sortButton: TvButton
     private lateinit var seasonHost: LinearLayout
-    private lateinit var pager: PagerRow
+    private lateinit var seasonRow: LinearLayout
+    private lateinit var strips: SideStrips
 
     private var entry: FavoriteEntry? = null
     private var line: SeasonLine? = null
@@ -108,20 +109,20 @@ internal class SeasonPage(
             visibility = View.GONE
             setPadding(0, ui.dp(tokens.space.m), 0, ui.dp(tokens.space.s))
         }
-        // 一行贴左排开：季数 → 翻组 → 排序。三个控件都管下面这排季，
-        // 紧跟在"所有季"后面比贴着屏幕右边缘更像一组（维护者口径："所有季的右侧"）。
-        // 排序与翻组都是按钮、同高，不做成小号文字链接。
+        // 一行贴左排开：季数 → 倒序。翻组改由季卡两侧的长条承担（2026-10-24 口径），
+        // 顶行只留"这一页是哪条线"的信息与排序开关。
         seasonCountView = ui.text("", tokens.type.compact, tokens.colors.text).apply {
             setTypeface(null, android.graphics.Typeface.BOLD)
         }
         seasonHeader.addView(seasonCountView, ui.params().apply { rightMargin = ui.dp(tokens.space.m) })
-        pager = PagerRow(ui, fillWidth = false).apply { onPage = { delta -> goPage(delta) } }
-        seasonHeader.addView(pager.view)
         sortButton = ui.button("倒序", variant = ButtonVariant.SMALL) { toggleSort() }
         seasonHeader.addView(sortButton, ui.params().apply { leftMargin = ui.dp(tokens.space.m) })
         body.addView(seasonHeader)
 
-        seasonHost = ui.column().apply { visibility = View.GONE }
+        // 季卡夹在左右长条之间：出格就撞到条上，按一下翻一组，比顶行翻组键直观
+        strips = SideStrips(ui, KEY_PREV, KEY_NEXT) { delta -> goPage(delta) }
+        seasonRow = ui.rowTop()
+        seasonHost = strips.wrap(seasonRow).apply { visibility = View.GONE }
         body.addView(
             seasonHost,
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -191,9 +192,10 @@ internal class SeasonPage(
 
         val seasons = line
         if (seasons == null) {
-            seasonHost.removeAllViews()
+            seasonHost.visibility = View.GONE
+            seasonRow.removeAllViews()
             seasonCards.clear()
-            pager.hide()
+            strips.show(visible = false, hasPrev = false, hasNext = false)
         } else {
             renderSeasons(seasons)
         }
@@ -283,12 +285,11 @@ internal class SeasonPage(
 
         // 重建前记住"哪一季正被聚焦"：切正序/倒序之后光标要跟着那一季，别落到页面顶上
         val focusedId = seasonCards.entries.firstOrNull { it.value.isFocused }?.key
-        seasonHost.removeAllViews()
+        seasonRow.removeAllViews()
         seasonCards.clear()
         // 季卡标题去掉系列名前缀（108dp 宽的卡写全名只会截断）
         val base = entry?.series?.title ?: anchor?.let { SeasonKeys.seasonBase(it.title) }.orEmpty()
         val currentSeasonId = entry?.series?.id
-        val row = ui.rowTop()
         slice.forEachIndexed { position, season ->
             val current = season.id == currentSeasonId
             val card = ui.poster(cardWidth).apply {
@@ -306,7 +307,7 @@ internal class SeasonPage(
                 // 白框全留给光标（一页只有一处白色填充/描边在争注意力）
                 onActivated = { openSeason(season) }
             }
-            row.addView(
+            seasonRow.addView(
                 card,
                 LinearLayout.LayoutParams(cardWidth, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     if (position < slice.lastIndex) rightMargin = gap
@@ -314,21 +315,24 @@ internal class SeasonPage(
             )
             seasonCards[season.id] = card
         }
-        seasonHost.addView(row)
         if (focusedId != null) seasonCards[focusedId]?.requestFocus()
 
-        seasonCountView.text = DetailText.seasonLineTitle(seasons.seasons.size)
-        sortButton.label(if (host.settings.current().seasonSortAsc) "正序" else "倒序")
-
-        if (pages > 1) {
-            val label = DetailText.seasonRangeLabel(
+        // 组范围并进季数行：长条只留 ‹ › 两个符号，"当前是哪一段"由文字说
+        seasonCountView.text = if (pages > 1) {
+            DetailText.seasonLineTitle(seasons.seasons.size) + " · " + DetailText.seasonRangeLabel(
                 firstSeason = slice.firstOrNull()?.season ?: 0,
                 lastSeason = slice.lastOrNull()?.season ?: 0,
             )
-            pager.show(label, hasPrev = pageIndex > 0, hasNext = pageIndex < pages - 1)
         } else {
-            pager.hide()
+            DetailText.seasonLineTitle(seasons.seasons.size)
         }
+        sortButton.label(if (host.settings.current().seasonSortAsc) "正序" else "倒序")
+
+        strips.show(
+            visible = pages > 1,
+            hasPrev = pageIndex > 0,
+            hasNext = pageIndex < pages - 1,
+        )
     }
 
     private fun renderState(series: Series?) {
@@ -447,17 +451,9 @@ internal class SeasonPage(
         if (detailOnlyButton.visibility == View.VISIBLE) views[KEY_DETAIL] = detailOnlyButton
         seasonCards.forEach { (id, card) -> views[FocusKey(seasonKey(id))] = card }
 
-        // 焦点顺序就是视觉顺序：‹ 上一组 → 下一组 › → 倒序。
-        // 写成 [倒序, 上一组, 下一组] 会让"从最左边的翻组键按下"落到季卡中间（维护者实测）。
-        // 翻组那一行的空槽由 [PagerRow.focusSection] 统一处理（禁用的「上一组」仍占第 1 列）。
-        val headerSection = if (seasonHeader.visibility == View.VISIBLE) {
-            views[KEY_SORT] = sortButton
-            // 只有一页时翻组行整条 GONE：视觉上「倒序」紧跟季数，列号从 0 起
-            val pagerSlots = pager.focusSection(views, KEY_PREV, KEY_NEXT)
-            FocusSections.slots(pagerSlots?.slots?.plus(KEY_SORT) ?: listOf(KEY_SORT))
-        } else {
-            null
-        }
+        // 长条可用时才进焦点图；不可用那侧整段省略，内容行缘夹住自己（SideStrips 统一判）
+        val leftFlank = if (seasonHost.visibility == View.VISIBLE) strips.leftSection() else null
+        val rightFlank = if (seasonHost.visibility == View.VISIBLE) strips.rightSection() else null
 
         submitPlan(
             sections = listOf(
@@ -466,14 +462,21 @@ internal class SeasonPage(
                 if (detailOnlyButton.visibility == View.VISIBLE) FocusSections.section(listOf(KEY_DETAIL), 1) else null,
                 // 动作列是竖排的：上下在键间移动（mockup 画面5 的右列）
                 FocusSections.section(actionKeys, 1),
-                // 翻组与排序在同一行（"所有季"右侧）：空槽占位，列号与视觉一致
-                headerSection,
-                FocusSections.section(seasonCards.keys.map { FocusKey(seasonKey(it)) }, SEASON_COLUMNS),
+                // 排序在季数旁边（页面上方），与长条互不相干
+                if (seasonHeader.visibility == View.VISIBLE) FocusSections.section(listOf(KEY_SORT), 1) else null,
+                // 季卡被左右长条包夹：行首按左、行尾按右都落到条上（2026-10-24 口径）
+                FocusSections.section(
+                    seasonCards.keys.map { FocusKey(seasonKey(it)) },
+                    SEASON_COLUMNS,
+                    flanked = true,
+                ),
             ),
             views = views,
             preferred = wanted,
             // 没有显式目标也没有记忆时落主操作：进这页是要接着看，不是要看「返回」
             ladder = if (series != null) listOf(KEY_PLAY) else emptyList(),
+            leftFlank = leftFlank,
+            rightFlank = rightFlank,
         )
     }
 

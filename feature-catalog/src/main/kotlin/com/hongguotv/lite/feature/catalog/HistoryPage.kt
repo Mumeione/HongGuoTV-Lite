@@ -22,8 +22,9 @@ import kotlinx.coroutines.launch
 /**
  * 历史页（B 方案，mockup 画面4）。
  *
- * 卡片 120dp 两行 6 列（一屏 12 部，更多往下滚），状态条只写「第九季 第20集」——
- * 详情（收藏状态、分类）在底部信息栏里，**不写观看位置**（我的状态在卡片上已经有了）。
+ * 卡片与搜索/收藏同一份默认积木（149dp 目标卡宽、一行 5 张，一屏两行 10 部，更多往下滚），
+ * 状态条只写「第九季 第20集」——详情（收藏状态、分类）在底部信息栏里，
+ * **不写观看位置**（我的状态在卡片上已经有了）。
  *
  * 管理入口是 **MENU 键**（顶部不再有"管理记录"按钮；一键全清只在设置里）：
  * 开启后对**当前聚焦的那条**执行 继续播放 / 标记已看（恢复未看）/ 删除。
@@ -62,13 +63,8 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
 
         grid = ui.grid(GRID_SECTION).apply {
             persistCovers = true
-            // B 方案产品口径：两行 6 列、封面 152、信息条 26dp、列距 12、行距 20
-            // （spec 令牌表"卡片（历史）"；封面比 0.7 比例矮一档，图按 cover 裁上下）
-            cardWidthTargetDp = tokens.metrics.historyCardWidth
-            columnGapDp = tokens.metrics.historyColumnGap
-            rowGapDp = tokens.metrics.historyRowGap
-            stripHeightDp = tokens.metrics.historyStripHeight
-            coverHeightDp = tokens.metrics.historyCoverHeight
+            // 2026-10-24 口径：历史卡与搜索/收藏**同一份默认积木**（149dp 目标卡宽、一行 5 张），
+            // 不再单独缩成 120dp 六列——三种内容列表的卡片大小统一。
             spotlight = true
             onCardFocused = { item -> onCardFocused(item.id) }
             onCardActivated = { item -> host.navigator.toDetail(item.id, resumeRecording = true) }

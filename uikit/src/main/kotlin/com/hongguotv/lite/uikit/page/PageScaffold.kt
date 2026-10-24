@@ -224,10 +224,19 @@ class PageScaffold internal constructor(private val ui: UiKit) : FrameLayout(ui.
         return rail
     }
 
-    /** 底部信息带。建过就复用同一个实例（视图复用见 [InfoBand]）。 */
+    /**
+     * 底部信息带。建过就复用同一个实例（视图复用见 [InfoBand]）。
+     *
+     * **每次调用都恢复可见**：`hideBand()` 收起的是槽位，而"焦点回到卡片"的路径
+     * 是 `band().show(...)`——如果这里不把槽位拉回来，信息栏在第一次收起后就
+     * 永远不再出现（实测：焦点从卡片离开再回到卡片，全页面如此）。
+     */
     fun band(): InfoBand {
         val existing = _band
-        if (existing != null) return existing
+        if (existing != null) {
+            bandSlot.visibility = View.VISIBLE
+            return existing
+        }
         val band = InfoBand(ui)
         bandSlot.addView(band, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(tokens.metrics.infoBandHeight)))
         bandSlot.visibility = View.VISIBLE

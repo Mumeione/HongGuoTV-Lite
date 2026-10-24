@@ -4,6 +4,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import com.hongguotv.core.model.SearchResult
+import com.hongguotv.core.model.SeasonKeys
 import com.hongguotv.core.model.Series
 import com.hongguotv.core.port.ContentPort
 import com.hongguotv.core.port.FavoritesPort
@@ -97,83 +98,161 @@ class CatalogFeature(
 }
 
 /**
- * 搜索页的状态：一个关键词 + **按页缓存的上游结果**。
+ * 搜索页的状态：一个关键词 + **内存聚合视图**（2026-10-24 下午规格）。
  *
- * 官网搜索是**服务端分页**（一页 10 条、`totalPages` 可达 20+），所以这里存的是
- * "第 N 页返回了什么"，而不是一整条季线。翻回看过的页直接用缓存，不再打上游。
+ * 条目仍按服务端分页拉（一页 10 条），但拉过就进内存；完整剧名命中季线后，
+ * 季线整段（含未上线季）一次请求进内存。**聚合态只显示季线**（新→旧，完整剧名的
+ * 目的就是只看这部剧，杂项不混进来）；未聚合 = 网页原序（第 1 页 + 已缓存的后续页）。
+ * 翻页与正/倒序都是在这份视图上滑窗/重排，只有窗口尾部超出缓存时才补拉服务端
+ * ——低配电视上的代价是 KB 级内存与一次毫秒级列表操作，网格每页仍只绑 10 张。
  *
- * 去重是必要的：上游翻页会重叠（实测第 2 页开头重复第 1 页末尾的季），
- * 同一部剧在一页里出现两次会让人以为搜索坏了。
+ * 去重是必要的：上游翻页会重叠（实测第 2 页开头重复第 1 页末尾的季）。
+ * 去重只比"先到手的数据"，同一页反复吸收结果稳定，翻回去不会被过滤空。
  */
 internal class SearchModel {
     var keyword: String = ""
 
-    /** 当前页（1 起）。 */
+    /** 当前窗口页（1 起），一页 [CatalogText.PAGE_SIZE] 张。 */
     var page: Int = 1
-    var totalPages: Int = 1
-    var totalCount: Int = 0
 
-    /** 上游还有下一页（`totalPages` 缺失时靠它兜底，不至于"翻页行整条消失"）。 */
+    /** 服务端口径：关键词总条数、页数、还有没有下一页（估计与补拉边界用）。 */
+    var totalCount: Int = 0
+    var totalPages: Int = 1
     var hasMore: Boolean = false
 
-    /** 端口给的展示序（当前页），排序开关来回切都从它派生。 */
-    var raw: List<Series> = emptyList()
-    var items: List<Series> = emptyList()
-    var seasonLine: List<Series> = emptyList()
     var loading: Boolean = false
     var error: Throwable? = null
     var hasSearched: Boolean = false
 
-    private val pages = LinkedHashMap<Int, SearchResult>()
+    /** 季线整段，存储序 = 新→旧（默认展示序）。空 = 未聚合（纯网页结果）。 */
+    var seasons: List<Series> = emptyList()
+        private set
 
-    val pageCount: Int get() = totalPages.coerceAtLeast(1)
+    /** 第 1 页原序（锚点识别、"其余条目"的第 1 段）。 */
+    var firstPage: List<Series> = emptyList()
+        private set
 
-    /** 下一页是否可用：以 `totalPages` 为准，字段缺失时退回 `hasMore`。 */
-    val hasNext: Boolean get() = page < pageCount || hasMore
+    /** 第 2 页起的"其余条目"，按服务端页缓存（已对先到手的数据去重）。 */
+    private val restPages = LinkedHashMap<Int, List<Series>>()
+
+    /** 服务端已拉到第几页（补拉按顺序，页与页的去重要求前面的页在场）。 */
+    private var serverFetched: Int = 0
+
+    /** 当前窗口（页面渲染用），由 [present] / [reorder] 维护。 */
+    var items: List<Series> = emptyList()
+        private set
+
+    /** 是否处于季线聚合态（卡片角标与空态文案的分支条件）。 */
+    val aggregated: Boolean get() = seasons.isNotEmpty()
+
+    /** 服务端口径下是否还有下一页可拉。聚合态季线已全在内存，不再拉杂项。 */
+    val serverHasNext: Boolean get() = !aggregated && hasMore && serverFetched < totalPages
+
+    /**
+     * 聚合总量的估计：**聚合态只显示季线**（完整剧名的目的就是只看这部剧，
+     * 其余杂项不混进来）；未聚合 = 服务端给的总量。
+     */
+    val estimatedTotal: Int
+        get() = if (aggregated) seasons.size else maxOf(knownCount, totalCount)
+
+    /** 页数估计（展示用，至少 1）；「下一页」的可用性还看 [serverHasNext]。 */
+    val pageCount: Int get() = ((estimatedTotal + CatalogText.PAGE_SIZE - 1) / CatalogText.PAGE_SIZE).coerceAtLeast(1)
+
+    /** 下一页是否可用：窗口里还有数据，或服务端还有页可拉。 */
+    val hasNext: Boolean get() = page < pageCount || serverHasNext
+
+    private val seasonIds: Set<String> get() = seasons.mapTo(HashSet(seasons.size)) { it.id }
+
+    /** 当前内存里的展示序条数（与排序方向无关，窗口/估计都用它）。 */
+    private val knownCount: Int get() = view(ascending = false).size
+
+    private fun view(ascending: Boolean): List<Series> {
+        val line = if (ascending) seasons.asReversed() else seasons
+        if (aggregated) return line
+        return firstPage + restPages.values.flatten()
+    }
 
     fun clearResult() {
         page = 1
-        totalPages = 1
         totalCount = 0
+        totalPages = 1
         hasMore = false
-        raw = emptyList()
+        seasons = emptyList()
+        firstPage = emptyList()
+        restPages.clear()
+        serverFetched = 0
         items = emptyList()
-        seasonLine = emptyList()
         error = null
-        pages.clear()
-    }
-
-    /** 只用到结果的两个字段，抽出来是为了让页面代码读起来像业务。 */
-    fun apply(result: SearchResult, ascending: Boolean) {
-        pages[result.page] = result
-        page = result.page.coerceAtLeast(1)
-        totalPages = result.totalPages.coerceAtLeast(1)
-        totalCount = result.totalCount.coerceAtLeast(0)
-        hasMore = result.hasMore
-        hasSearched = true
-        error = null
-        seasonLine = result.seasonLine
-        raw = withoutRepeats(result)
-        reorder(ascending)
-    }
-
-    /** 已经拿过的页：翻回去不再请求。 */
-    fun cached(target: Int): SearchResult? = pages[target]
-
-    /** 排序开关来回切都从 [raw] 派生：正序结果不是"另一种原序"，不能拿它再排一次。 */
-    fun reorder(ascending: Boolean) {
-        items = CatalogText.ordered(raw, seasonLine, ascending)
+        hasSearched = false
     }
 
     /**
-     * 去掉与**前面几页**重复的条目。只比前面的页（不比后面的），
-     * 所以同一页反复应用的结果稳定，翻回上一页也不会被自己过滤空。
+     * 吸收一页服务端结果。第 1 页存原序（锚点识别要用）；第 2 页起对
+     * "先到手的数据"（季线 + 前面的页）去重后入缓存。
      */
-    private fun withoutRepeats(result: SearchResult): List<Series> {
-        if (result.page <= 1) return result.items
-        val earlier = pages.filterKeys { it < result.page }.values.flatMap { it.items }
-        if (earlier.isEmpty()) return result.items
-        val seen = earlier.mapTo(HashSet(earlier.size)) { it.id }
-        return result.items.filter { it.id !in seen }
+    fun absorb(result: SearchResult) {
+        hasSearched = true
+        error = null
+        totalCount = result.totalCount.coerceAtLeast(0)
+        totalPages = result.totalPages.coerceAtLeast(1)
+        hasMore = result.hasMore
+        serverFetched = maxOf(serverFetched, result.page)
+        if (result.page <= 1) {
+            firstPage = result.items
+            return
+        }
+        val seen = mutableSetOf<String>()
+        seen.addAll(seasonIds)
+        firstPage.forEach { seen.add(it.id) }
+        // 只比"先到手且不是本页"的数据：同一页反复吸收结果稳定（S10 口径），
+        // 自己上一次的内容不能当去重基准，否则重吸收会把整页过滤空
+        restPages.entries
+            .filter { it.key != result.page }
+            .forEach { (_, rows) -> rows.forEach { seen.add(it.id) } }
+        restPages[result.page] = result.items.filter { it.id !in seen }
+    }
+
+    /**
+     * 完整剧名的锚点：第 1 页里第一个"去季号归一化后等于关键词归一化"的条目。
+     * 只认完整剧名（旧仓库口径）：搜「万妖图录传」命中，搜「万妖图录传第三季」不命中。
+     */
+    fun anchor(): Series? {
+        val key = SeasonKeys.normalizeTitle(keyword)
+        if (key.isEmpty()) return null
+        return firstPage.firstOrNull { SeasonKeys.seasonKey(it.title) == key }
+    }
+
+    /** 接入完整季线（端口给旧→新，这里转成新→旧的展示存储序）。 */
+    fun setSeasonLine(line: List<Series>) {
+        seasons = line.asReversed()
+    }
+
+    /**
+     * 目标窗口是否已经完整在手：窗口起点在已知数据内，且窗口终点也在
+     * （或服务端已到头——末页允许不满一页）。
+     */
+    fun hasWindow(target: Int): Boolean {
+        val start = (target - 1) * CatalogText.PAGE_SIZE
+        if (start >= knownCount) return false
+        return target * CatalogText.PAGE_SIZE <= knownCount || !serverHasNext
+    }
+
+    /** 还需要拉的服务端页；null = 没有可拉的了（聚合态季线全在内存、到头或字段缺失）。 */
+    fun nextServerPage(): Int? {
+        if (aggregated || !serverHasNext) return null
+        return serverFetched + 1
+    }
+
+    /** 把光标页切到 [target] 并按 [ascending] 重排窗口。 */
+    fun present(target: Int, ascending: Boolean) {
+        page = target.coerceAtLeast(1)
+        items = view(ascending)
+            .drop((page - 1) * CatalogText.PAGE_SIZE)
+            .take(CatalogText.PAGE_SIZE)
+    }
+
+    /** 排序开关来回切都从内存视图现算：正序结果不是"另一种原序"。 */
+    fun reorder(ascending: Boolean) {
+        present(page, ascending)
     }
 }

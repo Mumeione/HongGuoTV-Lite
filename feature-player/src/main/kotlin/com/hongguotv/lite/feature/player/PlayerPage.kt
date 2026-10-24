@@ -13,6 +13,7 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import com.hongguotv.core.model.Detail
@@ -22,6 +23,7 @@ import com.hongguotv.core.model.Progress
 import com.hongguotv.core.model.SeasonKeys
 import com.hongguotv.core.model.Settings
 import com.hongguotv.core.port.UpstreamError
+import com.hongguotv.core.usecase.SeasonLineBackfill
 import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.focus.FocusSession
 import com.hongguotv.lite.uikit.focus.KeyRepeatGate
@@ -92,8 +94,8 @@ internal class PlayerPage(
         session.onStateChanged = { render() }
         notice = PlayerNotice(ui) { action -> runNoticeAction(action) }
         notice.attachTo(root)
-        buildSidebar()
         buildOperationHint()
+        buildSidebar()
         root.viewTreeObserver.addOnGlobalFocusChangeListener { oldFocus, newFocus -> focus.onFocusChanged(oldFocus, newFocus) }
         handler.postDelayed(tick, TICK_MS)
         loadDetail()
@@ -101,7 +103,10 @@ internal class PlayerPage(
 
     // ---------- 视图 ----------
 
-    /** 画面顶部的操作提示（B 方案：常驻顶部，键白粗、说明弱一档）。 */
+    /**
+     * 按键操作提示（2026-10-24 口径）：**与抽屉同进退**——按 MENU 打开抽屉才出现，
+     * 贴在抽屉上沿；不再是常驻画面顶部的浮字。平时画面保持纯净，键位说明在要用的时候才读。
+     */
     private lateinit var operationHint: TextView
 
     /** 抽屉打开时的整屏压暗层（`Colors.scrim`）：画面让位给选集与设置，但仍看得见。 */
@@ -133,17 +138,6 @@ internal class PlayerPage(
             setText(spanned)
             visibility = View.GONE
         }
-        root.addView(
-            operationHint,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP or Gravity.START,
-            ).apply {
-                leftMargin = ui.dp(HINT_MARGIN_LEFT)
-                topMargin = ui.dp(tokens.space.l)
-            },
-        )
     }
 
     private fun buildSidebar() {
@@ -171,10 +165,24 @@ internal class PlayerPage(
             scrim,
             FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT),
         )
+        // 操作提示与抽屉装进同一个贴底栈：提示在上、抽屉在下，一起出现一起消失
+        val stack = LinearLayout(ui.context).apply { orientation = LinearLayout.VERTICAL }
+        stack.addView(
+            operationHint,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                bottomMargin = ui.dp(tokens.space.s)
+                // 提示贴着抽屉左缘再往右挪一档（mockup .op-hint{left:20px}）
+                leftMargin = ui.dp(HINT_MARGIN_LEFT)
+            },
+        )
+        stack.addView(sidebar.view)
         val marginH = ui.dp(tokens.metrics.drawerPaddingH)
         // B 方案：抽屉贴底（左右 18dp、底部 16dp），高度 286dp 由抽屉自己定
         root.addView(
-            sidebar.view,
+            stack,
             FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -234,6 +242,9 @@ internal class PlayerPage(
             } ?: return@launch
             if (!isActive) return@launch
             host.favorites.rememberSeasonLine(key, line)
+            // 季线里的季凡是有观看记录的都回填完整元数据：跨季连播直接落进来的季
+            // 起初只有"id + 进度"，历史页不能是无名黑块（2026-10-24 收藏闭环口径）
+            SeasonLineBackfill.run(line, host.progress)
         }
     }
 
@@ -243,11 +254,10 @@ internal class PlayerPage(
         if (!::session.isInitialized || !::notice.isInitialized || !::sidebar.isInitialized) return
         notice.render(session.state, loadFailure, sidebar.visible, lowerQuality(), noticeTitle())
         if (sidebar.visible) sidebarModel()?.let { sidebar.bind(it) }
-        // 压暗层与抽屉同进退；操作提示**常驻画面顶部**（统一规则，审计 2026-10-22 #7）：
-        // 抽屉占下半屏时上半屏仍写着"左右快退/快进…"（mockup 画面6），提示层贴底后
-        // 与顶部提示也不再重叠——不再出现"提示卡一出现顶部就消失"的不一致。
+        // 压暗层与抽屉同进退；操作提示（2026-10-24 口径）与抽屉同进退：
+        // 按 MENU 才出现、贴在抽屉上沿，平时画面保持纯净（不再常驻顶部）。
         scrim.visibility = if (sidebar.visible) View.VISIBLE else View.GONE
-        operationHint.visibility = View.VISIBLE
+        operationHint.visibility = if (sidebar.visible) View.VISIBLE else View.GONE
         syncFocus()
     }
 
@@ -612,7 +622,7 @@ internal class PlayerPage(
         /** 操作提示段与段之间的全角空格（mockup `.op-hint` 的排版）。 */
         const val HINT_GAP = "　"
 
-        /** 操作提示离画面左缘的距离（mockup `.op-hint{left:20px}`）。 */
+        /** 操作提示离抽屉左缘的距离（mockup `.op-hint{left:20px}`）。 */
         const val HINT_MARGIN_LEFT = 20
     }
 }

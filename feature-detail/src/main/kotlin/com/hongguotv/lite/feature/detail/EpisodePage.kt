@@ -14,10 +14,11 @@ import com.hongguotv.core.usecase.EpisodePages
 import com.hongguotv.core.usecase.ResumePoint
 import com.hongguotv.core.usecase.ResumeTarget
 import com.hongguotv.core.usecase.SeasonChain
+import com.hongguotv.core.usecase.SeasonLineBackfill
 import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.focus.FocusSections
 import com.hongguotv.lite.uikit.page.PageHeader
-import com.hongguotv.lite.uikit.page.PagerRow
+import com.hongguotv.lite.uikit.page.SideStrips
 import com.hongguotv.lite.uikit.text.TvText
 import com.hongguotv.lite.uikit.ui.ButtonVariant
 import com.hongguotv.lite.uikit.ui.TvButton
@@ -47,7 +48,8 @@ internal class EpisodePage(
     private lateinit var playButton: TvButton
     private lateinit var pickButton: TvButton
     private lateinit var favoriteButton: TvButton
-    private lateinit var pager: PagerRow
+    private lateinit var rangeLabel: TextView
+    private lateinit var strips: SideStrips
     private lateinit var episodeHost: LinearLayout
     private lateinit var nextSeasonView: TextView
 
@@ -84,18 +86,26 @@ internal class EpisodePage(
         hero.actions.addView(favoriteButton, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT))
         body.addView(hero.view)
 
-        pager = PagerRow(ui).apply { onPage = { delta -> goPage(delta) } }
-        // 翻组行离 hero 14dp、分集格离翻组 10dp（mockup 画面3 的两处 margin-top）
+        // 范围行只是**说明**（"这一页是第几到第几集"），不再是按钮行：翻组交给
+        // 分集格两侧的长条（2026-10-24 口径）。行本身始终占位——隐藏它会让
+        // 分集格紧贴 hero（维护者截图：65 集的剧看起来"集数和简介挤在一起"）。
+        rangeLabel = ui.text("", tokens.type.caption, tokens.colors.muted).apply {
+            gravity = android.view.Gravity.CENTER
+            maxLines = 1
+        }
         body.addView(
-            pager.view,
+            rangeLabel,
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = ui.dp(tokens.space.m)
             },
         )
 
+        // 分集格夹在左右长条之间：出格就撞到条上，按一下翻一组
+        strips = SideStrips(ui, KEY_PREV, KEY_NEXT) { delta -> goPage(delta) }
         episodeHost = ui.column()
+        val episodesWrap = strips.wrap(episodeHost)
         body.addView(
-            episodeHost,
+            episodesWrap,
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = ui.dp(tokens.space.s)
             },
@@ -169,6 +179,7 @@ internal class EpisodePage(
         }
         if (line == null) return
         host.favorites.rememberSeasonLine(key, line)
+        SeasonLineBackfill.run(line, host.progress)
         // 取消后回写视图会把即将销毁的树再绑一次
         if (!currentCoroutineContext().isActive) return
         detail?.let {
@@ -191,7 +202,8 @@ internal class EpisodePage(
         retryButton.visibility = if (failure != null) View.VISIBLE else View.GONE
         hero.view.visibility = if (data == null) View.GONE else View.VISIBLE
         if (data == null) {
-            pager.hide()
+            strips.show(visible = false, hasPrev = false, hasNext = false)
+            rangeLabel.text = ""
             nextSeasonView.visibility = View.GONE
             episodeHost.removeAllViews()
             episodeCells.clear()
@@ -273,10 +285,9 @@ internal class EpisodePage(
             )
         }
 
-        // 分组栏**始终占位**：不足 100 集时两个翻组键禁用，但范围文字与那一行高度保留。
-        // 隐藏它会让分集格紧贴 hero（维护者截图：65 集的剧看起来"集数和简介挤在一起"），
-        // 而这一行正是"这一页是第几集到第几集"的唯一说明，不该随集数多少忽有忽无。
-        pager.show(DetailText.rangeLabel(range), hasPrev = pageIndex > 0, hasNext = pageIndex < pages - 1)
+        // 范围行始终占位（"这一页是第几到第几集"）；两侧长条始终在，越界的方向禁用压暗。
+        rangeLabel.text = DetailText.rangeLabel(range)
+        strips.show(visible = true, hasPrev = pageIndex > 0, hasNext = pageIndex < pages - 1)
     }
 
     private fun renderNextSeason(data: Detail) {
@@ -375,8 +386,8 @@ internal class EpisodePage(
             actionKeys += KEY_PICK
             actionKeys += KEY_FAVORITE
         }
-        // 分组行：禁用的那一侧占空槽（第一页没有「上一组」，但「下一组」仍在第二列）
-        val pagerSection = pager.focusSection(views, KEY_PREV, KEY_NEXT)
+        // 分集格被左右长条包夹：行首按左、行尾按右都落到条上（2026-10-24 口径）。
+        // 长条不可用的那侧整段省略，内容行缘夹住自己（SideStrips 统一判）。
         val episodeKeys = episodeCells.keys.map { FocusKey(it) }
         episodeCells.forEach { (key, cell) -> views[FocusKey(key)] = cell }
 
@@ -386,13 +397,14 @@ internal class EpisodePage(
                 if (retryButton.visibility == View.VISIBLE) FocusSections.section(listOf(KEY_RETRY), 1) else null,
                 // 动作列是竖排的：上下在键间移动（mockup 画面3 的右列）
                 FocusSections.section(actionKeys, 1),
-                pagerSection,
-                FocusSections.section(episodeKeys, pagination.columns),
+                FocusSections.section(episodeKeys, pagination.columns, flanked = true),
             ),
             views = views,
             preferred = wanted,
             // 没有显式目标也没有记忆时落主操作：进这页是要看剧，不是要看「返回」
             ladder = if (loaded) listOf(KEY_PLAY) else emptyList(),
+            leftFlank = strips.leftSection(),
+            rightFlank = strips.rightSection(),
         )
     }
 
