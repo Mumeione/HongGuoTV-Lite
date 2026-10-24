@@ -75,6 +75,25 @@ class ParsersTest {
         assertEquals(0, Parsers.searchList(html).length())
     }
 
+    @Test
+    fun searchListTreatsTheClientRenderedShellAsNoResults() {
+        // 2026-10-23 实测：官网搜索页改成纯前端渲染，body 只有 SSR 占位符与 JS，
+        // `_ROUTER_DATA` 不再下发。这不是"结构变了"——客户端拿不到任何内容，
+        // 报 Shape 会让用户看到「内容结构发生变化」，而正确的降级是「没找到」
+        val shell = """<!doctype html><html><head><script>window.__glue_t=1</script></head>""" +
+            """<body><div id="root"><!--<?- html ?>--></div></body></html>"""
+        assertTrue(Parsers.clientRendered(shell))
+        assertEquals(0, Parsers.searchList(shell).length())
+    }
+
+    @Test
+    fun searchListStillReportsShapeWhenTheMarkerIsThereButThePathIsGone() {
+        // 标记在、路径不在 = 真的结构变了，必须继续报错（不能被上一条兜底吞掉）
+        val html = """<script>_ROUTER_DATA={"loaderData":{"something_else":{}}};</script>"""
+        assertTrue(!Parsers.clientRendered(html))
+        assertThrows(UpstreamError.Shape::class.java) { Parsers.searchList(html) }
+    }
+
     // ---------- plan 季线 ----------
 
     private fun planCard(id: String, title: String, count: Int, tag: String?) = JSONObject()

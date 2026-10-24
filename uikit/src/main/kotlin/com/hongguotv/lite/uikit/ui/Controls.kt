@@ -6,7 +6,9 @@ import android.graphics.Typeface
 import android.view.Gravity
 import android.widget.TextView
 import com.hongguotv.lite.uikit.internal.FocusControl
+import com.hongguotv.lite.uikit.internal.Stroke
 import com.hongguotv.lite.uikit.internal.dp
+import com.hongguotv.lite.uikit.internal.shape
 import com.hongguotv.lite.uikit.internal.stateShape
 import com.hongguotv.lite.uikit.internal.tinted
 import com.hongguotv.lite.uikit.token.Tokens
@@ -60,14 +62,6 @@ class TvButton internal constructor(
     private val watched: Boolean,
     private val onTap: () -> Unit,
 ) : FocusControl(context, tokens) {
-
-    /**
-     * 密集格（分集格）不放大：一行 10–20 个时格间距只有几 dp，放大 6% 就会压到邻居，
-     * 白框的圆角被后绘制的格子吃掉一条边（维护者实测"变成长方形"）。
-     * 白底本身已经是足够强的焦点信号，不需要再叠一层缩放。
-     */
-    override val scalesOnFocus: Boolean
-        get() = variant != ButtonVariant.CELL && variant != ButtonVariant.GRID_CELL
 
     init {
         text = label
@@ -186,13 +180,19 @@ class TvChip internal constructor(
     override fun paintState(focused: Boolean) {
         val colors = tokens.colors
         val chosen = isSelected
-        background = stateShape(
-            tokens = tokens,
-            fill = if (focused) colors.focus else colors.surface,
-            radiusDp = tokens.shapes.pill,
-            selected = chosen,
-            focused = focused,
-        )
+        // 焦点 = 白底深字（与 TvButton 同一条规则）：底色必须跟着焦点走，
+        // 漏了这一步就是"深底 + 深字"，字直接看不见（本轮实测踩到）。
+        // 选中框用 60% 白（Colors.selectionStroke）：片库胶囊与焦点白底常驻同一行，
+        // 全亮白框会让远看的人认错光标（审计 2026-10-22 #2-d）。焦点仍是唯一的全白。
+        background = when {
+            chosen && !focused -> shape(
+                colors.surface,
+                tokens.shapes.pill,
+                Stroke(colors.selectionStroke, tokens.shapes.stroke),
+            )
+            focused -> stateShape(tokens, colors.focus, tokens.shapes.pill, selected = chosen, focused = true)
+            else -> stateShape(tokens, colors.surface, tokens.shapes.pill, selected = false, focused = false)
+        }
         val color = when {
             focused -> colors.onFocus
             chosen -> colors.focus
@@ -237,7 +237,6 @@ class TvLink internal constructor(
             focused = focused,
         )
         setTextColor(if (focused) colors.onFocus else colors.muted)
-        setTypeface(null, if (focused) Typeface.BOLD else Typeface.NORMAL)
     }
 }
 

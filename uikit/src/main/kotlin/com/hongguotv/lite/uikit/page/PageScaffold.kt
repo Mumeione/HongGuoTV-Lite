@@ -200,8 +200,6 @@ class PageScaffold internal constructor(private val ui: UiKit) : FrameLayout(ui.
 
         bodyContent = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            // 焦点缩放允许轻微出界：不让容器把白框/圆角切掉，裁切交给滚动视口
-            clipChildren = false
         }
     }
 
@@ -309,7 +307,8 @@ class PageScaffold internal constructor(private val ui: UiKit) : FrameLayout(ui.
     fun focusSession(page: String): FocusSession {
         val existing = session
         if (existing != null) return existing
-        return FocusSession(page).also { created ->
+        // post = 本视图的一帧延迟：焦点"落定"回调（信息栏更新）靠它滤掉同帧内的中间态
+        return FocusSession(page, post = ::post).also { created ->
             session = created
             viewTreeObserver.addOnGlobalFocusChangeListener { oldFocus, newFocus -> session?.onFocusChanged(oldFocus, newFocus) }
         }

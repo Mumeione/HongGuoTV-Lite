@@ -42,7 +42,7 @@ class TvInput internal constructor(
         val horizontal = dp(tokens.metrics.controlPaddingH)
         setPadding(horizontal, 0, horizontal, 0)
 
-        bindFocus(tokens, paint = { focused ->
+        bindFocus(paint = { focused ->
             // 焦点 = 白底深字（与按钮同一套语义）：输入框是"光标所在"，整页只有它这一块白
             background = stateShape(
                 tokens = tokens,

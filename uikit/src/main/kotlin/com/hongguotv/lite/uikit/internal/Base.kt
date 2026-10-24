@@ -56,7 +56,10 @@ internal fun TextView.setTextIfChanged(value: String) {
  * 遥控器控件的共同底板：**焦点监听归控件所有**，调用方只拿 [onFocused] 回调。
  *
  * 旧实现里每个控件各写一遍 `setOnFocusChangeListener` 和画法，改一次视觉要改五处；
- * 这里把"可聚焦、有 id、聚焦时重画、低内存档不做动画"一次定好，子类只描述外观。
+ * 这里把"可聚焦、有 id、聚焦时重画"一次定好，子类只描述外观。
+ *
+ * **焦点态只有配色**：不做缩放、位移、透明度或任何逐帧动画。电视机型性能差异大，
+ * 动效带来的是"白框被裁、邻居被压、焦点漂移"这类难复现的 bug，收益只有一帧的观感。
  */
 abstract class FocusControl(
     context: Context,
@@ -66,20 +69,10 @@ abstract class FocusControl(
     /** 焦点变化回调。控件自己已经画完了，调用方只做副作用（例如更新预览区）。 */
     var onFocused: ((Boolean) -> Unit)? = null
 
-    /**
-     * 聚焦时是否放大。
-     *
-     * 密集格子（分集格一行 20 个）必须关掉：格间距只有几 dp，1.03 倍就压到邻居身上，
-     * 白框的圆角被后绘制的邻居吃掉一条边——看起来就成了"长方形"（维护者实测）。
-     */
-    protected open val scalesOnFocus: Boolean get() = true
-
     init {
         includeFontPadding = false
         bindFocus(
-            tokens = tokens,
             paint = { paintState(it) },
-            scale = { scalesOnFocus },
             onChange = { onFocused?.invoke(it) },
         )
         // 不在这里画首帧：子类的状态属性（选中、图标）在自己的构造函数里才就位，
@@ -96,43 +89,21 @@ abstract class FocusControl(
 }
 
 /**
- * 非文字类控件（卡片）共用同一套焦点行为：生成 id、可聚焦、聚焦时重画、低内存档不做动画。
+ * 非文字类控件（卡片）共用同一套焦点行为：生成 id、可聚焦、聚焦时重画。
+ *
+ * 这里**只调 [paint]**：焦点态的全部表现是背景色与文字色（由 paint 自己决定），
+ * 不做动画，也不改 Z 序——没有几何重叠，就不需要为绘制顺序兜底。
  */
 internal fun View.bindFocus(
-    tokens: Tokens,
     paint: (focused: Boolean) -> Unit,
-    scale: () -> Boolean = { true },
     onChange: ((focused: Boolean) -> Unit)? = null,
 ) {
     id = View.generateViewId()
     isFocusable = true
     isFocusableInTouchMode = true
-    setOnFocusChangeListener { view, focused ->
+    setOnFocusChangeListener { _, focused ->
         paint(focused)
-        view.animateFocus(tokens, focused, scale())
-        view.raiseOnFocus(focused)
         onChange?.invoke(focused)
     }
     paint(false)
-}
-
-/** 动效只改绘制，不参与几何：焦点图与滚动补偿一律用未缩放的边界。 */
-internal fun View.animateFocus(tokens: Tokens, focused: Boolean, scale: Boolean = true) {
-    if (!tokens.motion.enabled) return
-    val target = if (focused && scale) tokens.motion.focusScale else 1f
-    animate().scaleX(target).scaleY(target).setDuration(tokens.motion.durationMs).start()
-}
-
-/**
- * 聚焦项画在兄弟之上。
- *
- * 焦点缩放会让相邻控件**几何重叠**，而 Android 按添加顺序绘制子视图：后加的邻居
- * 会把先加的焦点项盖掉一条边（分集格最明显）。`translationZ` 让这一项参与 Z 排序
- * （API 21+），白框与圆角才能完整。
- *
- * 同时清掉 outline：电视界面不需要投影，"浮起"只表达层级，不表达光。
- */
-internal fun View.raiseOnFocus(focused: Boolean) {
-    outlineProvider = null
-    translationZ = if (focused) context.dp(4).toFloat() else 0f
 }

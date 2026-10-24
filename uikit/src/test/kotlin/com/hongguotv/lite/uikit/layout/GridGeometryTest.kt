@@ -55,26 +55,6 @@ class GridGeometryTest {
         assertTrue(runCatching { GridGeometry.columns(100, 0, 14, minColumns = 3, maxColumns = 6) }.isFailure)
         assertTrue(runCatching { GridGeometry.cardWidth(100, 0, 14) }.isFailure)
     }
-
-    // ---------- 聚光放大的外扩 ----------
-
-    @Test
-    fun `focus overflow covers half of the scaled growth`() {
-        // 149×247 的卡片放大 1.06：横向 4.47、纵向 7.41 → 要留 8dp 白框才不会被网格裁掉
-        assertEquals(8, GridGeometry.focusOverflow(149, 247, 1.06f))
-    }
-
-    @Test
-    fun `focus overflow is driven by the longer side`() {
-        // 3 列时卡约 480×734：纵向外扩 734×0.03 = 22.02 → 23
-        assertEquals(23, GridGeometry.focusOverflow(480, 734, 1.06f))
-    }
-
-    @Test
-    fun `focus overflow is zero when nothing scales`() {
-        assertEquals(0, GridGeometry.focusOverflow(149, 247, 1f))
-        assertEquals(0, GridGeometry.focusOverflow(149, 247, 0.5f))
-    }
 }
 
 class ScrollAlignTest {

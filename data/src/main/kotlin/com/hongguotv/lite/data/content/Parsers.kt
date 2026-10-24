@@ -103,9 +103,18 @@ internal object Parsers {
     }
 
     /**
-     * 官网 SSR 搜索结果：HTML → router 数据 → searchList 数组。结构变了带路径报 Shape。
+     * 官网搜索结果：HTML → router 数据 → searchList 数组。结构变了带路径报 Shape。
+     *
+     * **例外：官网把搜索页改成纯前端渲染了**（2026-10-23 实测）。页面 body 只剩
+     * `<div id="root"><!--<?- html ?>--></div>` 与一堆 JS，`_ROUTER_DATA` 整个不再下发——
+     * 这不是"结构变了"，客户端拿不到任何可解析的内容，报 Shape 只会让用户看到
+     * 「内容结构发生变化」，而实际上一条结果都没法取。这时按"没有结果"返回，
+     * 由页面显示「没找到」，并把这次降级记进诊断（`ContentRepository.siteCards`）。
+     *
+     * 判据就是标记在不在：标记在、路径不在 → 真的结构变了，照旧报 Shape。
      */
     fun searchList(html: String): JSONArray {
+        if (!html.contains(Fields.Site.ROUTER_DATA)) return JSONArray()
         val data = router(html).optJSONObject(Fields.Site.LOADER_DATA)
             ?: throw UpstreamError.Shape(Fields.Site.LOADER_DATA)
         val section = data.optJSONObject(Fields.Site.SEARCH_PAGE) ?: data.optJSONObject(Fields.Site.SEARCH_PAGE_ALT)
@@ -113,6 +122,9 @@ internal object Parsers {
         return section.optJSONArray(Fields.Site.SEARCH_LIST)
             ?: throw UpstreamError.Shape("${Fields.Site.SEARCH_PAGE}.${Fields.Site.SEARCH_LIST}")
     }
+
+    /** 官网这一页是否已经是"纯前端壳"（没有服务端数据，只有 JS）：诊断与降级共用这一条判据。 */
+    fun clientRendered(html: String): Boolean = !html.contains(Fields.Site.ROUTER_DATA)
 
     /**
      * HTML 里扒 _ROUTER_DATA 的 JSON（嵌套花括号配对，SSR 页面没有现成边界）。

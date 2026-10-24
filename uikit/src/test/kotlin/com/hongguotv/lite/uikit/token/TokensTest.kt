@@ -1,14 +1,13 @@
 package com.hongguotv.lite.uikit.token
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TokensTest {
 
     @Test
-    fun `tiers differ only in motion and card limit`() {
+    fun `tiers differ only in page card limit`() {
         val normal = Tokens.of(UiTier.NORMAL)
         val lowRam = Tokens.of(UiTier.LOW_RAM)
 
@@ -17,8 +16,6 @@ class TokensTest {
         assertEquals("间距必须两档一致", normal.space, lowRam.space)
         assertEquals("尺寸必须两档一致", normal.metrics, lowRam.metrics)
 
-        assertTrue(normal.motion.enabled)
-        assertFalse("低内存档关闭焦点动效", lowRam.motion.enabled)
         assertTrue("低内存档降低单页卡片上限", lowRam.pageCardLimit < normal.pageCardLimit)
     }
 

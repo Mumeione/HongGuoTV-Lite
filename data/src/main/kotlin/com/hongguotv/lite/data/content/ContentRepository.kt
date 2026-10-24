@@ -129,6 +129,13 @@ class ContentRepository(
         // keyword 必须经 urlEncode 再进 path 占位符——编码口径只有 core 里一个
         val signed = sign("siteSearch", mapOf("keyword" to urlEncode(keyword)))
         val html = fetchSite(signed)
+        if (Parsers.clientRendered(html)) {
+            // 官网 2026-10-23 起把搜索页换成纯前端渲染：200 但不带任何数据。
+            // 解析层已经把这种页面当"没有结果"，这里补一条诊断——线上再坏时能一眼看出
+            // 是"上游不下发数据"而不是"解析器又跟不上结构"
+            diagnostics.event("search.csr", mapOf("chars" to html.length))
+            return emptyList()
+        }
         return diagnostics.stageTimed(DiagnosticsPort.Stage.PARSE, "siteSearch") {
             Parsers.searchList(html).objects().map(Parsers::card)
         }

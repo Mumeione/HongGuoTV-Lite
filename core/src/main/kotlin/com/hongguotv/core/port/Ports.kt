@@ -48,6 +48,15 @@ interface ProgressPort {
     fun isWatched(seriesId: String): Boolean
     fun watchedUpTo(seriesId: String): Int
     suspend fun save(progress: Progress)
+
+    /**
+     * 补全**已有**历史行的作品元数据（标题 / 封面 / 分类）。
+     *
+     * [save] 只写进度，元数据靠"上次那条记录"沿用——旧版本落盘的记录里分类常常是空的，
+     * 历史页的信息栏于是缺一段。播放页拿到详情时把完整 [Series] 递进来，把这一行补齐。
+     * **只更新已存在的行**：不因为浏览详情就凭空造一条"看过"。
+     */
+    suspend fun rememberSeries(series: Series)
     suspend fun setWatched(seriesId: String, watched: Boolean)
     suspend fun removeHistory(seriesId: String)
     suspend fun clearHistory()

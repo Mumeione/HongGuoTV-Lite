@@ -7,8 +7,12 @@ package com.hongguotv.lite.uikit.token
  * - **纯数据**：颜色是 ARGB 的 [Int]，尺寸是 dp 的 [Int]，不引用 `R`、不引用 `Context`。
  *   这样令牌本身能在 JVM 单测里直接比对，控件之外没人需要 `Resources`。
  * - **改视觉只改这里**：调用点不允许再出现十六进制颜色与 `dp(3)` 这类字面量。
- * - **分档不改视觉**：低内存档只动动效与单页卡片上限，颜色与字号两档完全一致——
+ * - **分档不改视觉**：低内存档只降单页卡片上限，颜色与字号两档完全一致——
  *   否则同一张截图在两台设备上对不上，问题就说不清了。
+ *
+ * **没有动效令牌**：焦点态只改背景色与文字色，不做缩放、位移或逐帧动画。
+ * 之前那套 `Motion(enabled/focusScale/duration)` 已移除——它带来的裁切、遮挡、
+ * 焦点漂移 bug 远多于观感收益。
  *
  * 当前取值来源是 B 方案（`docs/specs/2026-10-21-ui-b-redesign.md` +
  * `docs/UI/mockups/2026-10-21-B方案v4.html`，后者是唯一视觉基准）。
@@ -20,7 +24,7 @@ package com.hongguotv.lite.uikit.token
  * B 方案的语义（**焦点唯一 + 聚光**）：
  * - **焦点**（光标所在）= 白底深字（[focus] 填充 + [onFocus] 字色）——全页只有这一处白色填充；
  * - **选中**（当前 tab / 当前筛选 / 当前集 / 当前季）= 白描边 + 白字，**不填充**；
- * - 封面卡的焦点是"放大 + 白框 + 白底信息条"（卡面是图片，白底只露在信息条上），见 `PosterCard`；
+ * - 封面卡的焦点是"白框 + 白底信息条"（卡面是图片，白底只露在信息条上），见 `PosterCard`；
  * - **聚光**：聚光网格里非焦点卡压到 [Metrics.focusDimAlpha]，屏幕上"只有那一张卡是亮的"。
  *
  * 不要引入第二强调色——旧版曾经有过，结果是同一个页面上两种"重点"互相打架。
@@ -48,6 +52,12 @@ data class Colors(
     val dim: Int = 0xFF5E6A7A.toInt(),
     /** 唯一强调色：描边、白底、需要用户注意的角标。 */
     val focus: Int = 0xFFFFFFFF.toInt(),
+    /**
+     * 胶囊筛选（片库、倒序）的**选中**描边：60% 白。它与焦点白底常驻同一行，
+     * 全亮白框会让"光标在哪"远看变成两处（审计 2026-10-22 #2-d）；其它控件的选中描边
+     * 仍然用 [focus]（分集格、季卡离焦点白底足够远）。
+     */
+    val selectionStroke: Int = 0x99FFFFFF.toInt(),
     /** 白底上的字色。与 [background] 同值但语义不同，不要互相代替。 */
     val onFocus: Int = 0xFF0B0F15.toInt(),
     /** 播放失败文案专用。B 方案纪律：别处不许用彩色。 */
@@ -139,18 +149,6 @@ data class Shapes(
     val focusStroke: Int = 3,
 )
 
-/**
- * 动效。低内存档整体关闭——512MB 的盒子上动画带来的收益不如掉帧的代价。
- * 缩放只影响绘制，不参与任何几何计算：焦点图与滚动补偿一律用未缩放的边界。
- *
- * B 方案：聚光卡放大 1.06（规格 Out of Scope："放大 1.06 用现有 Motion"）。
- */
-data class Motion(
-    val enabled: Boolean = true,
-    val durationMs: Long = 110,
-    val focusScale: Float = 1.06f,
-)
-
 /** 布局尺寸。dp 数值，由控件换算成像素。 */
 data class Metrics(
     // ---------- 页面骨架 ----------
@@ -177,11 +175,15 @@ data class Metrics(
     val pillSmallHeight: Int = 32,
     val pillPaddingH: Int = 20,
     val pillSmallPaddingH: Int = 14,
+    /** 页头贴身动作胶囊（「检查更新」）的定宽：文案在「检查更新」↔「正在检查…」间切换时不重排（审计 #10）。 */
+    val leadActionWidth: Int = 124,
 
     // ---------- 卡片（目录，宽 149） ----------
     val catalogCardWidth: Int = 149,
     val catalogStripHeight: Int = 34,
     val cardGap: Int = 14,
+    /** 页面标题/分组标题到网格第一行卡片的距离（mockup `.b-histcards{margin-top:22px}`）。 */
+    val gridHeaderGap: Int = 22,
     /** 卡片信息区的左右内边距：封面贴边，文字不能也贴边。 */
     val cardPadding: Int = 9,
     /** 聚光静默档：同屏其余卡的不透明度。真机偏暗只调这一个数，不改白框。 */
@@ -211,8 +213,6 @@ data class Metrics(
     val heroActionsWidth: Int = 172,
     /** 动作列里两个胶囊之间的间距（mockup `.b-acts{gap:9px}`）。 */
     val heroActionGap: Int = 9,
-    /** 封面跟随信息列高度的下限：内容再短也不把封面压成一条。 */
-    val heroCoverMinHeight: Int = 120,
     /** 规格表 label 列宽。 */
     val specLabelWidth: Int = 56,
     val specRowGap: Int = 9,
@@ -251,6 +251,8 @@ data class Metrics(
     val drawerPaddingH: Int = 18,
     val drawerPaddingTop: Int = 12,
     val drawerPaddingBottom: Int = 14,
+    /** 抽屉 / 提示层离画面底缘的距离（mockup `.b-drawer{bottom:16px}`）。 */
+    val overlayBottomGap: Int = 16,
     /** 抽屉右列（五项设置）的固定宽。 */
     val drawerSettingsWidth: Int = 236,
     val drawerRowHeight: Int = 34,
@@ -299,8 +301,6 @@ data class Metrics(
     val sidebarPaddingH: Int = 18,
     val sidebarPaddingV: Int = 14,
     val sidebarGap: Int = 8,
-    val noticeWidthRatio: Float = 0.52f,
-    val noticeBottomMargin: Int = 56,
     val jumpDigitsScale: Float = 2.2f,
 )
 
@@ -310,7 +310,6 @@ data class Tokens(
     val type: Type = Type(),
     val space: Space = Space(),
     val shapes: Shapes = Shapes(),
-    val motion: Motion = Motion(),
     val metrics: Metrics = Metrics(),
     /**
      * 单页卡片渲染上限。不是数据上限：数据可以有 90 条，一次只建这么多视图。
@@ -319,12 +318,11 @@ data class Tokens(
     val pageCardLimit: Int = 30,
 ) {
     companion object {
-        /** 低内存档：只关动效、降卡片上限，颜色与字号不动。 */
+        /** 低内存档：只降单页卡片上限，颜色、字号、尺寸都不动（没有动效可关）。 */
         fun of(tier: UiTier): Tokens = when (tier) {
             UiTier.NORMAL -> Tokens(tier = tier)
             UiTier.LOW_RAM -> Tokens(
                 tier = tier,
-                motion = Motion(enabled = false),
                 pageCardLimit = 18,
             )
         }

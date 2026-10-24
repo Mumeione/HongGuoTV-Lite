@@ -3,6 +3,25 @@ package com.hongguotv.lite.uikit.focus
 import android.view.View
 
 /**
+ * 一帧防抖：同一帧内提交的多次请求**只执行最后一次**，此前未执行的作废。
+ *
+ * 焦点"路过"某个视图再被改走时（框架重试、程序性重挂），中间态不该触发页面副作用——
+ * 页面的信息栏更新挂在落定回调上，就是靠它把中间态滤掉。
+ *
+ * 用泛型执行器而不是 `Handler`：防抖本身是纯逻辑，要在 JVM 单测里钉死。
+ */
+internal class SettleDebounce(private val post: (Runnable) -> Unit) {
+
+    private var generation = 0
+
+    /** 提交一次请求；返回后 [action] 只会以"最后一次提交"的身份执行至多一次。 */
+    fun submit(action: () -> Unit) {
+        val generation = ++this.generation
+        post(Runnable { if (generation == this.generation) action() })
+    }
+}
+
+/**
  * 一页的焦点会话：把"声明焦点结构、绑定邻居、记住光标、恢复光标"这四件事串起来，
  * 让 feature 不用每页重写一遍（旧实现的 44 处 `nextFocus*` 就是每页重写的结果）。
  *
@@ -17,12 +36,31 @@ import android.view.View
 class FocusSession(
     private val page: String,
     private val memory: FocusMemory = FocusMemory(),
+    /**
+     * 落定回调的执行器（一帧防抖）：页面骨架传 `scaffold::post`。
+     * 不给时 [onSettled] 同步执行（无防抖）——调用方自己保证没有中间态。
+     */
+    post: ((Runnable) -> Unit)? = null,
 ) {
+
+    private val debounce = post?.let(::SettleDebounce)
 
     private var graph: FocusGraph? = null
     private var views: Map<FocusKey, View> = emptyMap()
     private var keyById: Map<Int, FocusKey> = emptyMap()
     private var lastFocused: FocusKey? = null
+
+    /**
+     * 焦点**落定**回调（一帧防抖）：焦点不再变化时才触发，[onFocusChanged] 的每次
+     * "路过"都被滤掉。
+     *
+     * 页面的副作用（底部信息栏更新）挂这里而不是"卡片获得焦点"上：焦点从卡片 A 挪到
+     * 卡片 B 再挪走的一次按键里，"获得焦点"会触发两次、信息栏停在 A 上——落定回调
+     * 只说最终答案（审计 2026-10-22 #6 / #5-c）。
+     *
+     * [key] 是最终光标（本页焦点图里的项）；焦点落到图外（窗口切换等）时回调不触发。
+     */
+    var onSettled: ((FocusKey) -> Unit)? = null
 
     /** 本页当前的焦点结构。还没 [bind] 时为 null。 */
     val graphOrNull: FocusGraph? get() = graph
@@ -37,6 +75,9 @@ class FocusSession(
         graph = built
         this.views = views
         keyById = views.entries.associate { (key, view) -> view.id to key }
+        // 重建/刷新时视图树没换焦点（光标本来就在原位），也就不会有焦点变化事件：
+        // 页面的信息栏要在这里补说一次"现在停在哪"
+        settle()
         return built
     }
 
@@ -61,6 +102,33 @@ class FocusSession(
         if (oldFocus == null && key.value.startsWith(NAV_KEY_PREFIX)) return
         lastFocused = key
         memory.remember(page, key)
+        scheduleSettled(key)
+    }
+
+    /** 落定回调：有防抖器时过一帧，没有时同步执行。 */
+    private fun scheduleSettled(key: FocusKey) {
+        val callback = onSettled ?: return
+        val debounce = debounce
+        if (debounce == null) {
+            callback(key)
+        } else {
+            debounce.submit { callback(key) }
+        }
+    }
+
+    /**
+     * 让当前光标重新"落定"一次（走防抖）。
+     *
+     * **程序性要焦点不产生焦点变化事件**：冷启动的首次 [request]、从详情页返回时把光标
+     * 放回原来的卡、刷新后视图复用——这些情况下 `onSettled` 一次都不会触发，页面挂在上面的
+     * 副作用（底部信息栏）就停在上一页的状态：实测「首页进来没有信息栏」「返回收藏页后
+     * 信息栏整条消失」。
+     *
+     * 只在视图树里真的有一项持焦时回调；焦点还在页外（窗口切换）时什么都不做。
+     */
+    fun settle() {
+        val key = views.entries.firstOrNull { it.value.isFocused }?.key ?: return
+        scheduleSettled(key)
     }
 
     /** 本页上次的焦点 key。 */
@@ -74,12 +142,16 @@ class FocusSession(
      */
     fun request(preferred: FocusKey? = null, ladder: List<FocusKey> = emptyList()): Boolean {
         val currentGraph = graph ?: return false
-        return FocusBinder.request(
+        val ok = FocusBinder.request(
             graph = currentGraph,
             views = views,
             preferred = preferred,
             remembered = remembered(),
             ladder = ladder,
         )
+        // 目标是"已经持焦"的那一项时 requestFocus 是空操作，不会有焦点变化事件：
+        // 返回本页、切回 tab 都属于这种，补说一次落定，信息栏才不会停在别的页
+        if (ok) settle()
+        return ok
     }
 }

@@ -70,6 +70,10 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
     private var viewport = 0
 
     override fun onBuild() {
+        // 信息栏只在"焦点落定且落在卡片上"时出现：焦点在输入框/片库/侧栏上时收起，
+        // 一帧内的中间态（焦点路过某张卡）不更新内容（审计 2026-10-22 #5-c / #6）
+        focus.onSettled = { key -> onCardSettled(key) }
+
         val body = scaffold.body()
 
         // 标题行：「搜索」28 + 说明 13，底对齐读作一行（mockup .b-title）
@@ -159,19 +163,17 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         }
         content.addView(continueHeader)
 
-        continueGrid = ui.grid("continue").apply {
+        continueGrid = ui.grid(CONTINUE_SECTION).apply {
             visibility = View.GONE
             // B 方案：「继续看」是背景墙，非焦点卡压暗（mockup 画面1 的 0.62）
             spotlight = true
-            onCardFocused = { item -> showContinueBand(item) }
             onCardActivated = { item -> host.navigator.toDetail(item.id, resumeRecording = true) }
         }
         content.addView(continueGrid)
 
-        resultGrid = ui.grid("result").apply {
+        resultGrid = ui.grid(RESULT_SECTION).apply {
             visibility = View.GONE
             // 结果是主角：全亮（mockup 画面2），未上线卡用 CardItem.dim 表达
-            onCardFocused = { item -> showResultBand(item) }
             onCardActivated = { item -> openResult(item) }
         }
         content.addView(resultGrid)
@@ -336,9 +338,27 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
 
     // ---------- 底部信息栏 ----------
 
+    /**
+     * 焦点落定后的信息栏：落在「继续看」或结果网格的卡片上才显示，落到输入区/片库/侧栏
+     * 整条收起（审计 2026-10-22 #5-c）。两个网格共用一个回调，按段名前缀分发。
+     */
+    private fun onCardSettled(key: FocusKey) {
+        val continueId = continueGrid.cardIdOf(key)
+        val resultId = resultGrid.cardIdOf(key)
+        when {
+            continueId != null -> showContinueBand(continueId)
+            resultId != null -> showResultBand(resultId)
+            else -> scaffold.hideBand()
+        }
+    }
+
     /** 空态（继续看）：信息栏只写片名（mockup 画面1——卡片已写了"第几季第几集"）。 */
-    private fun showContinueBand(item: CardItem) {
-        val title = continueEntries.firstOrNull { it.series.id == item.id }?.series?.title ?: item.artworkTitle
+    private fun showContinueBand(seriesId: String) {
+        val title = continueEntries.firstOrNull { it.series.id == seriesId }?.series?.title
+        if (title == null) {
+            scaffold.hideBand()
+            return
+        }
         scaffold.band().show(
             title = title,
             segments = emptyList(),
@@ -347,8 +367,12 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
     }
 
     /** 结果态：片名 + 已收藏 + 分类（mockup 画面2；MENU 提示等行为定了再加）。 */
-    private fun showResultBand(item: CardItem) {
-        val series = model.items.firstOrNull { it.id == item.id } ?: return
+    private fun showResultBand(seriesId: String) {
+        val series = model.items.firstOrNull { it.id == seriesId }
+        if (series == null) {
+            scaffold.hideBand()
+            return
+        }
         scaffold.band().show(
             title = series.title,
             segments = CatalogText.bandSegments(favorite = favoriteOf(series) != null, tags = series.tags),
@@ -385,8 +409,8 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         continueHeader.visibility = if (showContinue) View.VISIBLE else View.GONE
         continueGrid.visibility = if (showContinue) View.VISIBLE else View.GONE
         resultGrid.visibility = if (showResult) View.VISIBLE else View.GONE
-        // 信息栏伴着内容出现：没有卡片可说时整条收起，不占 46dp
-        if (showContinue || showResult) scaffold.band() else scaffold.hideBand()
+        // 信息栏伴着卡片出现：焦点落到卡片上时由落定回调显示；没有卡片可说时整条收起，不占 46dp
+        if (!showContinue && !showResult) scaffold.hideBand()
 
         // 视口还没量到时不夹（保持比例）；量到之后由布局回调再走一遍 render
         applyCardLimit()
@@ -466,6 +490,9 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         const val SUGGEST_MIN_LENGTH = 2
         const val SUGGEST_LIMIT = 4
         const val SUGGEST_DEBOUNCE_MS = 400L
+        /** 本页两个网格的焦点段名（`PosterGrid.keyOf` 的前缀）：落定回调按前缀分发信息栏。 */
+        const val CONTINUE_SECTION = "continue"
+        const val RESULT_SECTION = "result"
         /**
          * 「继续看」最多 5 部 = 网格一行的列数（1080p 上）。
          * 多一个就会折到第二行，而第二行在首屏放不下——用户要么看不见，要么得先滚一下才知道还有。

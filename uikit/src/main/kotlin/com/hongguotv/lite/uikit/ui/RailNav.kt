@@ -100,10 +100,14 @@ class RailNav internal constructor(ui: UiKit, items: List<RailItem>) : FrameLayo
 }
 
 /**
- * 侧栏导航项：图标在上、文字在下。
+ * 侧栏导航项：图标在上、文字在下，**两者作为一个整体在 56×54 的选择框里居中**。
+ *
+ * 旧实现把图标当 TextView 的复合 drawable：TextView 只居中文字，图标被顶到文字上方，
+ * 一进焦点框就能看出"图标贴顶、文字贴底"（维护者实测）。拆成垂直容器后，
+ * 图标与文字的总高度由容器整体居中，焦点框上下留白自然相等。
  *
  * 焦点 = 白底深字（图标一起翻深色）；当前页 = 2dp 白框 + 白字，不填充。
- * 不放大：56×54 的格子在一列里，放大 6% 会压到邻居的白框。
+ * 不缩放：56×54 的格子在一列里，任何几何变化都会压到邻居。
  */
 @SuppressLint("ViewConstructor")
 class RailNavItem internal constructor(
@@ -112,27 +116,44 @@ class RailNavItem internal constructor(
     label: String,
     iconRes: Int,
     private val onTap: () -> Unit,
-) : TextView(context) {
+) : LinearLayout(context) {
 
     /** 焦点变化回调：页面用它更新信息栏。 */
     var onFocused: ((Boolean) -> Unit)? = null
 
-    init {
+    private val iconDrawable = resources.getDrawable(iconRes, context.theme)
+
+    private val iconView = ImageView(context).apply {
+        setImageDrawable(iconDrawable)
+        scaleType = ImageView.ScaleType.FIT_CENTER
+    }
+    private val labelView = TextView(context).apply {
         text = label
         textSize = tokens.type.railLabel
-        gravity = Gravity.CENTER
         setTypeface(null, Typeface.BOLD)
         includeFontPadding = false
-        val drawable = resources.getDrawable(iconRes, context.theme).tinted(tokens.colors.muted)
-        val size = context.dp(tokens.metrics.railIcon)
-        drawable.setBounds(0, 0, size, size)
-        setCompoundDrawables(null, drawable, null, null)
-        compoundDrawablePadding = context.dp(ICON_TEXT_GAP)
+        gravity = Gravity.CENTER
+    }
+
+    init {
+        orientation = VERTICAL
+        // 垂直容器 + CENTER：图标与文字的总高度整体居中，而不是图标贴顶、文字贴底
+        gravity = Gravity.CENTER
         setOnClickListener { onTap() }
+
+        addView(
+            iconView,
+            LayoutParams(context.dp(tokens.metrics.railIcon), context.dp(tokens.metrics.railIcon)),
+        )
+        addView(
+            labelView,
+            LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
+                topMargin = context.dp(tokens.space.xxs)
+            },
+        )
+
         bindFocus(
-            tokens = tokens,
             paint = { paintState(it) },
-            scale = { false },
             onChange = { onFocused?.invoke(it) },
         )
     }
@@ -156,11 +177,8 @@ class RailNavItem internal constructor(
             isSelected -> colors.focus
             else -> colors.muted
         }
-        setTextColor(color)
-        for (drawable in compoundDrawables) drawable?.tinted(color)
-    }
-
-    private companion object {
-        const val ICON_TEXT_GAP = 2
+        labelView.setTextColor(color)
+        // 图标跟文字同色：白底时翻深，暗底时是弱化色，选中时纯白
+        iconView.setImageDrawable(iconDrawable.tinted(color))
     }
 }

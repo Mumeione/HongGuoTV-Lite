@@ -47,6 +47,10 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
     private val confirm = TwoStepConfirm()
 
     override fun onBuild() {
+        // 信息栏只在"焦点落定且落在卡片上"时出现：离开卡片区（输入框、侧栏、管理动作条）就收起，
+        // 中间态不更新内容（审计 2026-10-22 #5-a / #5-c，回调机制见 FocusSession.onSettled）
+        focus.onSettled = { key -> onCardSettled(key) }
+
         val header = scaffold.showHeader("观看历史")
         header.titleSize(tokens.type.display)
         header.leadNote("只存在本机，最多 30 条；清空不影响收藏")
@@ -56,7 +60,7 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
         body.addView(pane, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         pane.empty.show("播放过的剧集会自动保存在这里")
 
-        grid = ui.grid("history").apply {
+        grid = ui.grid(GRID_SECTION).apply {
             persistCovers = true
             // B 方案产品口径：两行 6 列、封面 152、信息条 26dp、列距 12、行距 20
             // （spec 令牌表"卡片（历史）"；封面比 0.7 比例矮一档，图按 cover 裁上下）
@@ -69,10 +73,9 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
             onCardFocused = { item -> onCardFocused(item.id) }
             onCardActivated = { item -> host.navigator.toDetail(item.id, resumeRecording = true) }
         }
-        // 标题到卡片 22dp（mockup 画面4 `.b-histcards{margin-top:22px}`）：
-        // 网格自身留了 8dp 焦点溢出，这里补 14
+        // 标题到卡片 22dp（mockup 画面4 `.b-histcards{margin-top:22px}`）
         pane.content.addView(grid, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = ui.dp(tokens.space.l)
+            topMargin = ui.dp(tokens.metrics.gridHeaderGap)
         })
 
         footer = scaffold.footer()
@@ -120,7 +123,8 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
             footer.visibility = View.GONE
         } else {
             pane.showContent()
-            scaffold.band()
+            // 管理态与信息栏互斥（审计 #5-a）：两条底栏会把第二行卡片压掉一半
+            if (managing) scaffold.hideBand()
         }
         updateFooter()
         applyFocus()
@@ -140,19 +144,39 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
             confirm.disarm()
             targetId = seriesId
         }
-        val entry = entries.firstOrNull { it.series.id == seriesId } ?: return
-        // 信息栏只写"这部剧"：片名 + 收藏状态 + 分类。观看位置在卡片状态条上，不重复
+        if (managing) updateFooter()
+    }
+
+    /**
+     * 焦点落定后的信息栏：落在本页网格的卡片上才显示（片名 + 收藏状态 + 分类），
+     * 落到别处（侧栏、输入区、管理动作条）整条收起——"离开卡片区信息栏残留"（审计 #5-c）的解法。
+     */
+    private fun onCardSettled(key: FocusKey) {
+        val entry = grid.cardIdOf(key)?.let { id -> entries.firstOrNull { it.series.id == id } }
+        if (managing || entry == null) {
+            scaffold.hideBand()
+            return
+        }
+        showBand(entry)
+    }
+
+    /** 信息栏只写"这部剧"：片名 + 收藏状态 + 分类。观看位置在卡片状态条上，不重复。 */
+    private fun showBand(entry: HistoryEntry) {
         val key = SeasonKeys.seasonKey(entry.series.title)
         val favoriteEntry = if (key.isBlank()) null else host.favorites.entry(key)
+        // 分类：历史记录的 tags 经常是空串（早期记录），回退到收藏那份（审计 #5-b）
+        val tags = CatalogText.historyTags(
+            historyTags = entry.series.tags,
+            favoriteTags = favoriteEntry?.series?.tags.orEmpty(),
+        )
         scaffold.band().show(
             title = entry.series.title,
             segments = CatalogText.bandSegments(
                 favorite = favoriteEntry != null,
-                tags = entry.series.tags,
+                tags = tags,
             ),
             keys = listOf("OK" to "继续播放", "MENU" to "管理"),
         )
-        if (managing) updateFooter()
     }
 
     /** MENU 键 = 管理入口（B 方案口径，宿主从 `LiteActivity` 转发过来）。 */
@@ -168,6 +192,8 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
         confirm.disarm()
         if (value && targetId == null) targetId = entries.firstOrNull()?.series?.id
         footer.visibility = if (value) View.VISIBLE else View.GONE
+        // 管理态与信息栏互斥（审计 #5-a）：动作条自己带说明，不再让两条底栏摞在一起
+        if (value) scaffold.hideBand()
         updateFooter()
         applyFocus()
     }
@@ -232,5 +258,10 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
             },
         )
         applyPlan(sections, views)
+    }
+
+    private companion object {
+        /** 本页网格的焦点段名（`PosterGrid.keyOf` 的前缀）：落定回调靠它认出"落在了卡片上"。 */
+        const val GRID_SECTION = "history"
     }
 }

@@ -84,14 +84,20 @@ class PosterGrid internal constructor(
 
     init {
         orientation = VERTICAL
-        // 焦点卡放大 1.06 会超出网格边界：不留出溢出量、又让网格裁子视图的话，
-        // 首行/首列的 3dp 白框会被切平（只剩右/下两侧看得到）。
-        // `clipToPadding` 也必须关掉——它会把整棵子树裁到 padding 框内，白框照样没。
-        clipChildren = false
-        clipToPadding = false
     }
 
     fun keyOf(id: String): FocusKey = FocusKey("$section:$id")
+
+    /**
+     * 焦点 key → 本网格里的卡片 id；不是本网格的 key 返回 null。
+     *
+     * key 的格式由本类拥有，页面不该自己 `removePrefix("section:")`：三页各写一遍的话，
+     * 改一次格式要同时改三处，漏一处就是信息栏静默不更新。
+     */
+    fun cardIdOf(key: FocusKey): String? {
+        val prefix = "$section:"
+        return if (key.value.startsWith(prefix)) key.value.removePrefix(prefix) else null
+    }
 
     fun render(items: List<CardItem>): GridRendered {
         val limited = items.take(tokens.pageCardLimit)
@@ -107,20 +113,8 @@ class PosterGrid internal constructor(
             minColumns = tokens.metrics.gridMinColumns,
             maxColumns = tokens.metrics.gridMaxColumns,
         )
-        // 先按"未扣留白"的卡宽估算放大外扩，再把留白扣掉重算卡宽：
-        // 留白取决于卡高、卡高取决于卡宽，一步收敛（外扩只与较长边有关，量级是几 dp）
-        val cardWidth0 = GridGeometry.cardWidth(available0, columns, gap)
-        val cover0 = if (coverHeightDp > 0) {
-            dp(coverHeightDp)
-        } else {
-            (cardWidth0 / tokens.metrics.posterAspect).toInt()
-        }
-        val strip = dp(if (stripHeightDp > 0) stripHeightDp else tokens.metrics.catalogStripHeight)
-        val scale = if (tokens.motion.enabled) tokens.motion.focusScale else 1f
-        // focusOverflow 的入参和返回值都是像素，不要再换算一次
-        val overflow = GridGeometry.focusOverflow(cardWidth0, cover0 + strip, scale)
-        applyFocusPadding(overflow)
-
+        // 卡宽按"整行可用宽度"算：焦点不再放大，卡片不会越出网格边界，
+        // 也就不需要为溢出留内边距（留白会让卡宽白掉几 dp）
         val available = (ui.availableWidth(width) - paddingLeft - paddingRight).coerceAtLeast(1)
         val cardWidth = GridGeometry.cardWidth(available, columns, gap)
 
@@ -146,15 +140,8 @@ class PosterGrid internal constructor(
         return GridRendered(keys = ids.map(::keyOf), views = views, columns = columns)
     }
 
-    /** 焦点外扩的留白：只在数值变化时改，避免每帧触发一次布局。 */
-    private fun applyFocusPadding(pad: Int) {
-        if (paddingLeft == pad && paddingTop == pad && paddingRight == pad && paddingBottom == pad) return
-        setPadding(pad, pad, pad, pad)
-    }
-
-    /** 高度上限扣掉上下留白：卡片连同白框要落在视口里，不能把留白算成可用高度。 */
-    private fun cardLimit(): Int =
-        if (cardHeightLimit <= 0) 0 else (cardHeightLimit - paddingTop - paddingBottom).coerceAtLeast(0)
+    /** 高度上限（像素）；0 = 不限制。 */
+    private fun cardLimit(): Int = cardHeightLimit.coerceAtLeast(0)
 
     /** 把"哪张卡正亮着"同步给全部卡。焦点落到本网格之外时（全暗）由下一次 render 修正。 */
     private fun applySpotlight() {
@@ -196,7 +183,7 @@ class PosterGrid internal constructor(
             addView(
                 row,
                 LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                    // 行距不只是排版：放大后的卡片上下各外扩几 dp，行距为 0 时相邻两张的白框会叠在一起
+                    // 行距是纯排版：卡片不缩放，行与行之间不会重叠
                     if (rowIndex < rowCounts.lastIndex) bottomMargin = rowGap
                 },
             )

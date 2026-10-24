@@ -35,12 +35,12 @@ internal object CatalogCards {
         artworkTitle = series.title,
     )
 
-    /** 收藏卡：封面 + 更新进度（`更新到第九季第108集`）。 */
+    /** 收藏卡：封面 + 两行更新进度（「更新到第九季」/「第352集」，见 [FavoriteLabels.updateBadgeLines]）。 */
     fun favorite(entry: FavoriteEntry): CardItem = CardItem(
         id = entry.series.id,
         title = "",
         coverUrl = entry.series.cover,
-        badge = FavoriteLabels.updateBadge(entry),
+        badge = FavoriteLabels.updateBadgeLines(entry),
         badgeAttention = FavoriteLabels.attention(entry),
         artworkTitle = entry.series.title,
     )

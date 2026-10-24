@@ -150,6 +150,36 @@ class PrefsLibraryTest {
     }
 
     @Test
+    fun rememberFillsTagsOnAnExistingHistoryRowOnly() = runTest {
+        // 旧记录的分类常常是空的（历史页信息栏因此缺一段）：播放页拿到详情时补这一行。
+        // 只更新已有行——浏览详情不该凭空造一条历史
+        val lib = PrefsLibrary(store(*oldPrefs()))
+        val before = lib.history().single().series
+        assertEquals("古装", before.tags)
+
+        lib.rememberSeries(before.copy(tags = "古装 / 逆袭"))
+        assertEquals("古装 / 逆袭", lib.history().single().series.tags)
+
+        // 没有历史的剧：什么都不写
+        lib.rememberSeries(before.copy(id = "999", tags = "别的分类"))
+        assertEquals(1, lib.history().size)
+    }
+
+    @Test
+    fun rememberDoesNotEraseFieldsTheDetailResponseLacks() = runTest {
+        // 详情接口没有季号与角标：合并时不能把盘上的"第二季 / 全 12 集"抹成 0 与空串
+        val lib = PrefsLibrary(store(*oldPrefs()))
+        val before = lib.history().single().series
+        lib.rememberSeries(before.copy(season = 0, badge = "", cover = "", tags = "古装 / 逆袭"))
+
+        val after = lib.history().single().series
+        assertEquals(2, after.season)
+        assertEquals("全 12 集", after.badge)
+        assertEquals("https://img.example/c.jpg", after.cover)
+        assertEquals("古装 / 逆袭", after.tags)
+    }
+
+    @Test
     fun identicalPausedCheckpointDoesNotWrite() = runTest {
         val s = store("favoriteSeries" to "{}")
         val lib = PrefsLibrary(s)

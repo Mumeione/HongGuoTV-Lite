@@ -61,6 +61,8 @@ class CatalogTextTest {
         assertEquals(listOf("已收藏", "古装 / 逆袭"), CatalogText.bandSegments(favorite = true, tags = "古装 / 逆袭"))
         assertEquals(listOf("古装 / 逆袭"), CatalogText.bandSegments(favorite = false, tags = "古装 / 逆袭"))
         assertEquals(emptyList<String>(), CatalogText.bandSegments(favorite = false, tags = ""))
+        // 上游给的分隔符是「 · 」（详情页那套），信息栏按 mockup 用「 / 」读作"分类"
+        assertEquals(listOf("逆袭 / 朝堂权谋"), CatalogText.bandSegments(favorite = false, tags = "逆袭 · 朝堂权谋"))
     }
 
     @Test
@@ -69,5 +71,14 @@ class CatalogTextTest {
         assertEquals(listOf("已收藏", "更新到第九季第352集"), CatalogText.favoriteSegments(update = "更新到第九季第352集"))
         // 还没检查出来时只说收藏状态，不编一句空话
         assertEquals(listOf("已收藏"), CatalogText.favoriteSegments(update = ""))
+    }
+
+    @Test
+    fun historyBandTagsFallBackToTheFavoriteCopy() {
+        // 审计 2026-10-22 #5-b：历史记录的 tags 经常是空串（早期记录只存了片名/封面），
+        // 分类回退到收藏那份；两处都没有就不显示——角标（「全 90 集」）不是分类，不能兜底
+        assertEquals("古装 / 逆袭", CatalogText.historyTags(historyTags = "古装 / 逆袭", favoriteTags = "已丢失的旧分类"))
+        assertEquals("古装 / 逆袭", CatalogText.historyTags(historyTags = "", favoriteTags = "古装 / 逆袭"))
+        assertEquals("", CatalogText.historyTags(historyTags = "", favoriteTags = ""))
     }
 }

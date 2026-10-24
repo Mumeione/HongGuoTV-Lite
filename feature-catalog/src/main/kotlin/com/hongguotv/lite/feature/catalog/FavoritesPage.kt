@@ -42,12 +42,22 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
     private var checking: Boolean = false
 
     override fun onBuild() {
+        // 信息栏只在"焦点落定且落在卡片上"时出现，离开卡片区就收起（审计 2026-10-22 #5-c）
+        focus.onSettled = { key -> onCardSettled(key) }
+
         val header = scaffold.showHeader("我的收藏")
         // B 方案：顶层页用大标题（与详情片名同档）
         header.titleSize(tokens.type.display)
         // 顺序按维护者口径：我的收藏 → 检查更新 → 更新说明，三者贴在一起靠左，不推到屏幕右边。
         checkButton = ui.button("检查更新") { startCheck(force = true) }
-        header.lead().addView(checkButton)
+        // 定宽（不是 minWidth）：文案在「检查更新」↔「正在检查…」间切换时右侧说明不重排（审计 #10）。
+        // minWidth 只保下限，长文案仍会把说明顶走——这条要的是"宽度不变"。
+        header.lead().addView(
+            checkButton,
+            LinearLayout.LayoutParams(ui.dp(tokens.metrics.leadActionWidth), ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                leftMargin = ui.dp(tokens.space.m)
+            },
+        )
         statusView = header.leadNote("")
 
         val body = scaffold.body()
@@ -55,13 +65,20 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
         body.addView(pane, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         pane.empty.show("在剧集详情中选择收藏，喜欢的剧就会出现在这里")
 
-        grid = ui.grid("favorites").apply {
+        grid = ui.grid(GRID_SECTION).apply {
             // 收藏封面值得占电视存储（旧行为）：列表稳定，复看频率高
             persistCovers = true
-            onCardFocused = { item -> showBand(item) }
+            // 聚光压暗与搜索页「继续看」、历史页一致（审计 #9）：非焦点卡 0.62
+            spotlight = true
             onCardActivated = { item -> openFavorite(item) }
         }
-        pane.content.addView(grid)
+        // 标题到卡片 22dp（mockup 口径，与历史页同一条）
+        pane.content.addView(
+            grid,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = ui.dp(tokens.metrics.gridHeaderGap)
+            },
+        )
 
         entries = host.favorites.all()
         status = FavoriteLabels.idleStatus(entries.size, dueEntries().size)
@@ -139,7 +156,7 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
             scaffold.hideBand()
         } else {
             pane.showContent()
-            scaffold.band()
+            // 信息栏的出现与内容由落定回调管（onCardSettled），这里不再无条件占位
         }
         rendered = if (isEmpty) null else grid.render(entries.map(CatalogCards::favorite))
         chrome()
@@ -153,9 +170,21 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
 
     // ---------- 信息栏 ----------
 
+    /**
+     * 焦点落定后的信息栏：落在本页网格的卡片上才显示（片名 + 已收藏 + 更新到…），
+     * 落到别处（「检查更新」、侧栏）整条收起（审计 2026-10-22 #5-c）。
+     */
+    private fun onCardSettled(key: FocusKey) {
+        val entry = grid.cardIdOf(key)?.let { id -> entries.firstOrNull { it.series.id == id } }
+        if (entry == null) {
+            scaffold.hideBand()
+        } else {
+            showBand(entry)
+        }
+    }
+
     /** 信息栏 = 片名 + 已收藏 + 更新到…（spec 逐页-收藏）。 */
-    private fun showBand(item: CardItem) {
-        val entry = entries.firstOrNull { it.series.id == item.id } ?: return
+    private fun showBand(entry: FavoriteEntry) {
         scaffold.band().show(
             title = entry.series.title,
             segments = CatalogText.favoriteSegments(update = FavoriteLabels.updateBadge(entry)),
@@ -195,5 +224,10 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
             rendered?.let { FocusSections.section(it.keys, it.columns) },
         )
         applyPlan(sections, views)
+    }
+
+    private companion object {
+        /** 本页网格的焦点段名（`PosterGrid.keyOf` 的前缀）：落定回调靠它认出"落在了卡片上"。 */
+        const val GRID_SECTION = "favorites"
     }
 }

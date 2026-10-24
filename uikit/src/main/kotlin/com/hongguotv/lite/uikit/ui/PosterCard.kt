@@ -28,7 +28,11 @@ data class CardItem(
     val id: String,
     val title: String,
     val coverUrl: String,
-    /** 信息条的一行状态（「第九季 第20集」「全 352 集」…）。 */
+    /**
+     * 信息条的一行状态（「第九季 第20集」「全 352 集」…）。
+     * 含 `'\n'` 时画成**两行**（字号降一档、垂直居中）：收藏卡的「更新到第X季」+「第X集」，
+     * 长句拆两行比截断诚实。
+     */
     val badge: String = "",
     /** 需要用户注意的角标（例如"有新季"）：白色 + 加粗，其余状态用弱化色。 */
     val badgeAttention: Boolean = false,
@@ -62,10 +66,10 @@ data class CardItem(
  * - **目录卡**（title 空）：封面 + 一条 34dp 信息条（[CardItem.badge]，历史卡可用更矮的信息条）；
  * - **季卡**（title 有值）：封面 + 24dp 季名行 + 20dp 状态行。
  *
- * **聚光焦点**：聚焦 = 放大 1.06 + 3dp 白框 + 白底信息条（白只露在封面下层的信息区，
+ * **聚光焦点**：聚焦 = 3dp 白框 + 白底信息条（白只露在封面下层的信息区，
  * 正是"焦点=白底深字"的本意）；同一屏的其余卡由网格压到 62%（[dimmed]，
- * 见 `PosterGrid.spotlight`）。缩放只影响绘制，不参与几何——焦点图与滚动补偿
- * 一律用未缩放的边界。
+ * 见 `PosterGrid.spotlight`）。焦点只改配色，卡片不做缩放/位移——
+ * 焦点图与滚动补偿一律用视图真实边界。
  *
  * [maxHeightPx] 是**整张卡的高度上限**（0 = 不限制）。首屏只放得下一行卡时，
  * 由调用方给出视口高度，封面按 [CardFit] 夹短，保证"封面 + 信息条"都在屏内。
@@ -78,14 +82,9 @@ class PosterCard internal constructor(
     stripHeightDp: Int = 0,
     /**
      * 显式封面高（dp，0 = 按 [com.hongguotv.lite.uikit.token.Metrics.posterAspect] 派生）。
-     * 历史卡是产品口径的 152：B 方案把它压扁了一档，图按 `cover` 裁掉上下而不是留黑边。
+     * 历史卡是产品口径的 152：B 方案把它压扁了一档，图按 `cover` 裁掉上下而不是留边。
      */
     coverHeightDp: Int = 0,
-    /**
-     * 聚焦时是否放大。季线一页 8 张、卡间距只有 10dp：放大 6% 会吃掉邻居的呼吸，
-     * 而 mockup 的季卡焦点本来就只有 3dp 描边（`.b-scard.focus{box-shadow}`），不缩放。
-     */
-    private val scaleOnFocus: Boolean = true,
 ) : LinearLayout(ui.context) {
 
     private val tokens = ui.tokens
@@ -153,7 +152,10 @@ class PosterCard internal constructor(
             visibility = View.GONE
         }
         artworkView.addView(artworkTitleView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        image.scaleType = if (explicitCoverHeight > 0) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
+        // 封面一律铺满卡面（CENTER_CROP）：上游给的序列图比例并不都是 0.7，
+        // FIT_CENTER 会在焦点白底上留下左右白边，看起来像"图没填满"（维护者 2026-10-24 实测）。
+        // 超出部分裁掉——海报的主体居中，裁边比留白更接近 mockup。
+        image.scaleType = ImageView.ScaleType.CENTER_CROP
         image.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         artworkView.addView(image, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
@@ -211,9 +213,7 @@ class PosterCard internal constructor(
         artworkView.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, artworkHeight)
 
         bindFocus(
-            tokens = tokens,
             paint = { paintCard(it) },
-            scale = { scaleOnFocus },
             onChange = { isFocused ->
                 focused = isFocused
                 val current = item ?: return@bindFocus
@@ -234,7 +234,16 @@ class PosterCard internal constructor(
         // 有 title 的是季卡（季名 + 状态两行），没有的是目录卡（一条信息）。
         val hasTitle = item.title.isNotEmpty()
         titleView.visibility = if (hasTitle) View.VISIBLE else View.GONE
-        badgeView.textSize = if (hasTitle) tokens.type.micro else tokens.type.cardStatus
+        // 角标带 '\n' = 两行（收藏卡：「更新到第X季」+「第X集」，维护者 2026-10-23 口径）：
+        // 单行放不下完整一句话会被截断，两行比截断诚实。字号降一档（13sp）才装得下 34dp。
+        val twoLine = !hasTitle && item.badge.contains('\n')
+        badgeView.textSize = when {
+            hasTitle -> tokens.type.micro
+            twoLine -> tokens.type.caption
+            else -> tokens.type.cardStatus
+        }
+        badgeView.maxLines = if (twoLine) 2 else 1
+        badgeView.gravity = if (twoLine) Gravity.CENTER else Gravity.CENTER_VERTICAL
         badgeView.layoutParams = (badgeView.layoutParams as LayoutParams).apply {
             height = dp(if (hasTitle) tokens.metrics.seasonStatusHeight else stripHeight)
         }
@@ -307,10 +316,11 @@ class PosterCard internal constructor(
     /**
      * 卡片底色、白框与文字色（B 方案聚光焦点）。
      *
-     * - **焦点 = 放大 + 3dp 白框 + 白底信息条**：封面贴边，白色底只露在封面下面那条信息区——
+     * - **焦点 = 3dp 白框 + 白底信息条**：封面贴边，白色底只露在封面下面那条信息区——
      *   视觉上就是"封面下层的背景变白、文字变黑"。全屏唯一的白色填充就是这里。
      *   白框画在前景（封面铺满上半部分，画在背景上的描边会被图整条盖住）。
      * - **选中（当前季）= 2dp 白框**，不填充：白色填充只留给光标，否则一页会有两块白。
+     * - 焦点变化只改这两处配色，不改字号/字重/尺寸：字重跳变会让文字宽度抖动。
      */
     private fun paintCard(isFocused: Boolean) {
         val chosen = isSelected
@@ -333,7 +343,7 @@ class PosterCard internal constructor(
                 else -> tokens.colors.muted
             },
         )
-        badgeView.setTypeface(null, if (isFocused || attention || chosen) Typeface.BOLD else Typeface.NORMAL)
+        badgeView.setTypeface(null, if (attention || chosen) Typeface.BOLD else Typeface.NORMAL)
     }
 
     /**

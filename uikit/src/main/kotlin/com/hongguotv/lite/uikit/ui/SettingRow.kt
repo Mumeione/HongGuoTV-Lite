@@ -82,7 +82,7 @@ class SettingRow internal constructor(
             leftMargin = ui.dp(tokens.space.m)
         })
 
-        bindFocus(tokens = tokens, paint = { paintState(it) }, scale = { false }, onChange = { onFocused?.invoke(it) })
+        bindFocus(paint = { paintState(it) }, onChange = { onFocused?.invoke(it) })
         setOnClickListener { onTap() }
     }
 

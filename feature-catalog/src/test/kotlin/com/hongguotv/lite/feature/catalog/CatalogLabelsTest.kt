@@ -78,6 +78,25 @@ class CatalogLabelsTest {
         assertEquals("检查失败", FavoriteLabels.updateBadge(unknown.copy(status = FavoriteStatus.FAILED)))
     }
 
+    @Test
+    fun theCardBadgeSplitsIntoTwoLinesWhenBothSeasonAndEpisodeAreKnown() {
+        // 审计 2026-10-22 #2-a 的维护者口径（2026-10-23）：卡片角标拆两行——
+        // 「更新到第X季」一行、「第X集」一行，单行放不下完整一句话会被截断
+        assertEquals(
+            "更新到第九季\n第352集",
+            FavoriteLabels.updateBadgeLines(entry(latestSeason = 9, latestEpisodes = 352)),
+        )
+        // 拆不出两行的保持一行：只有季号、只有集数、兜底句
+        assertEquals("更新到第三季", FavoriteLabels.updateBadgeLines(entry(latestSeason = 3, latestEpisodes = 0)))
+        assertEquals("更新到第524集", FavoriteLabels.updateBadgeLines(entry(season = 0, latestSeason = 0, latestEpisodes = 524)))
+        assertEquals("尚未检查更新", FavoriteLabels.updateBadgeLines(entry(latestSeason = 0, latestEpisodes = 0)))
+        // 信息栏仍用单行版（宽度够）：两行文案只给卡片
+        assertEquals(
+            "更新到第九季第352集",
+            FavoriteLabels.updateBadge(entry(latestSeason = 9, latestEpisodes = 352)),
+        )
+    }
+
     // ---------- 状态行 ----------
 
     @Test

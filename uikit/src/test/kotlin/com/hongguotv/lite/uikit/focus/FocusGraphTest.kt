@@ -90,6 +90,23 @@ class FocusGraphTest {
     }
 
     @Test
+    fun `five column row moves up into a three item row on the aligned column`() {
+        // 审计 2026-10-22 #6 的回归钉：搜索页「继续看」一行 5 张，按上要落输入行 3 项的
+        // 列对齐位置——最后一列（第 5 张）必须落到第 3 项（「倒序」）。中心对齐映射下
+        // 5 列 → 3 项的目标列是 [0, 0, 1, 1, 2]，若实现改回"按下标缩放"这里就会变脸。
+        val plan = FocusPlan(
+            listOf(
+                FocusSection(keys("filter", 3), columns = 3),
+                FocusSection(keys("row", 3), columns = 3),
+                FocusSection(keys("card", 5), columns = 5),
+            ),
+        )
+        val graph = FocusGraph.of(plan)
+        val targets = (0 until 5).map { graph.neighborsOf(key("card$it"))!!.up }
+        assertEquals(keys("row", 3).let { listOf(it[0], it[0], it[1], it[1], it[2]) }, targets)
+    }
+
+    @Test
     fun `single column section moves straight up and down`() {
         val plan = FocusPlan(
             listOf(

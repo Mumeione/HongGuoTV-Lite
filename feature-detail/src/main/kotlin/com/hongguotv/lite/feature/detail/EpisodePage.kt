@@ -210,11 +210,17 @@ internal class EpisodePage(
         val favorite = host.favorites.isFavorite(SeasonKeys.seasonKey(series.title))
         val line = host.favorites.seasonLine(SeasonKeys.seasonKey(series.title))
 
+        // 标题去掉季后缀（「…第十四季」）：26sp 一行放不下，后缀会把片名挤成省略号
+        // （实测「聚宝仙盆之杂灵根才是真BOSS第十…」）。季号改放副行，与"共 N 季"并列。
+        val seasonLabel = series.season.takeIf { it > 0 }?.let { TvText.season(it) }
+        val seasonCount = line?.let {
+            DetailText.seasonNote(it.seasons.size, it.seasons.count { s -> s.released }, withReleased = false)
+        }
         hero.show(
             coverUrl = series.cover,
-            title = series.title,
-            // 副行"共 N 季"只在拿到季线时有据可写；没收藏的剧不为此多发一次请求
-            seasonNote = line?.let { DetailText.seasonNote(it.seasons.size, it.seasons.count { s -> s.released }, withReleased = false) }.orEmpty(),
+            title = SeasonKeys.seasonBase(series.title).ifBlank { series.title },
+            // 副行：季号 + "共 N 季"（季线只在拿得到时才有后半截；没收藏的剧不为此多发一次请求）
+            seasonNote = listOfNotNull(seasonLabel, seasonCount?.takeIf { it.isNotBlank() }).joinToString(" · "),
             specs = DetailText.episodeSpecs(
                 update = DetailText.updateLabel(data.episodes.size),
                 total = data.episodes.size,

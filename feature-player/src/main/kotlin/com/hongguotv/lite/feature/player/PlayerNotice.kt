@@ -17,12 +17,27 @@ import com.hongguotv.lite.uikit.ui.UiKit
 internal enum class NoticeAction { RETRY, LOWER_QUALITY, STOP_RETRY, REPLAY, NEXT, RESUME, BACK }
 
 /**
- * 播放页底部那张提示卡：出错 / 本集结束 / 定时停止时出现，其余时候**必须消失**
- * （画面底下常驻一块无关的板子，比没有提示更糟）。
+ * 播放页的提示层（B 方案，与抽屉同构；审计 2026-10-22 #7 的重绘）：
  *
- * 单独成类的原因：它有一套自己的状态映射（[PlaybackState] + [RetryState] → 文案 + 按钮集合）、
- * 自己的焦点结构，和"按键路由 / 取流 / 写进度"没有共同的修改理由。留在 `PlayerPage` 里，
- * 那个文件就会因为四件互不相干的事被改（S6 review 指出的 Divergent Change）。
+ * ```
+ * ┌──────────────────────────────────────────┐
+ * │                                          │
+ * │        错误大字（26sp，画面中央）            │
+ * │                                          │
+ * │  ╭────────────────────────────────────╮  │
+ * │  │ [立即重试] [尝试更低] [返回选集]        │  │ ← 胶囊动作排
+ * │  │ ────────────────────────────────── │  │ ← 1px 结构线
+ * │  │ 剧名 · 第 3 集          失败原因     │  │ ← 46dp 信息栏行
+ * │  ╰────────────────────────────────────╯  │
+ * └──────────────────────────────────────────┘
+ * ```
+ *
+ * 旧实现是"深色小卡片 + 一排无底色按钮"：按钮压在同色 tile 上只剩文字，四行内容
+ * 挤在左下角，与 B 方案的语言完全不是一套。现在错误本身成为主视觉，动作与说明
+ * 收进贴底的抽屉式面板——键帽、胶囊、信息栏都是既有控件的复用。
+ *
+ * 单独成类的原因不变：它有一套自己的状态映射（[PlaybackState] + [RetryState] → 文案 + 按钮集合）、
+ * 自己的焦点结构，和"按键路由 / 取流 / 写进度"没有共同的修改理由。
  */
 internal class PlayerNotice(
     private val ui: UiKit,
@@ -30,18 +45,54 @@ internal class PlayerNotice(
 ) {
 
     private val tokens: Tokens = ui.tokens
-    private val textView: TextView = ui.text("", tokens.type.body).apply { maxLines = 3 }
-    private val hintView: TextView = ui.text("", tokens.type.caption, tokens.colors.muted).apply {
-        setPadding(0, ui.dp(tokens.space.xs), 0, 0)
+
+    /** 画面中央的错误大字。失败用 danger 一档（Colors.danger 的唯一用途），结束/暂停用正文色。 */
+    private val headlineView: TextView = ui.text("", tokens.type.display).apply {
+        gravity = Gravity.CENTER
+        maxLines = 3
+        // 大字不贴边：与画面左右各留一页边距
+        setPadding(ui.dp(tokens.metrics.pagePaddingH), 0, ui.dp(tokens.metrics.pagePaddingH), 0)
     }
-    private val actionRow: LinearLayout = ui.row().apply { setPadding(0, ui.dp(tokens.space.m), 0, 0) }
+
+    private val titleView: TextView = ui.text("", tokens.type.specValue).apply {
+        maxLines = 1
+        ellipsize = android.text.TextUtils.TruncateAt.END
+        setTypeface(null, android.graphics.Typeface.BOLD)
+    }
+
+    /** 失败原因（muted 小字，贴右）：解码解释、"渠道没下发地址"这类与主句不同的话。 */
+    private val reasonView: TextView = ui.text("", tokens.type.caption, tokens.colors.muted).apply {
+        maxLines = 1
+        ellipsize = android.text.TextUtils.TruncateAt.END
+        gravity = Gravity.END or Gravity.CENTER_VERTICAL
+    }
+
+    private val actionRow: LinearLayout = ui.row().apply {
+        gravity = Gravity.START
+    }
     private val buttons = LinkedHashMap<NoticeAction, TvButton>()
 
-    val view: LinearLayout = ui.tile(radiusDp = tokens.shapes.card, paddingDp = tokens.space.l).apply {
+    /** 贴底面板：胶囊动作 + 分隔线 + 信息栏行。画法与播放抽屉一致（surface 底、圆角 16）。 */
+    val view: LinearLayout = ui.tile(radiusDp = tokens.shapes.drawer, paddingDp = tokens.space.m).apply {
         visibility = View.GONE
-        addView(textView)
-        addView(hintView)
         addView(actionRow)
+        addView(
+            View(context).apply { setBackgroundColor(tokens.colors.line) },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ui.dp(tokens.space.hairline)).apply {
+                topMargin = ui.dp(tokens.space.m)
+                bottomMargin = ui.dp(tokens.space.xs)
+            },
+        )
+        addView(
+            infoRow(),
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ui.dp(tokens.metrics.infoBandHeight)),
+        )
+    }
+
+    /** 信息栏行：片名（左，白粗）+ 失败原因（右，muted）。 */
+    private fun infoRow(): LinearLayout = ui.row().apply {
+        addView(titleView, ui.params(width = 0, weight = 1f, rightGap = tokens.space.l))
+        addView(reasonView, ui.params(width = 0, weight = 1f))
     }
 
     /** 有可见按钮时，方向键要交回焦点系统——否则按钮永远按不到。 */
@@ -65,34 +116,58 @@ internal class PlayerNotice(
         actionRow.addView(button, ui.params(rightGap = tokens.space.s))
     }
 
-    /** 挂到播放页上。宽度按屏宽比例，贴底居中。 */
+    /** 挂到播放页上：大字居中、面板贴底（左右与底部留白与抽屉同款）。 */
     fun attachTo(root: FrameLayout) {
-        val width = (ui.context.resources.displayMetrics.widthPixels * tokens.metrics.noticeWidthRatio).toInt()
+        root.addView(
+            headlineView,
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER),
+        )
+        val marginH = ui.dp(tokens.metrics.drawerPaddingH)
         root.addView(
             view,
-            FrameLayout.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
-                bottomMargin = ui.dp(tokens.metrics.noticeBottomMargin)
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM,
+            ).apply {
+                leftMargin = marginH
+                rightMargin = marginH
+                bottomMargin = ui.dp(tokens.metrics.overlayBottomGap)
             },
         )
     }
 
     /**
      * 按当前状态重画。
+     * @param title 信息栏左侧的"这部剧"（`剧名 · 第 x 集`）；详情还没取回时是空串
      * @param loadFailure 剧集信息没取回来时的失败（与播放失败是两条路，文案也不同）
-     * @param sidebarOpen 侧栏开着时提示卡让位：两层浮块叠在一起，用户不知道焦点在谁身上
+     * @param sidebarOpen 侧栏开着时提示层整体让位：两层浮块叠在一起，用户不知道焦点在谁身上
      * @param lowerQuality 比当前低一档的清晰度；null = 已经最低，不显示"尝试更低"
      */
-    fun render(state: PlaybackState, loadFailure: Throwable?, sidebarOpen: Boolean, lowerQuality: Int?) {
-        val text = loadFailure?.let { TvText.error(it) } ?: PlayerText.notice(state)
-        if (text == null || sidebarOpen) {
+    fun render(
+        state: PlaybackState,
+        loadFailure: Throwable?,
+        sidebarOpen: Boolean,
+        lowerQuality: Int?,
+        title: String,
+    ) {
+        val headline = loadFailure?.let { TvText.error(it) } ?: PlayerText.notice(state)
+        if (headline == null || sidebarOpen) {
             view.visibility = View.GONE
+            headlineView.visibility = View.GONE
             return
         }
         view.visibility = View.VISIBLE
-        textView.text = text
-        val hint = if (loadFailure == null) (state as? PlaybackState.Failed)?.let { PlayerText.failureHint(it.failure) } else null
-        hintView.visibility = if (hint == null) View.GONE else View.VISIBLE
-        hintView.text = hint.orEmpty()
+        headlineView.visibility = View.VISIBLE
+        headlineView.text = headline
+        headlineView.setTextColor(
+            if (loadFailure != null || state is PlaybackState.Failed) tokens.colors.danger else tokens.colors.text,
+        )
+        titleView.text = title
+        // 原因只在"主句没说清"时给：解码失败解释为什么换清晰度有用，渠道问题说清不是用户的网
+        val reason = if (loadFailure == null) (state as? PlaybackState.Failed)?.let { PlayerText.failureHint(it.failure) } else null
+        reasonView.text = reason.orEmpty()
+        reasonView.visibility = if (reason == null) View.INVISIBLE else View.VISIBLE
 
         val wanted = wantedActions(state, loadFailure, lowerQuality)
         buttons.forEach { (action, button) -> button.visibility = if (action in wanted) View.VISIBLE else View.GONE }

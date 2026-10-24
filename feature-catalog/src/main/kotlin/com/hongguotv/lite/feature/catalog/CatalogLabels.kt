@@ -32,6 +32,19 @@ internal object FavoriteLabels {
         TvText.updateProgress(entry.latestSeason, entry.latestEpisodes)
             .ifBlank { if (entry.status == FavoriteStatus.FAILED) "检查失败" else "尚未检查更新" }
 
+    /**
+     * 收藏卡片的**两行**角标（维护者 2026-10-23 口径，审计 2026-10-22 #2-a）：
+     * 「更新到第X季」一行、「第X集」一行——单行在 13.5sp 加粗下放不下完整一句话，
+     * 卡上被截成「…第2...」比换行更糟。拆不出两行的（单季、只有季号、兜底句）保持一行。
+     * 信息栏里的更新段仍用单行的 [updateBadge]：那里宽度够。
+     */
+    fun updateBadgeLines(entry: FavoriteEntry): String =
+        if (entry.latestSeason > 0 && entry.latestEpisodes > 0) {
+            "更新到${TvText.season(entry.latestSeason)}\n第${entry.latestEpisodes}集"
+        } else {
+            updateBadge(entry)
+        }
+
     /** 只有"有新内容"才需要用户注意（白字加粗）；普通的更新进度是说明文字。 */
     fun attention(entry: FavoriteEntry): Boolean =
         hasNewerSeason(entry) || entry.status == FavoriteStatus.NEW_SEASON

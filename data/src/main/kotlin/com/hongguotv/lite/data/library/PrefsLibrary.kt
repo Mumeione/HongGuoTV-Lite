@@ -111,6 +111,28 @@ class PrefsLibrary(
         if (changed) persist(KEY_PROGRESS)
     }
 
+    override suspend fun rememberSeries(series: Series) {
+        val changed = synchronized(lock) {
+            val index = historyRows.indexOfFirst { it.progress.seriesId == series.id }
+            // 没有这一行的历史就不写：浏览详情不等于看过
+            if (index < 0) return
+            val row = historyRows[index]
+            // 详情接口没有季号/角标（只有 plan 与官网搜索有）：空值不能把盘上已有的覆盖掉，
+            // 否则卡片角标会从「第一季 第4集」退成「第4集」
+            val merged = series.copy(
+                cover = series.cover.ifBlank { row.series.cover },
+                intro = series.intro.ifBlank { row.series.intro },
+                badge = series.badge.ifBlank { row.series.badge },
+                tags = series.tags.ifBlank { row.series.tags },
+                season = series.season.takeIf { it > 0 } ?: row.series.season,
+            )
+            if (row.series == merged) return
+            historyRows = historyRows.toMutableList().also { it[index] = row.copy(series = merged) }
+            true
+        }
+        if (changed) persist(KEY_PROGRESS)
+    }
+
     override suspend fun setWatched(seriesId: String, watched: Boolean) {
         val changed = synchronized(lock) {
             if ((seriesId in watchedIds) == watched) return

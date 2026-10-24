@@ -71,8 +71,9 @@ internal class HeroBlock(private val ui: UiKit) {
                 rightGap = tokens.metrics.heroColumnGap,
             ),
         )
-        // 封面右侧：上段（信息列 + 动作列）+ 简介。整列的高度由封面决定（214 > 文字块），
-        // 简介正好落在封面下段的旁边——"封面与简介底部平齐"由这个高度关系近似实现。
+        // 封面固定 150×214（宽高比 0.7，规格令牌）：审计 2026-10-22 #2-c 的维护者决定——
+        // 曾试过"跟随右侧内容高度"，但单季剧规格行少时封面被拉到 0.57 的瘦长条，
+        // 与规格里写死的 0.7 对不上。宁可接受右侧内容更长时封面下方留白。
         val right = ui.column()
         addView(right, ui.params(width = 0, weight = 1f))
 
@@ -88,15 +89,6 @@ internal class HeroBlock(private val ui: UiKit) {
             ui.params(width = ui.dp(tokens.metrics.heroActionsWidth)).apply { leftMargin = ui.dp(tokens.metrics.heroColumnGap) },
         )
         right.addView(introText, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT))
-
-        // 封面高度**跟随右侧内容**：mockup 里封面跨两行、高度 100%，底边与简介平齐。
-        // 固定 214 在"没有记录行、简介只有两行"的剧上会多出 30dp，封面明显探出简介的下沿。
-        right.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
-            val target = (bottom - top).coerceAtLeast(ui.dp(tokens.metrics.heroCoverMinHeight))
-            if (target > 0 && cover.layoutParams.height != target) {
-                cover.layoutParams = (cover.layoutParams as LinearLayout.LayoutParams).apply { height = target }
-            }
-        }
     }
 
     /** 装配头部。规格表整表重建（行数少），文字走增量更新。 */

@@ -182,7 +182,7 @@ internal class PlayerPage(
             ).apply {
                 leftMargin = marginH
                 rightMargin = marginH
-                bottomMargin = ui.dp(DRAWER_BOTTOM_MARGIN)
+                bottomMargin = ui.dp(tokens.metrics.overlayBottomGap)
             },
         )
     }
@@ -203,6 +203,9 @@ internal class PlayerPage(
                 return@launch
             }
             detail = loaded
+            // 历史行是"播过才有的"：拿到详情时把这一行的元数据补全（旧记录的分类常常是空的，
+            // 历史页信息栏因此缺一段）。只更新已有行，不会因为打开播放页就造一条历史
+            host.progress.rememberSeries(loaded.series)
             preloadSeasonLine(loaded)
             session.start(loaded, startIndex, startPositionMs)
             // 建页时就已退到后台：补一次暂停，别让流装成"自动播放"
@@ -236,15 +239,19 @@ internal class PlayerPage(
 
     private fun render() {
         if (!::session.isInitialized || !::notice.isInitialized || !::sidebar.isInitialized) return
-        notice.render(session.state, loadFailure, sidebar.visible, lowerQuality())
+        notice.render(session.state, loadFailure, sidebar.visible, lowerQuality(), noticeTitle())
         if (sidebar.visible) sidebarModel()?.let { sidebar.bind(it) }
-        // 压暗层与抽屉同进退；操作提示**常驻画面顶部**，抽屉打开时也留着
-        // （mockup 画面6：抽屉占下半屏，上半屏仍写着"左右快退/快进…"）。
-        // 只有提示卡出现时才让位——那块板子自带按钮，两行提示叠一起会挤。
+        // 压暗层与抽屉同进退；操作提示**常驻画面顶部**（统一规则，审计 2026-10-22 #7）：
+        // 抽屉占下半屏时上半屏仍写着"左右快退/快进…"（mockup 画面6），提示层贴底后
+        // 与顶部提示也不再重叠——不再出现"提示卡一出现顶部就消失"的不一致。
         scrim.visibility = if (sidebar.visible) View.VISIBLE else View.GONE
-        operationHint.visibility = if (notice.view.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        operationHint.visibility = View.VISIBLE
         syncFocus()
     }
+
+    /** 提示层信息栏左侧的"这部剧"：`剧名 · 第 x 集`；详情没取回来时是空串（只显示原因侧）。 */
+    private fun noticeTitle(): String =
+        detail?.let { PlayerText.title(it.series.title, currentIndex()) } ?: ""
 
     /** 比当前低一档的清晰度；已经是最低档返回 null。 */
     private fun lowerQuality(): Int? = PlaybackOptions.qualities.filter { it < session.quality }.maxOrNull()
@@ -555,7 +562,11 @@ internal class PlayerPage(
 
     override fun save(progress: Progress) {
         // 写盘挂宿主作用域：页面马上要被路由销毁时，挂在页面作用域会"还没写就被取消"
-        host.scope.launch { host.progress.save(progress) }
+        host.scope.launch {
+            host.progress.save(progress)
+            // 新记录只带 series_id，标题/封面/分类得从详情补上——否则历史页的卡片是无名黑块
+            detail?.series?.let { host.progress.rememberSeries(it) }
+        }
     }
 
     override fun applySettings(transform: (Settings) -> Settings) {
@@ -601,9 +612,6 @@ internal class PlayerPage(
 
         /** 操作提示离画面左缘的距离（mockup `.op-hint{left:20px}`）。 */
         const val HINT_MARGIN_LEFT = 20
-
-        /** 抽屉离画面底缘的距离（mockup `.b-drawer{bottom:16px}`）。 */
-        const val DRAWER_BOTTOM_MARGIN = 16
     }
 }
 

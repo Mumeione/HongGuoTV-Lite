@@ -34,7 +34,17 @@ internal object CatalogText {
      * 我的状态（看到第几集）在卡片状态条与详情页说，信息栏不重复。
      */
     fun bandSegments(favorite: Boolean, tags: String): List<String> =
-        listOfNotNull("已收藏".takeIf { favorite }, tags.takeIf { it.isNotBlank() })
+        listOfNotNull("已收藏".takeIf { favorite }, tags.takeIf { it.isNotBlank() }?.replace(" · ", " / "))
+
+    /**
+     * 历史页信息栏的分类来源（审计 2026-10-22 #5-b）：历史记录的 `tags` 经常是空串
+     * （早期记录只存了片名/封面），回退到收藏记录里那份（收藏时会补全）。
+     *
+     * **不拿角标兜底**：角标是「全 90 集」这类集数文案，塞进分类位会被读成"分类=90 集"。
+     * 两处都没有分类时宁可不显示——信息栏少一段，比写错一段好。
+     */
+    fun historyTags(historyTags: String, favoriteTags: String): String =
+        listOf(historyTags, favoriteTags).firstOrNull { it.isNotBlank() } ?: ""
 
     /** 收藏页信息栏 = **已收藏 + 更新到…**（还没检查出来时只说收藏状态）。 */
     fun favoriteSegments(update: String): List<String> =
