@@ -7,10 +7,12 @@ import android.widget.Space
 import android.widget.TextView
 import android.widget.Toast
 import com.hongguotv.core.model.Detail
+import com.hongguotv.core.model.FavoriteEntry
 import com.hongguotv.core.model.SeasonKeys
 import com.hongguotv.core.model.Series
 import com.hongguotv.core.port.UpstreamError
 import com.hongguotv.core.usecase.EpisodePages
+import com.hongguotv.core.usecase.FavoriteLookup
 import com.hongguotv.core.usecase.ResumePoint
 import com.hongguotv.core.usecase.ResumeTarget
 import com.hongguotv.core.usecase.SeasonChain
@@ -79,17 +81,18 @@ internal class EpisodePage(
 
         hero = HeroBlock(ui)
         playButton = ui.button("开始观看", variant = ButtonVariant.PRIMARY) { play() }
-        hero.actions.addView(playButton, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT, bottomGap = tokens.metrics.heroActionGap))
+        hero.addAction(playButton)
         pickButton = ui.button("选集") { pickEpisode() }
-        hero.actions.addView(pickButton, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT, bottomGap = tokens.metrics.heroActionGap))
+        hero.addAction(pickButton)
         favoriteButton = ui.button("收藏") { toggleFavorite() }
-        hero.actions.addView(favoriteButton, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT))
+        hero.addAction(favoriteButton, last = true)
         body.addView(hero.view)
 
         // 范围行只是**说明**（"这一页是第几到第几集"），不再是按钮行：翻组交给
         // 分集格两侧的长条（2026-10-24 口径）。行本身始终占位——隐藏它会让
         // 分集格紧贴 hero（维护者截图：65 集的剧看起来"集数和简介挤在一起"）。
-        rangeLabel = ui.text("", tokens.type.caption, tokens.colors.muted).apply {
+        // 颜色用正文白（2026-10-24 验收）：muted 灰会让它读成简介的第三行，它是分集区的标题。
+        rangeLabel = ui.text("", tokens.type.caption, tokens.colors.text).apply {
             gravity = android.view.Gravity.CENTER
             maxLines = 1
         }
@@ -165,13 +168,13 @@ internal class EpisodePage(
      */
     private fun loadSeasonLine(series: Series) {
         // 已经缓存过就不再请求（从系列页/收藏回来时走这条）
-        val cached = host.favorites.seasonLine(SeasonKeys.seasonKey(series.title))
+        val cached = host.favorites.seasonLine(seriesKeyOf(series))
         if (cached == null) scope.launch { collectSeasonLine(series) }
     }
 
     /** 失败静默：缺季线只是少一行说明，不该让整页变成错误态。 */
     private suspend fun collectSeasonLine(series: Series) {
-        val key = SeasonKeys.seasonKey(series.title)
+        val key = seriesKeyOf(series)
         val line = try {
             host.content.seasons(series.id, series)
         } catch (error: UpstreamError) {
@@ -219,8 +222,8 @@ internal class EpisodePage(
         val series = data.series
         val progress = host.progress.progressOf(series.id)
         val watched = host.progress.isWatched(series.id)
-        val favorite = host.favorites.isFavorite(SeasonKeys.seasonKey(series.title))
-        val line = host.favorites.seasonLine(SeasonKeys.seasonKey(series.title))
+        val favorite = favoriteEntryOf(series) != null
+        val line = host.favorites.seasonLine(seriesKeyOf(series))
 
         // 标题去掉季后缀（「…第十四季」）：26sp 一行放不下，后缀会把片名挤成省略号
         // （实测「聚宝仙盆之杂灵根才是真BOSS第十…」）。季号改放副行，与"共 N 季"并列。
@@ -293,11 +296,21 @@ internal class EpisodePage(
     }
 
     private fun renderNextSeason(data: Detail) {
-        val line = host.favorites.seasonLine(SeasonKeys.seasonKey(data.series.title))
+        val line = host.favorites.seasonLine(seriesKeyOf(data.series))
         val next = line?.let { SeasonChain.next(it, data.series.id) }
         nextSeasonView.text = DetailText.nextSeasonHint(next)
         nextSeasonView.visibility = if (next == null) View.GONE else View.VISIBLE
     }
+
+    /**
+     * 这一季所属的收藏系列键。
+     *
+     * 优先用"收藏里认到的那一条"：分宗篇这类标题算出的键与收藏行不同，
+     * 直接拿标题键既查不到收藏，也读不到已缓存的季线（第 10 季详情页因此没有「共 N 季」）。
+     */
+    private fun seriesKeyOf(series: Series): String = FavoriteLookup.favoriteKey(series, host.favorites)
+
+    private fun favoriteEntryOf(series: Series): FavoriteEntry? = FavoriteLookup.entry(series, host.favorites)
 
     // ---------- 交互 ----------
 
@@ -328,13 +341,17 @@ internal class EpisodePage(
 
     private fun toggleFavorite() {
         val data = detail ?: return
-        val key = SeasonKeys.seasonKey(data.series.title)
+        val owned = FavoriteLookup.entry(data.series, host.favorites)
+        val key = owned?.seriesKey ?: SeasonKeys.seasonKey(data.series.title)
         if (key.isBlank()) {
             toast("这部剧的标题无法生成系列键，暂时不能收藏")
             return
         }
+        // 已收藏 → 取消那一条（可能不是按本季标题建的）；没收藏 → 用本季开一条，
+        // 系列键由 toggle 内部按标题算（收藏行的 title 始终是基名，这条不变量不能破）
+        val target = owned?.series ?: data.series
         scope.launch {
-            val added = host.favorites.toggle(data.series)
+            val added = host.favorites.toggle(target)
             if (!isActive) return@launch
             if (added) {
                 host.favorites.acknowledge(data.series.id, data.episodes.size, System.currentTimeMillis())

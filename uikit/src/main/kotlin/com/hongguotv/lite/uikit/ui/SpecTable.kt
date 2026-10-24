@@ -43,7 +43,7 @@ class SpecTable internal constructor(private val ui: UiKit) : LinearLayout(ui.co
             }
             val label = TextView(context).apply {
                 text = row.label
-                textSize = tokens.type.caption
+                textSize = tokens.type.specLabel
                 setTextColor(tokens.colors.dim)
                 includeFontPadding = false
                 maxLines = 1
@@ -52,7 +52,7 @@ class SpecTable internal constructor(private val ui: UiKit) : LinearLayout(ui.co
 
             val value = TextView(context).apply {
                 text = row.value
-                textSize = tokens.type.specValue
+                textSize = tokens.type.specValueDetail
                 setTextColor(if (row.strong) tokens.colors.focus else tokens.colors.soft)
                 includeFontPadding = false
                 maxLines = 1

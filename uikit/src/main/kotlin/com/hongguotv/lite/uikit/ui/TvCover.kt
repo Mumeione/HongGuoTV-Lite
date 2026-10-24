@@ -2,6 +2,7 @@ package com.hongguotv.lite.uikit.ui
 
 import android.annotation.SuppressLint
 import android.view.View
+import android.view.ViewGroup
 import android.widget.ImageView
 import com.hongguotv.core.port.ArtworkSpec
 import com.hongguotv.lite.uikit.internal.shape
@@ -21,9 +22,10 @@ import com.hongguotv.lite.uikit.internal.shape
 class TvCover internal constructor(
     private val ui: UiKit,
     private val widthPx: Int,
-    private val heightPx: Int,
+    heightPx: Int,
 ) : ImageView(ui.context) {
 
+    private var heightPx: Int = heightPx
     private var url: String = ""
 
     init {
@@ -42,6 +44,24 @@ class TvCover internal constructor(
             setImageDrawable(null)
             return
         }
+        load(coverUrl)
+    }
+
+    /**
+     * 改封面高度（像素）。
+     *
+     * hero 的封面高度跟着右侧信息列走：简介底边与封面底边要在一条线上（2026-10-24 验收）。
+     * 高度变了要按新尺寸重新取图，否则端口给的位图还是旧高，CENTER_CROP 会裁错。
+     */
+    fun heightPx(px: Int) {
+        if (px == heightPx) return
+        heightPx = px
+        (layoutParams as? ViewGroup.LayoutParams)?.height = px
+        requestLayout()
+        if (url.isNotEmpty()) load(url)
+    }
+
+    private fun load(coverUrl: String) {
         ui.artwork?.load(host = this, url = coverUrl, spec = ArtworkSpec(widthPx = widthPx, heightPx = heightPx))
     }
 }

@@ -88,8 +88,12 @@ data class Type(
     val caption: Float = 13f,
     /** 卡片状态条、小号胶囊、候选词、简介、规格 value、抽屉设置行。 */
     val cardStatus: Float = 13.5f,
+    /** 规格表 label（2026-10-24 验收：详情页四行信息要读得清，13 → 13.5）。 */
+    val specLabel: Float = 13.5f,
     /** 规格表 value、信息栏片名、设置行文字。 */
     val specValue: Float = 14.5f,
+    /** 详情 hero 规格表的 value（2026-10-24 验收：比设置行的 value 大一档）。 */
+    val specValueDetail: Float = 15.5f,
     /** 常规胶囊、片库标签。 */
     val compact: Float = 15f,
     /** 片名副行（「共 10 季」）。 */
@@ -110,10 +114,12 @@ data class Type(
     val lineSpacing: Float = 1.6f,
 
     /**
-     * 主按钮第二行相对主行的字号比例（15sp → 12sp）。
+     * 主按钮第二行相对主行的字号比例（15sp → 10.5sp）。
      * 用比例而不是绝对字号：按钮的主行字号换档时，副行跟着换，不会一大一小。
+     *
+     * 2026-10-24 验收：0.8（12sp）在电视上一臂之外和主行分不开，压到 0.7。
      */
-    val noteScale: Float = 0.8f,
+    val noteScale: Float = 0.7f,
 )
 
 /**
@@ -227,10 +233,15 @@ data class Metrics(
     val heroActionRightInset: Int = 28,
     /** 动作列里两个胶囊之间的间距（mockup `.b-acts{gap:9px}`）。 */
     val heroActionGap: Int = 8,
+    /**
+     * 动作列胶囊的高度（2026-10-24 验收：三键偏粗，从 40 收到 36）。
+     * 只给 hero 用：页头、筛选用的是 pillSmallHeight。
+     */
+    val heroActionHeight: Int = 36,
     /** 规格表 label 列宽。 */
     val specLabelWidth: Int = 56,
-    /** 规格表行距（2026-10-24 验收：行与行拉开一档，信息块才不挤成一片）。 */
-    val specRowGap: Int = 12,
+    /** 规格表行距（2026-10-24 验收：12 → 16，四行信息要拉开才读得成一张表）。 */
+    val specRowGap: Int = 16,
     /** 简介两行封顶，超出省略号（不做滚动框）。 */
     val introMaxLines: Int = 2,
 

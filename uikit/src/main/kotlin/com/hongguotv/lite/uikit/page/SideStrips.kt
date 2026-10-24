@@ -16,12 +16,15 @@ import com.hongguotv.lite.uikit.ui.UiKit
  *
  * ```
  * ╭─╮ ┌──────────────────────────┐ ╭─╮
- * │‹│ │   分集格 / 季线卡（内容）    │ │›│
+ * │◀│ │   分集格 / 季线卡（内容）    │ │▶│
  * ╰─╯ └──────────────────────────┘ ╰─╯
  * ```
  *
  * 两条**竖向长条**贴在内容两侧，高随内容撑满：比顶行小胶囊更直观——按左/右出格
  * 就撞到条上，按一下翻一组。不可用的那侧禁用压暗（保留占位），单页时整对隐藏。
+ *
+ * 箭头用**实心三角**（2026-10-24 验收）：`‹`/`›` 在 40dp 的长条里细得像一条缝，
+ * 一臂之外看不出那是个可以按的键。
  *
  * 焦点上它们是 [com.hongguotv.lite.uikit.focus.FocusPlan] 的左右侧翼段：
  * 只有页面声明为 `flanked` 的内容段与它们互通，动作列等其他段不受影响。
@@ -30,12 +33,19 @@ class SideStrips(
     private val ui: UiKit,
     private val prevKey: FocusKey,
     private val nextKey: FocusKey,
-    onPage: (Int) -> Unit,
+    private val onPage: (Int) -> Unit,
 ) {
 
     private val tokens: Tokens = ui.tokens
-    val prev: TvButton = ui.button("‹", variant = ButtonVariant.STANDARD) { onPage(-1) }
-    val next: TvButton = ui.button("›", variant = ButtonVariant.STANDARD) { onPage(1) }
+
+    /** 箭头键：字号比常规胶囊大一档，长条里才看得清。 */
+    private fun arrow(label: String, delta: Int): TvButton =
+        ui.button(label, variant = ButtonVariant.STANDARD) { onPage(delta) }.apply {
+            textSize = tokens.type.subtitle
+        }
+
+    val prev: TvButton = arrow("◀", -1)
+    val next: TvButton = arrow("▶", 1)
 
     /** 把 [content] 夹进两条长条之间；条宽 [STRIP_WIDTH_DP]，高随内容撑满。 */
     fun wrap(content: View): LinearLayout = LinearLayout(ui.context).apply {

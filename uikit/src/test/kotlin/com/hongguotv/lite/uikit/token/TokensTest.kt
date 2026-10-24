@@ -54,13 +54,22 @@ class TokensTest {
         val type = Tokens.Default.type
         val scale = listOf(
             type.corner, type.railLabel, type.micro, type.footnote, type.caption, type.cardStatus,
-            type.specValue, type.compact, type.seasonLine, type.body, type.group, type.subtitle,
-            type.heading, type.display, type.pageTitle,
+            type.specLabel, type.specValue, type.compact, type.specValueDetail, type.seasonLine,
+            type.body, type.group, type.subtitle, type.heading, type.display, type.pageTitle,
         )
         assertEquals("字号刻度必须单调递增", scale.sorted(), scale)
         assertTrue("页面主标题最大（搜索页 28）", type.pageTitle > type.display)
         assertTrue("详情片名比带返回的页头大", type.display > type.heading)
         assertTrue("侧栏项是最小的可读文字", type.railLabel <= type.caption)
+        assertTrue("详情规格表的值比设置行大一档", type.specValueDetail > type.specValue)
+    }
+
+    @Test
+    fun `two line buttons keep the note clearly smaller than the primary line`() {
+        val type = Tokens.Default.type
+        // 2026-10-24 验收：「继续播放」下面的「第 1 集」要明显小一档（0.8 → 0.7）
+        assertTrue("副行比例上限 0.75", type.noteScale <= 0.75f)
+        assertTrue("副行不能小到读不出", type.noteScale >= 0.6f)
     }
 
     @Test

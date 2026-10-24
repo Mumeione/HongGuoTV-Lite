@@ -29,13 +29,40 @@ enum class FocusDirection { LEFT, RIGHT, UP, DOWN }
 
 object VisualFocus {
 
-    /** 在该方向上离 [self] 最近的候选；没有就返回 null（调用方夹住自己）。 */
-    fun neighbor(self: FocusRect, candidates: List<FocusRect>, direction: FocusDirection): FocusKey? =
-        candidates.asSequence()
+    /**
+     * 在该方向上离 [self] 最近的候选；没有就返回 null（调用方夹住自己）。
+     *
+     * 两段式：先只在 **45° 视线锥**内挑（左右方向 `|dy| ≤ |dx|`，上下方向 `|dx| ≤ |dy|`），
+     * 锥内有候选就取最近的；锥内没有才退回全方向最近。
+     *
+     * 为什么要锥：详情页的「‹ 返回」在左上角，斜下方紧挨着第一行集数格——只按距离算，
+     * 按右会落到"第二集"；视觉上右边那一列是「继续播放」。锥把"正右方"排在"斜下方"前，
+     * 同时保留退化路径（第一行集数格按上，正上方什么都没有，仍要能回到页头）。
+     */
+    fun neighbor(self: FocusRect, candidates: List<FocusRect>, direction: FocusDirection): FocusKey? {
+        val scored = candidates.asSequence()
             .filter { it.key != self.key }
-            .mapNotNull { other -> score(self, other, direction)?.let { other.key to it } }
-            .minByOrNull { it.second }
-            ?.first
+            .mapNotNull { other ->
+                score(self, other, direction)?.let { Scored(other.key, it, inCone(self, other, direction)) }
+            }
+            .toList()
+        if (scored.isEmpty()) return null
+        val cone = scored.filter { it.inCone }
+        return (if (cone.isNotEmpty()) cone else scored).minByOrNull { it.score }?.key
+    }
+
+    /** 候选是否落在该方向的 45° 视锥里（用矩形中心算，与打分同一套坐标）。 */
+    internal fun inCone(self: FocusRect, other: FocusRect, direction: FocusDirection): Boolean {
+        val dx = abs(other.centerX - self.centerX)
+        val dy = abs(other.centerY - self.centerY)
+        return when (direction) {
+            FocusDirection.LEFT, FocusDirection.RIGHT -> dy <= dx
+            FocusDirection.UP, FocusDirection.DOWN -> dx <= dy
+        }
+    }
+
+    /** 候选的打分结果：key、方向分、是否在视锥内。 */
+    private data class Scored(val key: FocusKey, val score: Int, val inCone: Boolean)
 
     /**
      * 方向分：越小越优先；不在该方向上返回 null。

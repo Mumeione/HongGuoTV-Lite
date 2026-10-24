@@ -11,6 +11,7 @@ import com.hongguotv.lite.uikit.token.Tokens
 import com.hongguotv.lite.uikit.ui.SpecRow
 import com.hongguotv.lite.uikit.ui.SpecTable
 import com.hongguotv.lite.uikit.ui.TvCover
+import com.hongguotv.lite.uikit.ui.TvButton
 import com.hongguotv.lite.uikit.ui.UiKit
 
 /**
@@ -40,6 +41,16 @@ internal class HeroBlock(private val ui: UiKit) {
 
     private val tokens: Tokens = ui.tokens
     private val cover: TvCover = ui.cover(tokens.metrics.heroCoverWidth, tokens.metrics.heroCoverHeight)
+
+    /** 封面当前高度（像素）：与右侧信息列同步后记下来，避免重复改布局。 */
+    private var coverHeightPx: Int = 0
+
+    /** 封面的布局参数：高度会随右侧信息列改写（简介底边要贴封面底边）。 */
+    private val coverParams: LinearLayout.LayoutParams = ui.params(
+        width = ui.dp(tokens.metrics.heroCoverWidth),
+        height = ui.dp(tokens.metrics.heroCoverHeight),
+        rightGap = tokens.metrics.heroColumnGap,
+    )
     private val titleView: TextView = ui.text("", tokens.type.display, tokens.colors.text).apply {
         maxLines = 1
         ellipsize = TextUtils.TruncateAt.END
@@ -62,21 +73,32 @@ internal class HeroBlock(private val ui: UiKit) {
     /** 动作列（竖排胶囊），由页面往里塞自己的按钮。 */
     val actions: LinearLayout = ui.column().apply { gravity = Gravity.START }
 
+    /**
+     * 往动作列加一个胶囊。高度在这里统一收口（[Tokens.metrics.heroActionHeight]）：
+     * 三个键竖排，40dp 的常规胶囊会把整列拉到 136dp，比右边的封面还高（2026-10-24 验收）。
+     *
+     * [last] 的那一只不留底距——列底就是页面的留白，再垫一档会让简介没法贴封面底。
+     */
+    fun addAction(button: TvButton, last: Boolean = false) {
+        button.minHeight = ui.dp(tokens.metrics.heroActionHeight)
+        actions.addView(
+            button,
+            ui.params(
+                width = ViewGroup.LayoutParams.MATCH_PARENT,
+                bottomGap = if (last) 0 else tokens.metrics.heroActionGap,
+            ),
+        )
+    }
+
     val view: LinearLayout = ui.rowTop().apply {
         visibility = View.GONE
         setPadding(0, ui.dp(tokens.space.m), 0, 0)
-        addView(
-            cover,
-            ui.params(
-                width = ui.dp(tokens.metrics.heroCoverWidth),
-                height = ui.dp(tokens.metrics.heroCoverHeight),
-                rightGap = tokens.metrics.heroColumnGap,
-            ),
-        )
-        // 封面固定 150×214（宽高比 0.7，规格令牌）：审计 2026-10-22 #2-c 的维护者决定——
-        // 曾试过"跟随右侧内容高度"，但单季剧规格行少时封面被拉到 0.57 的瘦长条，
-        // 与规格里写死的 0.7 对不上。宁可接受右侧内容更长时封面下方留白。
+        addView(cover, coverParams)
+        // 封面高度**跟随右侧信息列**（2026-10-24 验收：简介底边要与封面底边平齐）。
+        // 下限仍是 214（0.7 比例）：单季剧规格行少时封面不会被拉成瘦长条；
+        // 信息列更高时封面跟着长，底下不再空一截。
         val right = ui.column()
+        right.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ -> syncCoverHeight(bottom - top) }
         addView(right, ui.params(width = 0, weight = 1f))
         // 宽度给满、单行省略：超长片名不能把动作列顶出屏幕
         right.addView(titleView, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT))
@@ -99,6 +121,7 @@ internal class HeroBlock(private val ui: UiKit) {
                 leftMargin = ui.dp(tokens.metrics.heroColumnGap)
             },
         )
+        // 简介收尾：它的底边就是右列的底边，封面按这个高度同步（见 syncCoverHeight）
         right.addView(introText, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT))
     }
 
@@ -112,5 +135,14 @@ internal class HeroBlock(private val ui: UiKit) {
         specTable.visibility = if (specs.isEmpty()) View.GONE else View.VISIBLE
         introText.text = intro
         introText.visibility = if (intro.isBlank()) View.GONE else View.VISIBLE
+    }
+
+    /** 右侧信息列多高，封面就多高（下限 214）。宽度不变，图按 CENTER_CROP 裁。 */
+    private fun syncCoverHeight(rightHeight: Int) {
+        if (rightHeight <= 0) return
+        val target = maxOf(ui.dp(tokens.metrics.heroCoverHeight), rightHeight)
+        if (coverHeightPx == target) return
+        coverHeightPx = target
+        cover.heightPx(target)
     }
 }

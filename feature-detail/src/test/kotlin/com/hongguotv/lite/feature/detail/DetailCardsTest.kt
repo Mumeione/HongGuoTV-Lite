@@ -48,7 +48,8 @@ class DetailCardsTest {
     fun anUnreleasedSeasonIsDimmedAndLabelled() {
         val card = DetailCards.season(series("10", 10, released = false), base = "测试书", current = false, progress = null, watched = false)
         assertTrue(card.dim)
-        assertEquals("第十季 · 未上线", card.badge)
+        // 第一行已经写了「第十季」，状态行只补状态（2026-10-24 验收：别重复季号）
+        assertEquals("未上线", card.badge)
     }
 
     @Test

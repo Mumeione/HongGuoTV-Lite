@@ -7,7 +7,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import com.hongguotv.core.model.HistoryEntry
-import com.hongguotv.core.model.SeasonKeys
+import com.hongguotv.core.usecase.FavoriteLookup
 import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.focus.FocusSections
 import com.hongguotv.lite.uikit.focus.navKey
@@ -158,13 +158,14 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
 
     /** 信息栏只写"这部剧"：片名 + 收藏状态 + 分类。观看位置在卡片状态条上，不重复。 */
     private fun showBand(entry: HistoryEntry) {
-        val key = SeasonKeys.seasonKey(entry.series.title)
-        val favoriteEntry = if (key.isBlank()) null else host.favorites.entry(key)
-        // 分类：历史记录的 tags 经常是空串（早期记录），回退到收藏那份（审计 #5-b）
+        // 收藏状态不能只比标题算出的系列键：分宗篇这类标题不带季号，键与收藏行对不上，
+        // 已收藏的剧会显示成"没收藏"（2026-10-24 验收）。FavoriteLookup 会用季线里的 id 兜底。
+        val favoriteEntry = FavoriteLookup.entry(entry.series, host.favorites)
+        // 分类：历史记录的 tags 经常是空串（早期记录），回退到收藏那份，再回退到季线里这一季
         val tags = CatalogText.historyTags(
             historyTags = entry.series.tags,
             favoriteTags = favoriteEntry?.series?.tags.orEmpty(),
-        )
+        ).ifBlank { FavoriteLookup.seasonTags(entry.series, host.favorites) }
         scaffold.band().show(
             title = entry.series.title,
             segments = CatalogText.bandSegments(

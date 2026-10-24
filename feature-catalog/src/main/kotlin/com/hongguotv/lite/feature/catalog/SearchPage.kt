@@ -13,8 +13,8 @@ import android.widget.Toast
 import com.hongguotv.core.model.ContentFilter
 import com.hongguotv.core.model.FavoriteEntry
 import com.hongguotv.core.model.HistoryEntry
-import com.hongguotv.core.model.SeasonKeys
 import com.hongguotv.core.model.Series
+import com.hongguotv.core.usecase.FavoriteLookup
 import com.hongguotv.core.model.Settings
 import com.hongguotv.core.model.Suggestion
 import com.hongguotv.core.port.UpstreamError
@@ -133,9 +133,10 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         body.addView(searchRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         // 候选词（B 方案：固定在输入框下方）。只在真的有联想词时占位；
-        // 行内容由 showSuggestions 整行重建（「候选」标签在那里加，这里不预置）
+        // 行内容由 showSuggestions 整行重建（「候选」标签在那里加，这里不预置）。
+        // 底部留一档（2026-10-24 验收）：候选词与结果卡之间原来没有缝，两行文字像连成一块。
         suggestRow = ui.row().apply {
-            setPadding(0, ui.dp(tokens.space.m), 0, 0)
+            setPadding(0, ui.dp(tokens.space.m), 0, ui.dp(tokens.space.m))
             visibility = View.GONE
         }
         body.addView(suggestRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -187,7 +188,13 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
             // 结果是主角：全亮（mockup 画面2），未上线卡用 CardItem.dim 表达
             onCardActivated = { item -> openResult(item) }
         }
-        content.addView(resultGrid)
+        // 结果卡与上方的搜索栏/候选词拉开一档（2026-10-24 验收：原来紧贴着，像输入框的下边框）
+        content.addView(
+            resultGrid,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = ui.dp(tokens.metrics.gridHeaderGap)
+            },
+        )
 
         // 翻页行与卡片同层：跟着内容滚动，不随信息栏的出现/收起而移动
         content.addView(
@@ -449,23 +456,26 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
             scaffold.hideBand()
             return
         }
+        val favorite = favoriteOf(series)
         scaffold.band().show(
             title = series.title,
             segments = CatalogText.bandSegments(
-                favorite = favoriteOf(series) != null,
-                tags = series.tags,
+                favorite = favorite != null,
+                // 搜索卡片的分类偶尔缺（网页结果不带 category_schema），收藏行那份通常更全
+                tags = CatalogText.historyTags(series.tags, favorite?.series?.tags.orEmpty()),
                 badge = CatalogText.searchBadge(series, aggregated = false),
             ),
             keys = listOf("OK" to "打开"),
         )
     }
 
-    /** 这一季所属的收藏记录（收藏一季 = 收藏整个 IP，所以按系列键查）。 */
-    private fun favoriteOf(series: Series): FavoriteEntry? {
-        val key = SeasonKeys.seasonKey(series.title)
-        if (key.isBlank()) return null
-        return host.favorites.entry(key)
-    }
+    /**
+     * 这一季所属的收藏记录（收藏一季 = 收藏整个 IP）。
+     *
+     * 按系列键查之外还要看季线：分宗篇这类标题不带季号，键是它自己，与已收藏的正传对不上
+     * ——只比键的话会显示成"没收藏"（2026-10-24 验收）。
+     */
+    private fun favoriteOf(series: Series): FavoriteEntry? = FavoriteLookup.entry(series, host.favorites)
 
     // ---------- 渲染 ----------
 

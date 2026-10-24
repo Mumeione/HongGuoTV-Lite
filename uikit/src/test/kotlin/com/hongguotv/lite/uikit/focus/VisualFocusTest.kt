@@ -98,4 +98,32 @@ class VisualFocusTest {
         val diagonalNear = rect("diagonal", 220, 200, 320, 240)
         assertEquals("same", move(self, listOf(sameRowFar, diagonalNear), FocusDirection.RIGHT))
     }
+
+    /**
+     * 2026-10-24 验收：详情页「‹ 返回」按右，落到了斜下方的第二集——
+     * 它离得近，但视觉上右边那一列是「继续播放」。
+     *
+     * 规则：先看 45° 视线锥（左右方向 `|dy| ≤ |dx|`）。锥内有候选就只在锥内挑，
+     * 锥内没有才退回全方向最近。
+     */
+    @Test
+    fun `back goes right to the action column even when episode cells sit closer below`() {
+        val back = rect("back", 24, 24, 120, 58)
+        val play = rect("play", 780, 128, 1010, 168)
+        val pick = rect("pick", 780, 176, 1010, 216)
+        val episodes = (0 until 5).map { i -> rect("ep:$i", 100 + i * 50, 400, 145 + i * 50, 426) }
+        val all = listOf(back, play, pick) + episodes
+
+        assertEquals("返回的正右方是动作列，不是斜下方的第二集", "play", move(back, all, FocusDirection.RIGHT))
+        // 集数格的第一行往上仍然回到页头（锥内只有它）
+        assertEquals("back", move(episodes[0], all, FocusDirection.UP))
+    }
+
+    @Test
+    fun `outside the cone it still falls back to the nearest in that direction`() {
+        val self = rect("self", 100, 100, 200, 140)
+        // 右上方很远：不在 45° 锥里，但这是"上"方向唯一的候选
+        val aboveFarRight = rect("above", 900, 20, 1000, 54)
+        assertEquals("above", move(self, listOf(self, aboveFarRight), FocusDirection.UP))
+    }
 }

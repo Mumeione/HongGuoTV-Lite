@@ -91,9 +91,9 @@ internal class SeasonPage(
 
         hero = HeroBlock(ui)
         playButton = ui.button("开始播放", variant = ButtonVariant.PRIMARY) { play() }
-        hero.actions.addView(playButton, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT, bottomGap = tokens.metrics.heroActionGap))
+        hero.addAction(playButton)
         pickButton = ui.button("选集") { openCurrentSeason() }
-        hero.actions.addView(pickButton, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT, bottomGap = tokens.metrics.heroActionGap))
+        hero.addAction(pickButton)
         favoriteButton = ui.button("取消收藏") { toggleFavorite() }
         // 焦点一离开就撤销确认：挪到「继续播放」再回来，一次按键不该把收藏取消掉
         favoriteButton.onFocused = { focused ->
@@ -102,7 +102,7 @@ internal class SeasonPage(
                 renderFavoriteButton()
             }
         }
-        hero.actions.addView(favoriteButton, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT))
+        hero.addAction(favoriteButton, last = true)
         body.addView(hero.view)
 
         // 弹性留白：把「所有季」与季卡压到页面下半部分（mockup 画面5）
@@ -152,18 +152,22 @@ internal class SeasonPage(
         // 上一轮停在哪一季，这一轮还落回那一张（含它所在的组）；没有记忆才落主操作
         preferredOnRender = host.lastFocus[pageKey] ?: if (anchor != null) KEY_PLAY else null
         render()
-        if (anchor != null && line == null) fetchLine()
+        // 缓存只当首屏：旧版本解析丢过季（实测万妖图录传缺第二季、正传被记成无季号），
+        // 进这一页就再问一次。刷新失败保留旧数据，不把整页变成错误态。
+        if (anchor != null) fetchLine()
     }
 
     private fun fetchLine() {
+        if (fetching) return
         val series = anchor ?: return
         fetching = true
-        render()
+        // 已有缓存时不进加载态：页面上已经有一条可用的季线，不该为了刷新闪一下空
+        if (line == null) render()
         scope.launch {
             val fetched = try {
                 host.content.seasons(series.id, series)
             } catch (error: UpstreamError) {
-                lineFailure = error
+                if (line == null) lineFailure = error
                 null
             }
             if (!isActive) return@launch
@@ -175,7 +179,7 @@ internal class SeasonPage(
                     host.favorites.rememberSeasonLine(seriesKey, fetched)
                     line = fetched
                 }
-                else -> singleSeason = fetched.seasons.firstOrNull() ?: series
+                line == null -> singleSeason = fetched.seasons.firstOrNull() ?: series
             }
             render()
         }
@@ -505,6 +509,9 @@ internal class SeasonPage(
         }
         if (retryButton.visibility == View.VISIBLE) views[KEY_RETRY] = retryButton
         if (detailOnlyButton.visibility == View.VISIBLE) views[KEY_DETAIL] = detailOnlyButton
+        // 排序键：声明了焦点段还不够，视觉绑定只认 views 里的项——漏了它就是"按不到、选不中"
+        // （维护者实测：正序/倒序切换按钮无法点击无法选中）
+        if (seasonHeader.visibility == View.VISIBLE) views[KEY_SORT] = sortButton
         seasonCards.forEach { (id, card) -> views[FocusKey(seasonKey(id))] = card }
 
         // 长条可用时才进焦点图；不可用那侧整段省略，内容行缘夹住自己（SideStrips 统一判）。

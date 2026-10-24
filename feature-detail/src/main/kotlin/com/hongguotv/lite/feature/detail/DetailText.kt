@@ -139,7 +139,8 @@ internal object DetailText {
 
     /** 季卡状态。看完的季不能停在"上次第 N 集"，那既不准确也没用。 */
     fun seasonState(season: Series, progress: Progress?, watched: Boolean): String = when {
-        !season.released -> TvText.season(season.season).let { if (it.isBlank()) "未上线" else "$it · 未上线" }
+        // 季卡第一行已经是季号（「第十季」），第二行只补状态（2026-10-24 验收：别重复）
+        !season.released -> "未上线"
         progress != null && progress.completed -> "已看完"
         progress != null -> "上次第 ${progress.episodeIndex + 1} 集"
         watched -> "已看完"

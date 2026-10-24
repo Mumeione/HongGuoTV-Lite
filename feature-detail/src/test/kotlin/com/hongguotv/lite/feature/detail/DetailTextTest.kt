@@ -84,7 +84,8 @@ class DetailTextTest {
     @Test
     fun seasonStateCoversAllFiveCases() {
         val season = Series("10", "测试书第十季", season = 10, released = false)
-        assertEquals("第十季 · 未上线", DetailText.seasonState(season, progress = null, watched = false))
+        // 第一行已经写了季号，第二行再写一遍就是「第十季 · 未上线」（维护者截图）
+        assertEquals("未上线", DetailText.seasonState(season, progress = null, watched = false))
         assertEquals("已看完", DetailText.seasonState(series(), progress(29, 0, completed = true), watched = false))
         assertEquals("上次第 9 集", DetailText.seasonState(series(), progress(8, 0), watched = false))
         assertEquals("已看完", DetailText.seasonState(series(), progress = null, watched = true))

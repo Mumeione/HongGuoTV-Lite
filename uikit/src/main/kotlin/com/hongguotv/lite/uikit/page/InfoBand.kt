@@ -108,9 +108,17 @@ class InfoBand internal constructor(private val ui: UiKit) : FrameLayout(ui.cont
                 rightMargin = ui.dp(tokens.space.xl)
             })
         }
+        // 最后一段吃剩余宽度（2026-10-24 验收：分类这种长段原来被整段挤出屏幕，
+        // 信息栏看起来"有的只有已收藏、有的只有分类"）。前面的段按内容宽排，不动。
+        val lastVisible = segments.lastIndex
         segmentViews.forEachIndexed { index, view ->
             view.visibility = if (index < segments.size) View.VISIBLE else View.GONE
             if (index < segments.size) view.setTextIfChanged(segments[index])
+            val params = view.layoutParams as LinearLayout.LayoutParams
+            val fill = index == lastVisible
+            params.width = if (fill) 0 else ViewGroup.LayoutParams.WRAP_CONTENT
+            params.weight = if (fill) 1f else 0f
+            view.layoutParams = params
         }
     }
 
