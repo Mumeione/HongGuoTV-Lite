@@ -159,11 +159,26 @@ internal class SeasonPage(
 
     private fun fetchLine() {
         if (fetching) return
-        val series = anchor ?: return
+        var series = anchor ?: return
         fetching = true
         // 已有缓存时不进加载态：页面上已经有一条可用的季线，不该为了刷新闪一下空
         if (line == null) render()
         scope.launch {
+            // 旧收藏行没有 albumId（这个字段是 2026-10-24 才落盘的）：先问一次详情。
+            // 不补这一步，"分宗篇=第 1 季"永远并不进季线（锚点并入要求 albumId 非空）。
+            if (series.albumId.isBlank()) {
+                val detail = try {
+                    host.content.detail(series.id)
+                } catch (error: UpstreamError) {
+                    null
+                }
+                if (!isActive) return@launch
+                if (detail != null) {
+                    series = detail.series
+                    anchor = series
+                    host.favorites.setCurrentSeason(seriesKey, series)
+                }
+            }
             val fetched = try {
                 host.content.seasons(series.id, series)
             } catch (error: UpstreamError) {
@@ -178,6 +193,8 @@ internal class SeasonPage(
                 fetched.seasons.size >= 2 -> {
                     host.favorites.rememberSeasonLine(seriesKey, fetched)
                     line = fetched
+                    // 重读收藏行：「更新」与「记录」都从季线派生，缓存刚换过，snapshot 已过期
+                    entry = host.favorites.entry(seriesKey)
                 }
                 line == null -> singleSeason = fetched.seasons.firstOrNull() ?: series
             }
@@ -259,9 +276,8 @@ internal class SeasonPage(
             ),
             specs = DetailText.seasonSpecs(
                 update = entryRow?.let { TvText.updateProgress(it.latestSeason, it.latestEpisodes) }.orEmpty(),
-                seasonCount = seasons.size,
                 // 分类行必须在（2026-10-24 验收）：拿不到就先占位，详情回来后会补上
-                tags = tags.replace(" · ", " / ").ifBlank { "—" },
+                tags = TvText.tags(tags).ifBlank { "—" },
                 record = DetailText.seasonRecord(progress, line, entryRow?.series?.season ?: 0),
             ),
             // 有简介就显示简介；没有时用"各季进度分别保存…"补位。
@@ -274,16 +290,18 @@ internal class SeasonPage(
     }
 
     /**
-     * 分类来源（按可靠度）：收藏行本身 → 季线里同一季的卡片 → 现取一次详情。
+     * 分类来源（按可靠度）：收藏行本身 → 季线里同一季 → 季线里**分类最多的一季** → 现取一次详情。
      *
-     * 收藏行是从卡片落库的，卡片不一定带分类；季线卡片多半带 `category_schema`，
-     * 两者都没有时才发一次详情请求，拿到后写回收藏行（下次进来就有了）。
+     * 收藏行是从卡片落库的，卡片不一定带分类；同一系列各季的分类通常同源，
+     * 取字符最多的那份最不容易缺项（2026-10-24 验收：「留分类最多的那季或收藏的那季」）。
      */
     private fun tagsOf(series: Series): String {
         val fromEntry = entry?.series?.tags.orEmpty()
         if (fromEntry.isNotBlank()) return fromEntry
         val fromLine = line?.seasons?.firstOrNull { it.id == series.id }?.tags.orEmpty()
         if (fromLine.isNotBlank()) return fromLine
+        val richest = line?.seasons?.maxByOrNull { it.tags.length }?.tags.orEmpty()
+        if (richest.isNotBlank()) return richest
         backfillTags(series)
         return ""
     }

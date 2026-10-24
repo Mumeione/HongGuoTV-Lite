@@ -240,7 +240,7 @@ internal class EpisodePage(
                 update = DetailText.updateLabel(data.episodes.size),
                 total = data.episodes.size,
                 watchedCount = host.progress.watchedUpTo(series.id),
-                tags = series.tags.replace(" · ", " / "),
+                tags = TvText.tags(series.tags),
                 record = DetailText.episodeRecord(progress, watched),
             ),
             intro = series.intro.ifBlank { "选择剧集开始观看" },

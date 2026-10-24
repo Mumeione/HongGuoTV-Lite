@@ -73,11 +73,15 @@ class CatalogTextTest {
     }
 
     @Test
-    fun favoriteInfoBandStatesTheUpdateProgress() {
-        // 收藏页：片名 + 已收藏 + 更新到…
-        assertEquals(listOf("已收藏", "更新到第九季第352集"), CatalogText.favoriteSegments(update = "更新到第九季第352集"))
-        // 还没检查出来时只说收藏状态，不编一句空话
-        assertEquals(listOf("已收藏"), CatalogText.favoriteSegments(update = ""))
+    fun favoriteInfoBandStatesTheWatchProgress() {
+        // 收藏页：片名 + 观看到… + 分类（2026-10-24 验收：不再写更新集数）
+        assertEquals(
+            listOf("观看到 第九季 第20集", "玄幻 / 逆袭"),
+            CatalogText.favoriteSegments(progress = "观看到 第九季 第20集", tags = "玄幻 · 逆袭"),
+        )
+        // 没有观看记录时只报分类，不编一句空话
+        assertEquals(listOf("玄幻 / 逆袭"), CatalogText.favoriteSegments(progress = "", tags = "玄幻 · 逆袭"))
+        assertEquals(emptyList<String>(), CatalogText.favoriteSegments(progress = "", tags = ""))
     }
 
     @Test

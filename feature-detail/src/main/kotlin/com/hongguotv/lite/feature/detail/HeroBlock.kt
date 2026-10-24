@@ -45,6 +45,13 @@ internal class HeroBlock(private val ui: UiKit) {
     /** 封面当前高度（像素）：与右侧信息列同步后记下来，避免重复改布局。 */
     private var coverHeightPx: Int = 0
 
+    /** 右列（片名 / 副行 / 规格表 / 说明）：高度与封面互相约束，见 [syncCoverHeight]。 */
+    private val rightColumn: LinearLayout = ui.column()
+    private val rightParams: LinearLayout.LayoutParams = ui.params(width = 0, weight = 1f)
+
+    /** 右列被固定到的像素高（0 = 仍然 WRAP_CONTENT）。 */
+    private var rightFixed: Int = 0
+
     /** 封面的布局参数：高度会随右侧信息列改写（简介底边要贴封面底边）。 */
     private val coverParams: LinearLayout.LayoutParams = ui.params(
         width = ui.dp(tokens.metrics.heroCoverWidth),
@@ -57,8 +64,9 @@ internal class HeroBlock(private val ui: UiKit) {
         setTypeface(null, Typeface.BOLD)
     }
     private val seasonView: TextView = ui.text("", tokens.type.seasonLine, tokens.colors.soft).apply {
-        // 副行到规格表只留一档：动作列顶部要落在副行之下，入口的那点留白越紧越像一组表
-        setPadding(0, ui.dp(tokens.space.xxs), 0, ui.dp(tokens.space.xs))
+        // 片名 → 副行 → 规格表三段之间都要有缝（2026-10-24 验收第二次）：
+        // 副行贴着标题、规格表又贴着副行时，三块读成一段；表格内部行距反而要收（见 specRowGap）。
+        setPadding(0, ui.dp(tokens.space.xs), 0, ui.dp(tokens.space.m))
     }
     private val specTable: SpecTable = ui.specTable()
     private val introText: TextView = ui.text("", tokens.type.cardStatus, tokens.colors.muted).apply {
@@ -94,20 +102,19 @@ internal class HeroBlock(private val ui: UiKit) {
         visibility = View.GONE
         setPadding(0, ui.dp(tokens.space.m), 0, 0)
         addView(cover, coverParams)
-        // 封面高度**跟随右侧信息列**（2026-10-24 验收：简介底边要与封面底边平齐）。
-        // 下限仍是 214（0.7 比例）：单季剧规格行少时封面不会被拉成瘦长条；
-        // 信息列更高时封面跟着长，底下不再空一截。
-        val right = ui.column()
-        right.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ -> syncCoverHeight(bottom - top) }
-        addView(right, ui.params(width = 0, weight = 1f))
+        // 封面高度与右列底边对齐（2026-10-24 验收两次）：
+        // 内容比封面高 → 封面跟着长；内容比封面矮 → 右列固定到封面高、弹性空格把说明推到底，
+        // 这样"各季进度分别保存…"那句的底边永远贴着封面底边。
+        rightColumn.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ -> syncCoverHeight(bottom - top) }
+        addView(rightColumn, rightParams)
         // 宽度给满、单行省略：超长片名不能把动作列顶出屏幕
-        right.addView(titleView, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT))
-        right.addView(seasonView, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT))
+        rightColumn.addView(titleView, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT))
+        rightColumn.addView(seasonView, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT))
 
         // 规格表与动作列同起一行：动作列顶部因此在副行之下（2026-10-24 口径）。
         // 动作列比规格表高，说明行自然落到封面底部附近，不再往上挤。
         val content = ui.rowTop()
-        right.addView(content, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT))
+        rightColumn.addView(content, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT))
         val info = ui.column()
         content.addView(info, ui.params(width = 0, weight = 1f))
         info.addView(specTable, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT))
@@ -121,8 +128,11 @@ internal class HeroBlock(private val ui: UiKit) {
                 leftMargin = ui.dp(tokens.metrics.heroColumnGap)
             },
         )
-        // 简介收尾：它的底边就是右列的底边，封面按这个高度同步（见 syncCoverHeight）
-        right.addView(introText, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT))
+        // 弹性空格：右列被固定到封面高时由它吃掉差额，把说明推到最底部；
+        // 内容自己就比封面高时它分不到空间（WRAP 容器里 weight 不生效）
+        rightColumn.addView(View(ui.context), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        // 说明收尾：它的底边就是右列的底边，封面按这个高度同步（见 syncCoverHeight）
+        rightColumn.addView(introText, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT))
     }
 
     /** 装配头部。规格表整表重建（行数少），文字走增量更新。 */
@@ -135,14 +145,34 @@ internal class HeroBlock(private val ui: UiKit) {
         specTable.visibility = if (specs.isEmpty()) View.GONE else View.VISIBLE
         introText.text = intro
         introText.visibility = if (intro.isBlank()) View.GONE else View.VISIBLE
+        // 内容高变了：放开上一次的固定高，等布局回调重新量
+        releaseRightHeight()
     }
 
-    /** 右侧信息列多高，封面就多高（下限 214）。宽度不变，图按 CENTER_CROP 裁。 */
+    /**
+     * 右列多高，封面就多高。两种情形：
+     * - 内容比封面矮 → 把右列**固定**到封面高（弹性空格吃掉差额，说明贴底）；
+     * - 内容比封面高 → 封面跟着内容长。
+     */
     private fun syncCoverHeight(rightHeight: Int) {
-        if (rightHeight <= 0) return
-        val target = maxOf(ui.dp(tokens.metrics.heroCoverHeight), rightHeight)
+        if (rightHeight <= 0 || rightFixed > 0) return
+        val minCover = ui.dp(tokens.metrics.heroCoverHeight)
+        val target = maxOf(minCover, rightHeight)
+        if (target > rightHeight) {
+            rightFixed = target
+            rightParams.height = target
+            rightColumn.requestLayout()
+        }
         if (coverHeightPx == target) return
         coverHeightPx = target
         cover.heightPx(target)
+    }
+
+    /** 放开固定高（下一次 show 之后重新量）。 */
+    private fun releaseRightHeight() {
+        if (rightFixed == 0) return
+        rightFixed = 0
+        rightParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
+        rightColumn.requestLayout()
     }
 }

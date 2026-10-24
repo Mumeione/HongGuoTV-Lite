@@ -175,7 +175,9 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
             },
         )
 
-        val bodyRow = ui.rowTop().apply {
+        // 选集列与右列**垂直居中**（2026-10-24 验收：顶行的分组按钮删掉后，选集区贴着抽屉顶、
+        // 下面空一大块，看起来上紧下宽）。左右两列都以 body 的中线对齐。
+        val bodyRow = ui.row().apply {
             addView(episodesBody, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                 rightMargin = ui.dp(tokens.space.l)
             })

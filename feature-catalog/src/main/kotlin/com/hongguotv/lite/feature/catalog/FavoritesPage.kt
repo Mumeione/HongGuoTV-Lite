@@ -5,6 +5,8 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.hongguotv.core.model.FavoriteEntry
+import com.hongguotv.core.model.Progress
+import com.hongguotv.core.model.SeasonLine
 import com.hongguotv.core.usecase.FavoriteUpdateCheck
 import com.hongguotv.core.usecase.SeasonProgress
 import com.hongguotv.lite.uikit.focus.FocusKey
@@ -13,6 +15,7 @@ import com.hongguotv.lite.uikit.focus.navKey
 import com.hongguotv.lite.uikit.page.ContentPane
 import com.hongguotv.lite.uikit.page.GridRendered
 import com.hongguotv.lite.uikit.page.PosterGrid
+import com.hongguotv.lite.uikit.text.TvText
 import com.hongguotv.lite.uikit.ui.CardItem
 import com.hongguotv.lite.uikit.ui.ButtonVariant
 import com.hongguotv.lite.uikit.ui.TvButton
@@ -185,12 +188,35 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
         }
     }
 
-    /** 信息栏 = 片名 + 已收藏 + 更新到…（spec 逐页-收藏）。 */
+    /**
+     * 信息栏 = 片名 + **观看到…** + 分类（2026-10-24 验收）。
+     *
+     * 收藏页的用户问题是"我看到哪了"，不是"更新到哪"（后者在卡片角标上）。
+     * 分类取收藏这一季的；收藏行没带分类时退到季线里同 id 的那一季。
+     */
     private fun showBand(entry: FavoriteEntry) {
+        val line = host.favorites.seasonLine(entry.seriesKey)
+        val progress = SeasonProgress.latest(entry, line) { host.progress.progressOf(it) }
+        val tags = entry.series.tags.ifBlank {
+            line?.seasons?.firstOrNull { it.id == entry.series.id }?.tags.orEmpty()
+        }
         scaffold.band().show(
             title = entry.series.title,
-            segments = CatalogText.favoriteSegments(update = FavoriteLabels.updateBadge(entry)),
+            segments = CatalogText.favoriteSegments(
+                progress = watchLabel(progress, line, entry.series.season),
+                tags = tags,
+            ),
             keys = listOf("OK" to "打开"),
+        )
+    }
+
+    /** 「观看到第九季 第20集」/「已看完」/ 空串（没有记录就不说）。 */
+    private fun watchLabel(progress: Progress?, line: SeasonLine?, fallbackSeason: Int): String = when {
+        progress == null -> ""
+        progress.completed -> "已看完"
+        else -> "观看到" + TvText.cardProgress(
+            season = SeasonProgress.seasonOf(progress, line, fallbackSeason),
+            index = progress.episodeIndex,
         )
     }
 

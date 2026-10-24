@@ -73,6 +73,12 @@ object TvText {
     /** `1080P`。 */
     fun quality(value: Int): String = "${value}P"
 
+    /**
+     * 上游分类用 `" · "` 分隔；界面上的分类位统一写成 `" / "`（一行里两种分隔符会读成两组信息）。
+     * 详情、收藏、搜索、信息栏都用这一份，别在调用点各写一次 replace。
+     */
+    fun tags(value: String): String = value.replace(" · ", " / ")
+
     /** 画面模式三档。旧实现把它写成"完整画面 · 保留比例与全部内容"，那半句解释放在选择项里，不放在状态上。 */
     fun frame(mode: FrameMode): String = when (mode) {
         FrameMode.FIT -> "完整画面"

@@ -27,7 +27,7 @@ internal object CatalogText {
      *
      * 上游的 `" · "` 分隔改成 `" / "`，与行间的 `"  ·  "` 区分开。
      */
-    fun meta(series: Series, update: String = ""): String = listOf(update, series.badge, series.tags.replace(" · ", " / "))
+    fun meta(series: Series, update: String = ""): String = listOf(update, series.badge, TvText.tags(series.tags))
         .filter { it.isNotBlank() }
         .joinToString("  ·  ")
 
@@ -56,7 +56,7 @@ internal object CatalogText {
         listOfNotNull(
             badge.takeIf { it.isNotBlank() },
             "已收藏".takeIf { favorite },
-            tags.takeIf { it.isNotBlank() }?.replace(" · ", " / "),
+            TvText.tags(tags).takeIf { it.isNotBlank() },
         )
 
     /**
@@ -69,9 +69,17 @@ internal object CatalogText {
     fun historyTags(historyTags: String, favoriteTags: String): String =
         listOf(historyTags, favoriteTags).firstOrNull { it.isNotBlank() } ?: ""
 
-    /** 收藏页信息栏 = **已收藏 + 更新到…**（还没检查出来时只说收藏状态）。 */
-    fun favoriteSegments(update: String): List<String> =
-        listOfNotNull("已收藏", update.takeIf { it.isNotBlank() })
+    /**
+     * 收藏页信息栏 = **观看到…** + 分类（2026-10-24 验收）。
+     *
+     * 不写"更新到第几集"：那是卡片角标要回答的；信息栏要说的是"我在这部剧的哪儿"。
+     * [progress] 由页面按季现算（`观看到 第九季 第20集` / `已看完`），这里只管拼接与分隔符。
+     */
+    fun favoriteSegments(progress: String, tags: String): List<String> =
+        listOfNotNull(
+            progress.takeIf { it.isNotBlank() },
+            TvText.tags(tags).takeIf { it.isNotBlank() },
+        )
 
     /** 搜索空态。分类筛选下的空结果先提示换分类，否则用户会以为这部剧不存在。 */
     fun emptySearch(keyword: String, filter: ContentFilter): String = when {

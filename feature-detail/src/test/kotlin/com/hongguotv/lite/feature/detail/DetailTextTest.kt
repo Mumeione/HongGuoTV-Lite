@@ -139,12 +139,12 @@ class DetailTextTest {
     fun seasonSpecsStateTheWholeSeries() {
         val rows = DetailText.seasonSpecs(
             update = "更新到 第九季第352集",
-            seasonCount = 10,
             tags = "古装 / 逆袭",
             record = "第九季 第 20 集 · 05:00",
         )
         assertEquals(listOf("更新", "季数", "分类", "记录"), rows.map { it.label })
-        assertEquals("10 季 · 收藏整个系列", rows[1].value)
+        // 季数在副行已经写过（「共 37 季」），这一行只回答"收藏了什么"（2026-10-24 验收）
+        assertEquals("已收藏整个系列", rows[1].value)
         assertEquals("记录行 strong", true, rows[3].strong)
     }
 
@@ -173,9 +173,10 @@ class DetailTextTest {
 
     @Test
     fun specRowsNeverBlankLabels() {
-        // 空值整行去掉，不画"更新：（空）"这种行
-        val rows = DetailText.seasonSpecs(update = "", seasonCount = 0, tags = "", record = "")
+        // 空值整行去掉，不画"更新：（空）"这种行；「季数」是固定文案，永远在
+        val rows = DetailText.seasonSpecs(update = "", tags = "", record = "")
         assertTrue(rows.none { it.value.isBlank() })
+        assertEquals(listOf("季数"), rows.map { it.label })
     }
 
     @Test

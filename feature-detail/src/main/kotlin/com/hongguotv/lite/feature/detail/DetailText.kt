@@ -58,17 +58,19 @@ internal object DetailText {
 
     /**
      * 收藏详情的规格表：更新 / 季数 / 分类 / 记录。
-     * 季数行的后半句是产品口径：收藏的是**整个系列**，进度按季各存各的。
+     *
+     * 「季数」一行只写**已收藏整个系列**（2026-10-24 验收）：这一行要回答的是"收藏了什么"，
+     * 季数在片名下的副行已经说过（「共 37 季 · 36 季已上线」），再写一遍是重复。
      */
-    fun seasonSpecs(update: String, seasonCount: Int, tags: String, record: String): List<SpecRow> {
-        val seasonValue = if (seasonCount > 0) "$seasonCount 季 · 收藏整个系列" else ""
-        return listOf(
-            SpecRow("更新", update),
-            SpecRow("季数", seasonValue),
-            SpecRow("分类", tags),
-            SpecRow("记录", record, strong = true),
-        ).filter { it.value.isNotBlank() }
-    }
+    fun seasonSpecs(update: String, tags: String, record: String): List<SpecRow> = listOf(
+        SpecRow("更新", update),
+        SpecRow("季数", COLLECT_WHOLE_SERIES),
+        SpecRow("分类", tags),
+        SpecRow("记录", record, strong = true),
+    ).filter { it.value.isNotBlank() }
+
+    /** 收藏页规格表的「季数」值：收藏的是整个系列，进度按季各存各的。 */
+    const val COLLECT_WHOLE_SERIES: String = "已收藏整个系列"
 
     /**
      * 剧集详情的「更新」值：这一季现在到第几集。空剧集返回空串（整行去掉）。

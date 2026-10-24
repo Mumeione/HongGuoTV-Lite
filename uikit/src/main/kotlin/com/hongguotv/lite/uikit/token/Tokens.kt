@@ -240,8 +240,8 @@ data class Metrics(
     val heroActionHeight: Int = 36,
     /** 规格表 label 列宽。 */
     val specLabelWidth: Int = 56,
-    /** 规格表行距（2026-10-24 验收：12 → 16，四行信息要拉开才读得成一张表）。 */
-    val specRowGap: Int = 16,
+    /** 规格表行距（2026-10-24 验收第二次：16 太散，四行读不成一张表，收到 12）。 */
+    val specRowGap: Int = 12,
     /** 简介两行封顶，超出省略号（不做滚动框）。 */
     val introMaxLines: Int = 2,
 
