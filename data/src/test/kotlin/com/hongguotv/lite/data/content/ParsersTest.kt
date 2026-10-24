@@ -151,6 +151,28 @@ class ParsersTest {
         assertEquals("未上线", seasons[0].second.badge)
     }
 
+    /**
+     * 2026-10-24 验收：季号标签不是每条都有（第二季实测就是空的），
+     * 标题里的「第N季」是同一事实的第二来源——只看标签会整季丢失。
+     */
+    @Test
+    fun planCellFallsBackToTheTitleWhenTheTagIsMissing() {
+        val seasons = Parsers.planCell(planResponse(listOf(
+            planCard("1", "万妖图录传第一季", 81, null),
+            planCard("2", "万妖图录传第二季", 53, ""),
+            planCard("3", "万妖图录传第三季", 58, "第3季"),
+        )))
+        assertEquals(listOf(1, 2, 3), seasons.map { it.first })
+        assertEquals(listOf("1", "2", "3"), seasons.map { it.second.id })
+    }
+
+    /** 标签解析不出季号但标题能解析时，用标题的号——标签是脏值，不代表这一季不存在。 */
+    @Test
+    fun planCellIgnoresAUsableTagThatYieldsNoSeason() {
+        val seasons = Parsers.planCell(planResponse(listOf(planCard("4", "测试书第四季", 60, "特别篇"))))
+        assertEquals(listOf(4), seasons.map { it.first })
+    }
+
     @Test
     fun planCellWithoutTheRelatedWorksCellIsEmpty() {
         val empty = JSONArray().put(JSONObject().put("show_type", 999).put("video_data", JSONArray()))

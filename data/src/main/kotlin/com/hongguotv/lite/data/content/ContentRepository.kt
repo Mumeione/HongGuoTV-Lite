@@ -245,8 +245,13 @@ class ContentRepository(
                 .getOrElse { throw UpstreamError.Shape("body") }
             val entries = Parsers.planCell(data).toMutableList()
             if (anchor != null && entries.none { it.second.id == anchor.id }) {
-                val n = SeasonKeys.seasonNumber(anchor.title)
-                entries += n to (if (n > 0) anchor.copy(season = n) else anchor)
+                // 锚点本尊不在卡片里（如分宗篇=第 1 季）：季号优先取标题；标题也没有季号时，
+                // 用"最小季号 − 1"——相关作品从第 2 季起，锚点就是第 1 季。
+                // 相关作品已含第 1 季时推不出 1（0 被拒绝），保持未知（0），不抢别人的位置。
+                val inferred = SeasonKeys.seasonNumber(anchor.title).takeIf { it > 0 }
+                    ?: entries.minOfOrNull { it.first }?.minus(1)?.takeIf { it >= 1 }
+                    ?: 0
+                entries += inferred to (if (inferred > 0) anchor.copy(season = inferred) else anchor)
             }
             SeasonLine(entries.sortedBy { it.first }.map { it.second })
         }

@@ -295,6 +295,40 @@ class ContentRepositoryTest {
         assertFailsWith<IllegalArgumentException> { repo.seasons("abc", null) }
     }
 
+    /**
+     * 2026-10-24 验收：正传/分宗篇这类标题不带「第N季」的锚点，季号原本是 0，
+     * 被当成"未知季"排到第 10 季后面。相关作品从第 2 季起，锚点就是第 1 季。
+     */
+    @Test
+    fun seasonsGivesTheUnnumberedAnchorTheFirstSlot() = runTest {
+        val repo = repository { request ->
+            route(request, search = "", plan = planResponse(listOf(
+                planCard("2", "魏家测试书第二季", 64, "第2季"),
+                planCard("10", "魏家测试书第十季", 0, "第10季"),
+            )))
+        }
+        val anchor = Series(id = "1", title = "魏家测试书")
+        val line = repo.seasons(anchor.id, anchor)
+        assertEquals(listOf("1", "2", "10"), line.seasons.map { it.id })
+        assertEquals(listOf(1, 2, 10), line.seasons.map { it.season })
+    }
+
+    /** 相关作品里已经有第 1 季时，锚点不属于这条季线（同 IP 番外）：保持季号 0，不抢第 1 季。 */
+    @Test
+    fun seasonsLeavesAnUnnumberedAnchorUnknownWhenTheLineStartsAtOne() = runTest {
+        val repo = repository { request ->
+            route(request, search = "", plan = planResponse(listOf(
+                planCard("1", "凡人测试书第一季", 81, "第1季"),
+                planCard("2", "凡人测试书第二季", 64, "第2季"),
+            )))
+        }
+        val anchor = Series(id = "9", title = "凡人测试书番外篇")
+        val line = repo.seasons(anchor.id, anchor)
+        // 数据层按季号升序，未知季（0）在最前；页面排序时再把它挪到末尾
+        assertEquals(listOf(0, 1, 2), line.seasons.map { it.season })
+        assertEquals("9", line.seasons.first().id)
+    }
+
     // ---------- 取流 ----------
 
     @Test

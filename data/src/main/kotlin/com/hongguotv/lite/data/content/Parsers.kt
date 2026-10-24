@@ -167,8 +167,11 @@ internal object Parsers {
 
     /**
      * plan 响应解析（纯函数，供单测）：data 里 show_type=547 的 cell 即「相关作品」。
-     * 卡片 tag_info.text 带「第N季」→ 季线；无季标签 → 同 IP 卡片（明确不展示，解析后丢弃）。
+     * 卡片带「第N季」→ 季线；无季标签 → 同 IP 卡片（明确不展示，解析后丢弃）。
      * 介质不在卡片上：plan 卡片无 celebrities 字段，过滤由调用方按锚点整线传播。
+     *
+     * 季号两个来源，按可靠度取：`tag_info.text`（权威标签）→ 标题里的「第N季」。
+     * 只看标签会整季丢失——实测万妖图录传第二季的标签是空的，而标题写着「第二季」。
      */
     fun planCell(data: JSONArray): List<Pair<Int, Series>> {
         val cell = data.objects().firstOrNull { it.optInt(Fields.Plan.SHOW_TYPE) == Fields.Plan.SHOW_TYPE_RELATED }
@@ -179,12 +182,15 @@ internal object Parsers {
             val id = o.str(Fields.Card.SERIES_ID)
             if (!SeriesIds.ID.matches(id)) continue
             val count = o.optInt(Fields.Card.EPISODE_CNT, 0)
+            val title = o.str(Fields.Card.TITLE).ifEmpty { o.str(Fields.Card.SERIES_NAME) }
             val n = SeasonKeys.seasonNumber(card.optJSONObject(Fields.Plan.TAG_INFO)?.str(Fields.Plan.TAG_TEXT).orEmpty())
-            // n<=0 的卡片是同 IP 无季标签条目，不进入季线
+                .takeIf { it > 0 }
+                ?: SeasonKeys.seasonNumber(title)
+            // 两个来源都读不出季号 = 同 IP 无季标签条目，不进入季线
             if (n <= 0) continue
             seasons += n to Series(
                 id = id,
-                title = o.str(Fields.Card.TITLE).ifEmpty { o.str(Fields.Card.SERIES_NAME) },
+                title = title,
                 cover = cleanUrl(o.str(Fields.Card.COVER)),
                 intro = o.str(Fields.Card.VIDEO_DESC),
                 badge = if (count > 0) "全 $count 集" else SeriesBadge.UNRELEASED,

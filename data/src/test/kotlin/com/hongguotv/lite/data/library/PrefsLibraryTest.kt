@@ -179,6 +179,54 @@ class PrefsLibraryTest {
         assertEquals("古装 / 逆袭", after.tags)
     }
 
+    /**
+     * 2026-10-24 验收：历史页信息栏"有的啥也没有"——新记录只有 id，元数据要等季线回填。
+     * 库里已经有收藏/季线时，写入当场就该带上标题、分类、季号。
+     */
+    @Test
+    fun saveFillsMetadataFromTheCachedSeasonLine() = runTest {
+        val lib = PrefsLibrary(storeWithSeasonLine())
+        lib.save(progress(index = 3, updatedAt = 2_000L, seriesId = "2"))
+        lib.flush()
+
+        val row = lib.history().single()
+        assertEquals("魏家测试书第二季", row.series.title)
+        assertEquals("古装 · 逆袭", row.series.tags)
+        assertEquals(2, row.series.season)
+    }
+
+    /** 盘上已有的"只有 id"旧行：读历史时用同一份季线补全（只补内存，不额外写盘）。 */
+    @Test
+    fun historyFillsOldRowsWithoutMetadataFromTheSeasonLine() = runTest {
+        val legacyRow = JSONObject()
+            .put("series", JSONObject().put("id", "2").put("title", ""))
+            .put("episodeId", "900").put("episodeIndex", 1)
+            .put("position", 1_000L).put("duration", 100_000L)
+            .put("completed", false).put("updatedAt", 1_000L)
+        val s = store(
+            "favoriteSeries" to "{}",
+            "seasonGroups" to seasonGroupsJson(),
+            "progress" to JSONArray().put(legacyRow).toString(),
+        )
+        val row = PrefsLibrary(s).history().single()
+        assertEquals("魏家测试书第二季", row.series.title)
+        assertEquals("古装 · 逆袭", row.series.tags)
+    }
+
+    private fun seasonGroupsJson(): String = JSONObject().put(
+        "魏家测试书",
+        JSONArray(listOf(
+            SeriesCodec.toJson(Series("1", "魏家测试书第一季", season = 1, tags = "古装 · 逆袭")),
+            SeriesCodec.toJson(Series("2", "魏家测试书第二季", season = 2, tags = "古装 · 逆袭")),
+        )),
+    ).toString()
+
+    private fun storeWithSeasonLine(vararg extra: Pair<String, Any?>): InMemoryStore = store(
+        "favoriteSeries" to "{}",
+        "seasonGroups" to seasonGroupsJson(),
+        *extra,
+    )
+
     @Test
     fun identicalPausedCheckpointDoesNotWrite() = runTest {
         val s = store("favoriteSeries" to "{}")

@@ -85,7 +85,8 @@ class PrefsLibrary(
     }
 
     override fun history(limit: Int): List<HistoryEntry> = synchronized(lock) {
-        historyRows.take(limit).map { HistoryEntry(it.series, it.progress) }
+        val known = knownSeriesById()
+        historyRows.take(limit).map { HistoryEntry(enrich(it.series, known[it.progress.seriesId]), it.progress) }
     }
 
     override fun isWatched(seriesId: String): Boolean = synchronized(lock) { seriesId in watchedIds }
@@ -101,14 +102,50 @@ class PrefsLibrary(
             val previous = historyRows.firstOrNull { it.progress.seriesId == progress.seriesId }
             // 暂停中的同刻度检查点不刷新时间戳、不触发写盘（旧行为）
             if (previous != null && previous.progress.copy(updatedAt = progress.updatedAt) == progress) return
-            // 新记录只有 id，没有标题：沿用盘上已有行的元数据，历史页的标题不因为续看一次而消失
-            val series = previous?.series ?: Series(id = progress.seriesId, title = "")
+            // 新记录只有 id，没有标题：沿用盘上已有行的元数据，历史页的标题不因为续看一次而消失。
+            // 盘上也没有（第一次看这一季）时，从收藏/季线里按 id 取一份——否则历史页会是一条无名黑块，
+            // 信息栏也查不到收藏状态与分类（2026-10-24 验收："有的啥也没有"）。
+            val base = previous?.series ?: Series(id = progress.seriesId, title = "")
+            val series = enrich(base, knownSeriesById()[progress.seriesId])
             historyRows = (listOf(HistoryRow(series, progress)) + historyRows.filterNot { it.progress.seriesId == progress.seriesId })
                 .take(HISTORY_LIMIT)
                 .sortedByDescending { it.progress.updatedAt }
             true
         }
         if (changed) persist(KEY_PROGRESS)
+    }
+
+    /**
+     * 按 id 索引"已知的作品元数据"：季线优先，收藏行兜底（收藏行的标题已被换成系列基名，
+     * 只适合补空字段，不适合覆盖季名）。
+     *
+     * 只读内存里的缓存，不发请求。季线最多 20 条、每条最多几十季，取一份索引是微秒级。
+     */
+    private fun knownSeriesById(): Map<String, Series> {
+        val index = HashMap<String, Series>()
+        seasonLines.values.forEach { seasons -> seasons.forEach { index[it.id] = it } }
+        // 收藏行只补季线里没有的 id（putIfAbsent 是 API 24，minSdk 23 上不能用）
+        favoriteRows.values.forEach { (series, _) ->
+            if (!index.containsKey(series.id)) index[series.id] = series
+        }
+        return index
+    }
+
+    /**
+     * 用已知元数据补一条历史行的空字段。**只补空**，不覆盖：历史行可能带着当次详情拿到的
+     * 完整季名，而收藏行的标题是系列基名，覆盖会把"第二季"抹掉。
+     */
+    private fun enrich(base: Series, known: Series?): Series {
+        if (known == null) return base
+        return base.copy(
+            title = base.title.ifBlank { known.title },
+            cover = base.cover.ifBlank { known.cover },
+            intro = base.intro.ifBlank { known.intro },
+            badge = base.badge.ifBlank { known.badge },
+            tags = base.tags.ifBlank { known.tags },
+            season = base.season.takeIf { it > 0 } ?: known.season,
+            episodeCount = base.episodeCount.takeIf { it > 0 } ?: known.episodeCount,
+        )
     }
 
     override suspend fun rememberSeries(series: Series) {
