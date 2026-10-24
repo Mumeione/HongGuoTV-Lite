@@ -84,7 +84,12 @@ internal abstract class DetailPage(
             leftFlank = leftFlank,
             rightFlank = rightFlank,
         ) ?: return
-        focus.bind(plan, views)
+        // 侧栏也要进 views：只声明段、不给 View，方向键的落点表里就没有它，
+        // 视觉上在左侧的导航项永远选不中（与长条是同一个坑）
+        val allViews = LinkedHashMap(views)
+        rail.navItems.forEachIndexed { index, item -> allViews[navKey(index)] = item }
+        // 详情两页按视觉位置走方向键：返回在左上、继续播放才在它右边（2026-10-24 口径）
+        focus.bind(plan, allViews, visual = true)
         // 没有跨页记忆时把阶梯第一项升格成显式目标（回退链里显式 > 记忆）：
         // 冷启动框架的自动聚焦（侧栏第一项）不能压过"进这页该落在哪"
         requestFocus(preferred ?: host.lastFocus[pageKey] ?: ladder.firstOrNull(), ladder)

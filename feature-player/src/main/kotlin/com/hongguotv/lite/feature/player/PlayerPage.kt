@@ -58,7 +58,8 @@ internal class PlayerPage(
     private val root = FrameLayout(ui.context)
     private val jobs = Job()
     private val scope = CoroutineScope(host.scope.coroutineContext + jobs)
-    private val focus = FocusSession(PAGE_KEY)
+    // 播放页（抽屉）与详情页一样按视觉位置走：分集格、两侧长条与右列设置是一条横带
+    private val focus = FocusSession(PAGE_KEY, root = root)
     private val engine = ExoPlayerEngine(ui.context, tokens)
     private val handler = Handler(Looper.getMainLooper())
     private val repeatGate = KeyRepeatGate(SEEK_REPEAT_GATE_MS)
@@ -157,6 +158,8 @@ internal class PlayerPage(
                 }
 
                 override fun close() = closeMenu()
+
+                override fun pageChanged() = render()
             },
         )
         // 压暗层垫在抽屉之下、画面之上；显隐跟着抽屉走（render 里同步）
@@ -311,13 +314,17 @@ internal class PlayerPage(
 
     private fun bindFocus(preferred: FocusKey?) {
         if (sidebar.visible) {
-            val binding = sidebar.focusBinding(preferred) ?: return
-            focus.bind(binding.plan, binding.views)
+            // 结构变了但用户没给目标时，优先留在"现在正被按的那一项"（例如翻组后的长条）；
+            // 否则每翻一组光标都被拽回当前集，连翻两次得先挪回来
+            val keep = preferred ?: sidebar.focusedKey()
+            val binding = sidebar.focusBinding(keep) ?: return
+            // 抽屉里是"分集格 → 两侧长条 → 右列设置"的一条横带：方向键按视觉位置走
+            focus.bind(binding.plan, binding.views, visual = true)
             requestFocus(binding.preferred)
             return
         }
         val binding = notice.focusBinding(preferred) ?: return
-        focus.bind(binding.plan, binding.views)
+        focus.bind(binding.plan, binding.views, visual = true)
         requestFocus(binding.preferred)
     }
 

@@ -9,6 +9,9 @@ import com.hongguotv.lite.uikit.text.TvText
  * 全部转调 `uikit` 的 [TvText]——播放器是第三个消费者，这里再拼一遍就会出现
  * "设置页写 1080P、播放器写 1080p"这种分裂。
  */
+/** 抽屉右列的一行：左名称、右当前值（空 = 这一行是动作，不是设置）。 */
+data class PlayerSettingLine(val label: String, val value: String)
+
 object PlayerText {
 
     /**
@@ -25,13 +28,20 @@ object PlayerText {
     fun range(range: IntRange, total: Int): String =
         if (range.isEmpty()) "" else "第 ${range.first + 1}—${range.last + 1} 集 / 共 $total 集"
 
-    /** 播放设置五行。标签直接反映当前值——用户要把侧栏当"状态"看，而不是"入口"看。 */
-    fun settingsRows(settings: Settings, sleep: String): List<String> = listOf(
-        "倍速 · ${TvText.speed(settings.speed)}",
-        "清晰度 · ${TvText.quality(settings.quality)}",
-        "画面 · ${TvText.frame(settings.frame)}",
-        "定时停止 · $sleep",
-        "从头播放",
+    /**
+     * 播放设置五行：**名称与值分开**（2026-10-24 验收口径）。
+     *
+     * 原来写成一整串「倍速 · 1×」，名称和当前档位同一个字号同一个颜色，抽屉打开后
+     * 一眼看不出"哪部分是现在的设置"。现在左列名称退一档、右列值亮一档，
+     * 用户扫一眼就知道当前是什么档。
+     */
+    fun settingsRows(settings: Settings, sleep: String): List<PlayerSettingLine> = listOf(
+        PlayerSettingLine("倍速", TvText.speed(settings.speed)),
+        PlayerSettingLine("清晰度", TvText.quality(settings.quality)),
+        PlayerSettingLine("画面", TvText.frame(settings.frame)),
+        PlayerSettingLine("定时停止", sleep),
+        // 动作不是设置：没有"当前值"，整行只有名称
+        PlayerSettingLine("从头播放", ""),
     )
 
     /** 跳集页的提示行。 */

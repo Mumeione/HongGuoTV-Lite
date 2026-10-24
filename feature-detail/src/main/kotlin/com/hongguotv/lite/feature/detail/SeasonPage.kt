@@ -61,6 +61,9 @@ internal class SeasonPage(
     private var singleSeason: Series? = null
     private var pageIndex = 0
 
+    /** 分类兜底最多问两次详情：收藏行是卡片元数据，有些卡片本来就不带分类。 */
+    private var tagsAttempts = 0
+
     /** 组别是否已按"上次那一季"归位。只在第一次渲染季线时做一次，之后翻组就是用户的选择。 */
     private var pageRestored = false
 
@@ -219,15 +222,20 @@ internal class SeasonPage(
     }
 
     /**
-     * 季线展示序：落库是旧→新（端口契约），展示层才反转。
-     * 默认"新→旧"（最新一季在最左），用户想从头补看时切成正序——和搜索页同一个开关。
+     * 季线展示序：**按季号排，未上线季也在序列里**（2026-10-24 口径）。
      *
-     * 未上线季永远排在最后：它们点不进去（`openSeason` 会拦住），占着第一张卡只会挡路。
-     * `sortedBy` 是稳定排序，同一组内仍保持各自的新→旧 / 旧→新顺序。
+     * 以前把未上线季一律挪到最后，结果"第 10 季未上线"排在"第 3 季"后面：
+     * 用户看到的是一条断掉的季线，而不是这部剧真实的季序。未上线季只是点不进去
+     * （[openSeason] 会拦），位置该在哪就在哪。
+     *
+     * 默认"新→旧"（最新一季在最左），用户想从头补看时切成正序——和搜索页同一个开关。
+     * 季号缺失（0）的条目没有可排的位置，正倒序都放最后。
      */
     private fun orderedSeasons(seasons: SeasonLine): List<Series> {
-        val ordered = if (host.settings.current().seasonSortAsc) seasons.seasons else seasons.seasons.asReversed()
-        return ordered.sortedBy { if (it.released) 0 else 1 }
+        val known = seasons.seasons.filter { it.season > 0 }.sortedBy { it.season }
+        val unknown = seasons.seasons.filter { it.season <= 0 }
+        val ordered = if (host.settings.current().seasonSortAsc) known + unknown else known.asReversed() + unknown
+        return ordered
     }
 
     private fun renderHero(series: Series) {
@@ -235,6 +243,7 @@ internal class SeasonPage(
         val target = SeasonTargets.of(line, progress, anchor)
         val entryRow = entry
         val seasons = line?.seasons.orEmpty()
+        val tags = tagsOf(series)
 
         hero.show(
             coverUrl = series.cover,
@@ -247,15 +256,54 @@ internal class SeasonPage(
             specs = DetailText.seasonSpecs(
                 update = entryRow?.let { TvText.updateProgress(it.latestSeason, it.latestEpisodes) }.orEmpty(),
                 seasonCount = seasons.size,
-                tags = series.tags.replace(" · ", " / "),
+                // 分类行必须在（2026-10-24 验收）：拿不到就先占位，详情回来后会补上
+                tags = tags.replace(" · ", " / ").ifBlank { "—" },
                 record = DetailText.seasonRecord(progress, line, entryRow?.series?.season ?: 0),
             ),
-            // 没有简介就把"各季进度分别保存"放进简介位：这句说明正好填上空白，
-            // 比另起一页脚（会被屏幕边界切掉半行）更省高度
+            // 有简介就显示简介；没有时用"各季进度分别保存…"补位。
+            // 这句本身没有换行（2026-10-24 口径：一行显示），信息块底部因此贴着封面底。
             intro = series.intro.ifBlank { DetailText.SEASON_FOOTER },
         )
-        playButton.label(target.label)
+        val (title, note) = DetailText.playLabelLines(target.label)
+        playButton.label(title, note)
         renderFavoriteButton()
+    }
+
+    /**
+     * 分类来源（按可靠度）：收藏行本身 → 季线里同一季的卡片 → 现取一次详情。
+     *
+     * 收藏行是从卡片落库的，卡片不一定带分类；季线卡片多半带 `category_schema`，
+     * 两者都没有时才发一次详情请求，拿到后写回收藏行（下次进来就有了）。
+     */
+    private fun tagsOf(series: Series): String {
+        val fromEntry = entry?.series?.tags.orEmpty()
+        if (fromEntry.isNotBlank()) return fromEntry
+        val fromLine = line?.seasons?.firstOrNull { it.id == series.id }?.tags.orEmpty()
+        if (fromLine.isNotBlank()) return fromLine
+        backfillTags(series)
+        return ""
+    }
+
+    private fun backfillTags(series: Series) {
+        // 最多试两次：一次失败（网络抖动）不该让分类永远停在占位「—」上
+        if (tagsAttempts >= MAX_TAG_ATTEMPTS) return
+        tagsAttempts++
+        scope.launch {
+            val detail = try {
+                host.content.detail(series.id)
+            } catch (error: UpstreamError) {
+                null
+            }
+            if (!isActive) return@launch
+            if (detail == null || detail.series.tags.isBlank()) return@launch
+            // 只补"当前收藏的那一季"：别把用户选的季换成别的季
+            if (entry?.series?.id != detail.series.id) return@launch
+            // 写回收藏行：分类、封面、简介一起补全，系列页下次直接从本地读
+            host.favorites.setCurrentSeason(seriesKey, detail.series)
+            entry = host.favorites.entry(seriesKey)
+            tagsAttempts = 0
+            render()
+        }
     }
 
     private fun renderFavoriteButton() {
@@ -280,7 +328,7 @@ internal class SeasonPage(
         val slice = ordered.drop(pageIndex * SEASON_COLUMNS).take(SEASON_COLUMNS)
 
         val gap = ui.dp(tokens.metrics.seasonCardGap)
-        // 卡宽 88 是 B 方案的固定口径（mockup 画面5：8 张 88dp + 10dp 间距 = 774，正好放进内容区）
+        // 卡宽 88 是 B 方案的固定口径；7 张 + 两侧 40dp 长条正好放进内容区
         val cardWidth = ui.dp(tokens.metrics.seasonCardWidth)
 
         // 重建前记住"哪一季正被聚焦"：切正序/倒序之后光标要跟着那一季，别落到页面顶上
@@ -385,7 +433,8 @@ internal class SeasonPage(
             host.settings.update { it.copy(seasonSortAsc = ascending) }
             if (!isActive) return@launch
             line?.let { renderSeasons(it) }
-            applyFocus()
+            // 光标留在排序键上：切成正序后马上还想切回去，不该被扔回"继续播放"
+            applyFocus(KEY_SORT)
         }
     }
 
@@ -395,7 +444,9 @@ internal class SeasonPage(
             // 取消收藏是破坏性动作：两步确认（设计系统里没有模态框）
             if (!confirm.press(seriesKey)) {
                 renderFavoriteButton()
-                applyFocus()
+                // 把光标**留在这一键上**：重提焦点图时若落回"继续播放"，焦点一离开就撤销确认，
+                // 这个键永远等不到第二次按下（维护者实测：取消收藏失效）
+                applyFocus(KEY_FAVORITE)
                 return
             }
             scope.launch {
@@ -410,6 +461,8 @@ internal class SeasonPage(
                 if (!isActive) return@launch
                 entry = host.favorites.entry(seriesKey)
                 confirm.disarm()
+                // 刚点了收藏：光标留在这一键上，紧接着要取消也不用重新找
+                preferredOnRender = KEY_FAVORITE
                 render()
             }
         }
@@ -423,7 +476,10 @@ internal class SeasonPage(
         if (next == pageIndex) return
         pageIndex = next
         renderSeasons(seasons)
-        applyFocus(ordered.getOrNull(pageIndex * SEASON_COLUMNS)?.let { FocusKey(seasonKey(it.id)) })
+        // 连翻两组：光标留在刚按的长条上；翻到尽头那条被禁用时才落回第一张季卡
+        val preferred = strips.preferredAfterPage(delta)
+            ?: ordered.getOrNull(pageIndex * SEASON_COLUMNS)?.let { FocusKey(seasonKey(it.id)) }
+        applyFocus(preferred)
     }
 
     private fun toast(message: String) {
@@ -451,7 +507,9 @@ internal class SeasonPage(
         if (detailOnlyButton.visibility == View.VISIBLE) views[KEY_DETAIL] = detailOnlyButton
         seasonCards.forEach { (id, card) -> views[FocusKey(seasonKey(id))] = card }
 
-        // 长条可用时才进焦点图；不可用那侧整段省略，内容行缘夹住自己（SideStrips 统一判）
+        // 长条可用时才进焦点图；不可用那侧整段省略，内容行缘夹住自己（SideStrips 统一判）。
+        // 同时把长条放进 views：只声明段、不给 View，光标永远落不到它身上（无法选中）
+        if (seasonHost.visibility == View.VISIBLE) strips.bindInto(views)
         val leftFlank = if (seasonHost.visibility == View.VISIBLE) strips.leftSection() else null
         val rightFlank = if (seasonHost.visibility == View.VISIBLE) strips.rightSection() else null
 
@@ -481,8 +539,14 @@ internal class SeasonPage(
     }
 
     private companion object {
-        /** 一条季线一页 8 张：8 列是产品口径（1080p 上每张约 96dp），不是按宽度反推出来的。 */
-        const val SEASON_COLUMNS = 8
+        /**
+         * 一条季线一页 **7 张**（2026-10-24 验收口径）：两侧各让出一条翻组长条的位置，
+         * 7 列是产品口径，不是按宽度反推出来的。
+         */
+        const val SEASON_COLUMNS = 7
+
+        /** 分类兜底详情最多取两次（见 [backfillTags]）。 */
+        const val MAX_TAG_ATTEMPTS = 2
 
         fun seasonPages(count: Int): Int = maxOf(1, (count + SEASON_COLUMNS - 1) / SEASON_COLUMNS)
 

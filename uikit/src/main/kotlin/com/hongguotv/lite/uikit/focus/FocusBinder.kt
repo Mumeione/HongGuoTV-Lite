@@ -2,6 +2,9 @@ package com.hongguotv.lite.uikit.focus
 
 import android.view.View
 
+/** 视觉方向绑定用的视图矩形（相对页面根，像素）。 */
+private data class Placed(val rect: FocusRect, val view: View)
+
 /**
  * 把焦点图落到真实 View 上。
  *
@@ -20,6 +23,40 @@ object FocusBinder {
             view.nextFocusRightId = targetId(views, neighbors.right, view)
             view.nextFocusUpId = targetId(views, neighbors.up, view)
             view.nextFocusDownId = targetId(views, neighbors.down, view)
+        }
+    }
+
+    /**
+     * 按**真实视图位置**绑定四个方向：视觉上的左右就是焦点移动的左右。
+     *
+     * 与 [bind] 的分工：焦点图仍然负责"程序性落焦"（恢复光标、首焦阶梯）与顺序，
+     * 这里只改写物理按键的落点。调用时机必须在布局完成之后（`View.post`），
+     * 否则量到的全是 0 尺寸。
+     *
+     * 不在 [views] 里、被 `GONE` 收起或已禁用的项不参与：它们本来就不该抢焦点。
+     * 某个方向没有候选时显式指向自己——把落点交回系统去猜，就会出现"按一下跳到屏幕另一头"。
+     */
+    fun bindVisual(root: View, views: Map<FocusKey, View>) {
+        val origin = IntArray(2)
+        root.getLocationInWindow(origin)
+        val placed = ArrayList<Placed>(views.size)
+        views.forEach { (key, view) ->
+            if (!view.isShown || !view.isEnabled || view.width <= 0 || view.height <= 0) return@forEach
+            val location = IntArray(2)
+            view.getLocationInWindow(location)
+            val left = location[0] - origin[0]
+            val top = location[1] - origin[1]
+            placed += Placed(FocusRect(key, left, top, left + view.width, top + view.height), view)
+        }
+        val rects = placed.map { it.rect }
+        placed.forEach { (self, view) ->
+            fun idOf(direction: FocusDirection): Int =
+                VisualFocus.neighbor(self, rects, direction)?.let { key -> placed.first { it.rect.key == key }.view.id }
+                    ?: view.id
+            view.nextFocusLeftId = idOf(FocusDirection.LEFT)
+            view.nextFocusRightId = idOf(FocusDirection.RIGHT)
+            view.nextFocusUpId = idOf(FocusDirection.UP)
+            view.nextFocusDownId = idOf(FocusDirection.DOWN)
         }
     }
 

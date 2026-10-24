@@ -13,9 +13,11 @@ import com.hongguotv.core.usecase.EpisodeJump
 import com.hongguotv.core.usecase.EpisodePages
 import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.focus.FocusSections
-import com.hongguotv.lite.uikit.page.PagerRow
+import com.hongguotv.lite.uikit.page.SideStrips
 import com.hongguotv.lite.uikit.token.Tokens
 import com.hongguotv.lite.uikit.ui.ButtonVariant
+import com.hongguotv.lite.uikit.ui.SettingRow
+import com.hongguotv.lite.uikit.ui.SettingRowStyle
 import com.hongguotv.lite.uikit.ui.TvButton
 import com.hongguotv.lite.uikit.ui.UiKit
 
@@ -46,6 +48,12 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
         fun changeSetting(setting: PlayerSetting)
 
         fun close()
+
+        /**
+         * 翻组后分集格被整批重建：页面必须重提一次焦点图。
+         * 不重提的话，新格子没有 `nextFocus*` 绑定，长条按右会指向已经销毁的旧格子。
+         */
+        fun pageChanged()
     }
 
     data class Model(
@@ -55,8 +63,8 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
         val total: Int,
         val current: Int,
         val watchedUpTo: Int,
-        /** 播放设置五行的标签（文案由 `PlayerText.settingsRows` 给）。 */
-        val settings: List<String>,
+        /** 播放设置五行：名称 + 当前值（文案由 `PlayerText.settingsRows` 给）。 */
+        val settings: List<PlayerSettingLine>,
     )
 
     private val tokens: Tokens = ui.tokens
@@ -86,7 +94,17 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
         visibility = View.GONE
     }
 
-    private val pager = PagerRow(ui)
+    /** 分集范围（`第 1—50 集 / 共 300 集`）：翻组键只剩两侧长条，这段文字负责说"现在在哪一段"。 */
+    private val rangeView: TextView = ui.text("", tokens.type.caption, tokens.colors.muted).apply {
+        maxLines = 1
+        setPadding(0, 0, 0, ui.dp(tokens.space.xs))
+    }
+
+    /**
+     * 分集格两侧的翻组长条（2026-10-24 口径：与详情页同一种控件）。
+     * 抽屉里原来顶行的「上一组/下一组」小胶囊取消——长条和它翻的内容在同一行，更直接。
+     */
+    private val strips = SideStrips(ui, KEY_PREV, KEY_NEXT) { delta -> goPage(delta) }
     private val gridHost = ui.column()
     private val jumpArea = ui.column()
     private val digitsView: TextView = ui.text("", tokens.type.body * tokens.metrics.jumpDigitsScale, tokens.colors.text).apply {
@@ -106,7 +124,7 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
 
     /** 集数格重建次数。重建会换掉一批 View 实例，页面据此必须重提一次焦点图。 */
     private var buildStamp = 0
-    private val settingRows = mutableListOf<TvButton>()
+    private val settingRows = mutableListOf<SettingRow>()
     private val keypad = mutableListOf<TvButton>()
 
     /** 抽屉顶行之下的内容区：选集态 = 左列 + 右列，跳集态 = 数字键盘。 */
@@ -117,10 +135,9 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
     val view: LinearLayout
 
     init {
-        pager.onPage = { delta -> goPage(delta) }
-
         PlayerSetting.entries.forEach { setting ->
-            val row = ui.button("", variant = ButtonVariant.SMALL_ROW) { callbacks.changeSetting(setting) }
+            // 名称与值分列（2026-10-24 验收）：整行一个标签时，用户分不出哪个是设置项、哪个是当前档
+            val row = ui.settingRow("", "", style = SettingRowStyle.DRAWER) { callbacks.changeSetting(setting) }
             settingRows += row
             settingsColumn.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 bottomMargin = ui.dp(tokens.space.xs)
@@ -140,8 +157,9 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
 
         episodesBody = ui.column().apply {
             addView(statusView)
-            addView(pager.view)
-            addView(gridHost)
+            addView(rangeView)
+            // 分集格夹在左右长条之间：行尾按右就撞到条上，按一下翻一组
+            addView(strips.wrap(gridHost))
         }
 
         // 右列：设置五行垂直居中，与左列之间隔一条 1px 结构线（mockup .b-drawer .right）
@@ -239,6 +257,24 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
      */
     fun bindingSignature(): String = "$mode:$page:${cells.size}:${settingRows.size}:${keypad.size}:$buildStamp"
 
+    /**
+     * 当前焦点对应的 key（没有就是 null）。
+     *
+     * 翻组后焦点要留在被按的那条长条上：重提焦点图时若一律回落到"当前集"，
+     * 用户连按两次下一组得先把光标从格子里挪回长条——翻页变成三步。
+     */
+    fun focusedKey(): FocusKey? {
+        if (mode == Mode.EPISODES) {
+            cells.forEachIndexed { index, cell -> if (cell.isFocused) return episodeKey(cellIndexes[index]) }
+            settingRows.forEachIndexed { index, row -> if (row.isFocused) return settingKey(index) }
+            if (strips.prev.isFocused) return KEY_PREV
+            if (strips.next.isFocused) return KEY_NEXT
+        } else {
+            keypad.forEachIndexed { index, key -> if (key.isFocused) return FocusKey("$PREFIX:key:$index") }
+        }
+        return null
+    }
+
     fun setMode(next: Mode) {
         mode = next
         digits = ""
@@ -290,11 +326,9 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
         } else {
             cells.forEachIndexed { position, cell -> cell.isSelected = cellIndexes[position] == model.current }
         }
-        if (pages > 1) {
-            pager.show(PlayerText.range(range, model.total), hasPrev = page > 0, hasNext = page < pages - 1)
-        } else {
-            pager.hide()
-        }
+        rangeView.text = PlayerText.range(range, model.total)
+        // 单页时整对长条收起，分集格占满（与详情页同一条规则）
+        strips.show(visible = pages > 1, hasPrev = page > 0, hasNext = page < pages - 1)
     }
 
     private fun buildGrid(range: IntRange, model: Model) {
@@ -336,9 +370,14 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
         buildStamp++
     }
 
-    /** 设置行只改标签，**不重建**：重建会把光标拉回第一行。 */
+    /** 设置行只改标签与值，**不重建**：重建会把光标拉回第一行。 */
     private fun bindSettings(model: Model) {
-        model.settings.forEachIndexed { index, label -> settingRows.getOrNull(index)?.label(label) }
+        model.settings.forEachIndexed { index, line ->
+            settingRows.getOrNull(index)?.apply {
+                label(line.label)
+                value(line.value)
+            }
+        }
     }
 
     private fun bindJump() {
@@ -353,6 +392,7 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
         if (next == page) return
         page = next
         bind(model)
+        callbacks.pageChanged()
     }
 
     // ---------- 数字跳集 ----------
@@ -400,17 +440,17 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
     fun focusBinding(preferred: FocusKey? = null): FocusBinding? {
         val model = this.model ?: return null
         val views = LinkedHashMap<FocusKey, View>()
-
-        // 禁用的那一侧占空槽：翻组行少一项，下面的选集格就会整体左移
-        var pagerSection: com.hongguotv.lite.uikit.focus.FocusSection? = null
         val bodyKeys = mutableListOf<FocusKey>()
+        var columns = JUMP_COLUMNS
 
         if (mode == Mode.EPISODES) {
-            pagerSection = pager.focusSection(views, KEY_PREV, KEY_NEXT)
+            columns = pagination.columns + 1
+            // 长条不仅要在焦点段里，还要有 View 才能被按键选中（2026-10-24 验收的 bug 根因）
+            strips.bindInto(views)
             // 选集格 + 右列设置拼成**一张 11 列的表**：每行末尾挂当行的设置项，
             // 左右键从选集格直接滑进设置、滑回来，上下键逐行走（mockup 画面6 的双列布局）
             val settingKeys = settingRows.mapIndexed { index, row ->
-                val key = FocusKey("$PREFIX:set:$index")
+                val key = settingKey(index)
                 views[key] = row
                 key
             }
@@ -433,11 +473,11 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
             }
         }
 
+        val flanked = mode == Mode.EPISODES
         val plan = FocusSections.plan(
-            listOf(
-                pagerSection,
-                FocusSections.section(bodyKeys, if (mode == Mode.EPISODES) pagination.columns + 1 else JUMP_COLUMNS),
-            ),
+            listOf(FocusSections.section(bodyKeys, columns, flanked = flanked)),
+            leftFlank = if (flanked) strips.leftSection() else null,
+            rightFlank = if (flanked) strips.rightSection() else null,
         ) ?: return null
 
         val fallback = when (mode) {
@@ -456,5 +496,7 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
         val KEY_NEXT = FocusKey("$PREFIX:next")
 
         fun episodeKey(index: Int): FocusKey = FocusKey("$PREFIX:ep:$index")
+
+        fun settingKey(index: Int): FocusKey = FocusKey("$PREFIX:set:$index")
     }
 }

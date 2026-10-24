@@ -75,6 +75,27 @@ class SideStrips(
     fun rightSection(): FocusSection? =
         FocusSections.slots(listOf(nextKey.takeIf { usable(next) }))
 
+    /**
+     * 把可用的长条放进页面的 key → View 表。
+     *
+     * 焦点段只描述"谁和谁相邻"，真正落成 `nextFocus*Id` 必须有 View：漏掉这两项时
+     * 长条虽然声明在侧翼段里，光标却永远进不去（维护者实测"长条选不中、按不动"）。
+     */
+    fun bindInto(views: MutableMap<FocusKey, View>) {
+        if (usable(prev)) views[prevKey] = prev
+        if (usable(next)) views[nextKey] = next
+    }
+
+    /**
+     * 翻组之后光标该留在哪：**按下的那条还在就留在条上**（连翻两组不用先把光标挪回来）；
+     * 已经到了尽头（那条被禁用）就返回 null，由页面改成落到第一张卡。
+     */
+    fun preferredAfterPage(delta: Int): FocusKey? = when {
+        delta > 0 && usable(next) -> nextKey
+        delta < 0 && usable(prev) -> prevKey
+        else -> null
+    }
+
     private fun usable(button: TvButton): Boolean =
         button.visibility == View.VISIBLE && button.isEnabled
 

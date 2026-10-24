@@ -3,6 +3,12 @@ package com.hongguotv.lite.uikit.ui
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Typeface
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.TextUtils
+import android.text.style.ForegroundColorSpan
+import android.text.style.RelativeSizeSpan
+import android.text.style.StyleSpan
 import android.view.Gravity
 import android.widget.TextView
 import com.hongguotv.lite.uikit.internal.FocusControl
@@ -63,6 +69,9 @@ class TvButton internal constructor(
     private val onTap: () -> Unit,
 ) : FocusControl(context, tokens) {
 
+    private var primary: String = label
+    private var note: String = ""
+
     init {
         text = label
         val cell = variant == ButtonVariant.CELL || variant == ButtonVariant.GRID_CELL
@@ -106,8 +115,44 @@ class TvButton internal constructor(
         paintState(isFocused)
     }
 
-    fun label(value: String) {
-        text = value
+    /**
+     * 两行标签：主行 + 第二行小字（2026-10-24 验收口径）。
+     *
+     * 「继续播放 · 第 100 集」在 172dp 的胶囊里会折成「…第 100 / 集」——断在量词上最难读。
+     * 主动分两行：主行说动作，第二行小一号、浅一档说集数。空 [note] = 单行，行为不变。
+     */
+    fun label(value: String, note: String = "") {
+        primary = value
+        this.note = note
+        renderLabel()
+    }
+
+    /**
+     * 按当前焦点态重画两行标签。
+     *
+     * 第二行用 span 自带颜色：TextView 的 `setTextColor` 只能给"没有显式颜色的文字"上色，
+     * 焦点态（白底深字）必须把第二行同步压深，否则白底上是一行看不见的浅灰。
+     */
+    private fun renderLabel() {
+        if (note.isEmpty()) {
+            if (text?.toString() != primary) text = primary
+            return
+        }
+        val start = primary.length + 1
+        val spanned = SpannableStringBuilder(primary).append('\n').append(note)
+        spanned.setSpan(RelativeSizeSpan(tokens.type.noteScale), start, spanned.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        spanned.setSpan(
+            ForegroundColorSpan(if (isFocused) tokens.colors.dim else tokens.colors.muted),
+            start,
+            spanned.length,
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+        )
+        // 主行加粗、副行常规：字号已经小一档，再粗就抢回来了
+        spanned.setSpan(StyleSpan(Typeface.NORMAL), start, spanned.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        // 固定两行：40dp 的胶囊装得下（15sp + 12sp ≈ 33dp），不会被长文案撑高
+        maxLines = 2
+        ellipsize = TextUtils.TruncateAt.END
+        text = spanned
     }
 
     override fun paintState(focused: Boolean) {
@@ -142,7 +187,10 @@ class TvButton internal constructor(
         setTextColor(color)
         // B 方案 mockup：胶囊与格子的文字全部加粗（.b-pill / .b-cell / .setrow 都是 600–700）
         setTypeface(null, Typeface.BOLD)
+        // 焦点变了，第二行的颜色也要跟着变（白底深字 / 暗底浅字）
+        renderLabel()
     }
+
 }
 
 /** 胶囊筛选 / 次级切换（片库、倒序）：32dp 小号胶囊。焦点白底深字，选中白框白字，其余暗底弱化字。 */

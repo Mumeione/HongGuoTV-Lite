@@ -230,9 +230,9 @@ class PrefsLibrary(
     /** 季线落库（LRU 保留 [SEASON_LINE_LIMIT] 个系列）。少于两季不落：单季没有"线"可言。 */
     override fun rememberSeasonLine(seriesKey: String, line: SeasonLine) {
         if (seriesKey.isBlank() || line.seasons.size < 2) return
-        // 只存 id/title/cover/badge/season（剥掉简介与分类省空间，单条 ~300B）；
-        // 打开详情时用接口结果回填。
-        val clean = line.seasons.map { it.copy(intro = "", tags = "") }
+        // 只存 id/title/cover/badge/season/分类（简介最占空间，剥掉；分类是收藏详情页
+        // 「分类」行的唯一来源，保留——短字符串，五个季也才几百字节）。
+        val clean = line.seasons.map { it.copy(intro = "") }
         synchronized(lock) {
             seasonLines.remove(seriesKey)
             seasonLines[seriesKey] = clean

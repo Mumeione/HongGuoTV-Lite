@@ -37,6 +37,28 @@ class DetailTextTest {
         assertEquals("重新观看", DetailText.playLabel(progress(8, 754_000), ResumeTarget(0, 0L, false), watched = true))
     }
 
+    /**
+     * 主按钮两行：动作一行、集数一行。
+     *
+     * 「继续播放 · 第 100 集」在 172dp 的胶囊里会折成「…第 100 / 集」——断在量词上；
+     * 拆成两行后第二行小一号、浅一档，三位数也放得下。
+     */
+    @Test
+    fun playLabelSplitsTheActionFromTheEpisode() {
+        assertEquals("继续播放" to "第 100 集", DetailText.playLabelLines("继续播放 · 第 100 集"))
+        assertEquals("继续播放" to "下一季", DetailText.playLabelLines("继续播放 · 下一季"))
+        assertEquals("开始观看" to "", DetailText.playLabelLines("开始观看"))
+        assertEquals("重新播放" to "", DetailText.playLabelLines("重新播放"))
+    }
+
+    @Test
+    fun theSeasonFooterIsOneLine() {
+        // 说明句拆两行会把信息块顶出封面底；一行是 2026-10-24 的验收口径
+        assertTrue(DetailText.SEASON_FOOTER.none { it == '\n' })
+        assertTrue(DetailText.SEASON_FOOTER.contains("各季进度分别保存"))
+        assertTrue(DetailText.SEASON_FOOTER.contains("继续播放会回到最近看的那一季"))
+    }
+
     @Test
     fun rangeLabelsUseTheInclusiveEndpoints() {
         assertEquals("第 1—100 集", DetailText.rangeLabel(0..99))

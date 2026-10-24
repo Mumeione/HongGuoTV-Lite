@@ -37,6 +37,12 @@ class FocusSession(
     private val page: String,
     private val memory: FocusMemory = FocusMemory(),
     /**
+     * 页面根视图。给了它、且 [bind] 声明 `visual = true` 时，物理按键的落点按**视图位置**
+     * 重新绑定（见 [FocusBinder.bindVisual]）——视觉上的上下左右就是焦点移动的上下左右。
+     * 不给时只走焦点图（JVM 单测用）。
+     */
+    private val root: View? = null,
+    /**
      * 落定回调的执行器（一帧防抖）：页面骨架传 `scaffold::post`。
      * 不给时 [onSettled] 同步执行（无防抖）——调用方自己保证没有中间态。
      */
@@ -49,6 +55,12 @@ class FocusSession(
     private var views: Map<FocusKey, View> = emptyMap()
     private var keyById: Map<Int, FocusKey> = emptyMap()
     private var lastFocused: FocusKey? = null
+
+    /** 视觉绑定的代际：同一帧里连续 bind 时只让最后一次生效（旧视图树已经拆了）。 */
+    private var visualGeneration = 0
+
+    /** 还没等到布局的那次视觉绑定的监听器：下一次 bind 前先摘掉，避免翻组时堆积。 */
+    private var pendingLayout: android.view.ViewTreeObserver.OnGlobalLayoutListener? = null
 
     /**
      * 焦点**落定**回调（一帧防抖）：焦点不再变化时才触发，[onFocusChanged] 的每次
@@ -69,7 +81,7 @@ class FocusSession(
      * 提交焦点结构并绑定邻居关系。返回图本身，便于调用方查 key 是否存在。
      * @param views key → 视图；只有这里出现的 key 才能被真正聚焦。
      */
-    fun bind(plan: FocusPlan, views: Map<FocusKey, View>): FocusGraph {
+    fun bind(plan: FocusPlan, views: Map<FocusKey, View>, visual: Boolean = false): FocusGraph {
         val built = FocusGraph.of(plan)
         FocusBinder.bind(built, views)
         graph = built
@@ -78,7 +90,34 @@ class FocusSession(
         // 重建/刷新时视图树没换焦点（光标本来就在原位），也就不会有焦点变化事件：
         // 页面的信息栏要在这里补说一次"现在停在哪"
         settle()
+        if (visual) scheduleVisualBind(views)
         return built
+    }
+
+    /**
+     * 布局完成后再按真实位置改写方向键落点。
+     *
+     * 不能同步做：`bind` 往往发生在视图刚 addView、还没 measure/layout 的时候，
+     * 量到的矩形是 0；而且这一刻的宽度也不是最终宽度（比如 weight 还没分配）。
+     */
+    private fun scheduleVisualBind(bound: Map<FocusKey, View>) {
+        val anchor = root ?: return
+        val generation = ++visualGeneration
+        anchor.post {
+            if (generation == visualGeneration) FocusBinder.bindVisual(anchor, bound)
+        }
+        // 首次建页时 post 可能跑在第一次 measure 之前：布局完成后再补一次。
+        // 上一轮还没等到布局的监听器先摘掉，否则翻组时每次 bind 都会挂一个。
+        pendingLayout?.let { anchor.viewTreeObserver.removeOnGlobalLayoutListener(it) }
+        val listener = object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
+            override fun onGlobalLayout() {
+                anchor.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                if (pendingLayout === this) pendingLayout = null
+                if (generation == visualGeneration) FocusBinder.bindVisual(anchor, bound)
+            }
+        }
+        pendingLayout = listener
+        anchor.viewTreeObserver.addOnGlobalLayoutListener(listener)
     }
 
     /**

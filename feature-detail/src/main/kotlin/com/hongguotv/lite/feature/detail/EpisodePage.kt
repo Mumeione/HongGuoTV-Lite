@@ -242,7 +242,8 @@ internal class EpisodePage(
             ),
             intro = series.intro.ifBlank { "选择剧集开始观看" },
         )
-        playButton.label(DetailText.playLabel(progress, target, watched))
+        val (title, note) = DetailText.playLabelLines(DetailText.playLabel(progress, target, watched))
+        playButton.label(title, note)
         favoriteButton.label(if (favorite) "已收藏" else "收藏")
     }
 
@@ -285,9 +286,10 @@ internal class EpisodePage(
             )
         }
 
-        // 范围行始终占位（"这一页是第几到第几集"）；两侧长条始终在，越界的方向禁用压暗。
+        // 范围行始终占位（"这一页是第几到第几集"）；单页剧没有可翻的组，整对长条收起，
+        // 分集格占满一行（与收藏页的季卡同一条规则）。
         rangeLabel.text = DetailText.rangeLabel(range)
-        strips.show(visible = true, hasPrev = pageIndex > 0, hasNext = pageIndex < pages - 1)
+        strips.show(visible = pages > 1, hasPrev = pageIndex > 0, hasNext = pageIndex < pages - 1)
     }
 
     private fun renderNextSeason(data: Detail) {
@@ -340,7 +342,8 @@ internal class EpisodePage(
                 collectSeasonLine(data.series)
             }
             renderHero(data)
-            applyFocus()
+            // 收藏键点完还留在原位：紧接着可能就要取消，光标跳走会多按好几次
+            applyFocus(KEY_FAVORITE)
         }
     }
 
@@ -351,8 +354,12 @@ internal class EpisodePage(
         if (next == pageIndex) return
         pageIndex = next
         renderEpisodes(data)
+        // 连翻两组时光标留在长条上；翻到尽头（那条被禁用）才落回第一格
         val first = pagination.page(data.episodes.size, pageIndex).first
-        applyFocus(data.episodes.getOrNull(first)?.let { FocusKey(episodeKey(it.vid)) })
+        applyFocus(
+            strips.preferredAfterPage(delta)
+                ?: data.episodes.getOrNull(first)?.let { FocusKey(episodeKey(it.vid)) },
+        )
     }
 
     private fun openPlayer(data: Detail) {
@@ -390,6 +397,8 @@ internal class EpisodePage(
         // 长条不可用的那侧整段省略，内容行缘夹住自己（SideStrips 统一判）。
         val episodeKeys = episodeCells.keys.map { FocusKey(it) }
         episodeCells.forEach { (key, cell) -> views[FocusKey(key)] = cell }
+        // 两侧长条必须在 views 里，否则焦点图声明了侧翼也没有落点（按不进去）
+        strips.bindInto(views)
 
         submitPlan(
             sections = listOf(

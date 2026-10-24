@@ -317,7 +317,7 @@ class PageScaffold internal constructor(private val ui: UiKit) : FrameLayout(ui.
         val existing = session
         if (existing != null) return existing
         // post = 本视图的一帧延迟：焦点"落定"回调（信息栏更新）靠它滤掉同帧内的中间态
-        return FocusSession(page, post = ::post).also { created ->
+        return FocusSession(page, root = this, post = ::post).also { created ->
             session = created
             viewTreeObserver.addOnGlobalFocusChangeListener { oldFocus, newFocus -> session?.onFocusChanged(oldFocus, newFocus) }
         }

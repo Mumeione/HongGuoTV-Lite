@@ -95,6 +95,18 @@ internal object DetailText {
             .joinToString(" ")
     }
 
+    /**
+     * 主按钮的两行：动作 + 集数。
+     *
+     * 「继续播放 · 第 100 集」在 172dp 的胶囊里会折成「…第 100 / 集」——断在量词上。
+     * 文案仍由 [playLabel] / `SeasonTarget.label` 统一派生（"按钮说什么"只有一份事实），
+     * 这里只负责把它拆成"动作"与"第二行小字"两截。
+     */
+    fun playLabelLines(label: String): Pair<String, String> {
+        val parts = label.split(" · ", limit = 2)
+        return parts[0] to parts.getOrElse(1) { "" }
+    }
+
     /** 主按钮文案。看 [ResumeTarget] 而不是原始记录：落点挪到下一集时文案也要跟着挪。 */
     fun playLabel(progress: Progress?, target: ResumeTarget, watched: Boolean): String = when {
         watched -> "重新观看"
@@ -158,6 +170,9 @@ internal object DetailText {
     /** 季线只在已收藏时才有意义：未收藏的剧不必为空标题写占位。 */
     fun seasonLineTitle(seasonCount: Int): String = if (seasonCount >= 2) "所有季 · 共 $seasonCount 季" else "所有季"
 
-    /** 系列页右栏说明：解释"换一季不会冲掉别的季的记录"（旧行为，用户常问）。逗号后分行——一句两个主语挤一行读起来费劲。 */
-    const val SEASON_FOOTER: String = "各季进度分别保存，\n继续播放会回到最近看的那一季"
+    /**
+     * 系列页右栏说明：解释"换一季不会冲掉别的季的记录"（旧行为，用户常问）。
+     * 一行显示（2026-10-24 口径）：说明句不是正文，拆两行会把信息块顶出封面底。
+     */
+    const val SEASON_FOOTER: String = "各季进度分别保存，继续播放会回到最近看的那一季"
 }

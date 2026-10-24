@@ -238,6 +238,8 @@ class PrefsLibraryTest {
         val line = lib.seasonLine("剧A")
         assertNotNull(line)
         assertEquals("", line!!.seasons.first().intro)
+        // 分类要留下：收藏详情页的「分类」行读季线卡片，剥掉就只能整行消失
+        assertEquals("标签", line.seasons.first().tags)
         assertEquals(2, line.seasons.size)
         // 单季不落库
         lib.rememberSeasonLine("剧C", SeasonLine(listOf(Series("5", "剧C第一季"))))

@@ -11,6 +11,19 @@ import com.hongguotv.lite.uikit.internal.bindFocus
 import com.hongguotv.lite.uikit.internal.dp
 import com.hongguotv.lite.uikit.internal.shape
 
+/** 设置行的两种场合：设置页的面板行，或播放抽屉里的紧凑行。 */
+enum class SettingRowStyle {
+    /** 设置页：46dp 高、14.5sp 半粗标签 + 13.5sp muted 值。 */
+    PANEL,
+
+    /**
+     * 播放抽屉：34dp 高、名称与值分列。
+     * 2026-10-24 验收：`倍速 · 1×` 写在一行里，名称与当前值分不出来——
+     * 名称退一档（soft、常规）、值亮一档（text、粗），一眼能看出"这一行现在是什么档位"。
+     */
+    DRAWER,
+}
+
 /**
  * 设置面板里的一行（B 方案 mockup 画面7 的 `.setrow`）：
  *
@@ -34,6 +47,7 @@ class SettingRow internal constructor(
     private val ui: UiKit,
     label: String,
     value: String,
+    private val style: SettingRowStyle = SettingRowStyle.PANEL,
     private val onTap: () -> Unit,
 ) : LinearLayout(ui.context) {
 
@@ -47,22 +61,25 @@ class SettingRow internal constructor(
     init {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        minimumHeight = ui.dp(tokens.metrics.setRowHeight)
-        // 行内左右留白（mockup `.setrow{padding:0 14px}`）
-        val pad = ui.dp(tokens.space.l)
+        val drawer = style == SettingRowStyle.DRAWER
+        minimumHeight = if (drawer) ui.dp(tokens.metrics.drawerRowHeight) else ui.dp(tokens.metrics.setRowHeight)
+        // 行内左右留白（mockup `.setrow{padding:0 14px}`；抽屉更紧一档）
+        val pad = ui.dp(if (drawer) tokens.space.m else tokens.space.l)
         setPadding(pad, 0, pad, 0)
 
         labelView = TextView(context).apply {
             text = label
-            textSize = tokens.type.specValue
-            setTypeface(null, Typeface.BOLD)
+            textSize = if (drawer) tokens.type.cardStatus else tokens.type.specValue
+            setTypeface(null, if (drawer) Typeface.NORMAL else Typeface.BOLD)
             includeFontPadding = false
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
         }
         valueView = TextView(context).apply {
             text = value
-            textSize = tokens.type.cardStatus
+            // 抽屉里"值"是这一行唯一要读的东西，比名称大一档、加粗
+            textSize = if (drawer) tokens.type.specValue else tokens.type.cardStatus
+            setTypeface(null, if (drawer) Typeface.BOLD else Typeface.NORMAL)
             includeFontPadding = false
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
@@ -88,10 +105,21 @@ class SettingRow internal constructor(
 
     private fun paintState(focused: Boolean) {
         val colors = tokens.colors
+        val drawer = style == SettingRowStyle.DRAWER
         // 焦点只有"白底填充"一种表达（stateShape 的描边规则：白底不再描边）
-        background = shape(if (focused) colors.focus else colors.row, tokens.shapes.row, null)
-        labelView.setTextColor(if (focused) colors.onFocus else colors.text)
-        // mockup `.setrow.focus .val{color:#5B6674}`：白底上的值要退到 dim 一档才不抢主标签
-        valueView.setTextColor(if (focused) colors.dim else colors.muted)
+        background = shape(
+            fill = if (focused) colors.focus else colors.row,
+            radiusDp = if (drawer) tokens.shapes.small else tokens.shapes.row,
+            stroke = null,
+        )
+        if (drawer) {
+            // 名称退、值进：抽屉打开时用户扫的是"现在是什么档"，不是"这行叫什么"
+            labelView.setTextColor(if (focused) colors.dim else colors.soft)
+            valueView.setTextColor(if (focused) colors.onFocus else colors.focus)
+        } else {
+            labelView.setTextColor(if (focused) colors.onFocus else colors.text)
+            // mockup `.setrow.focus .val{color:#5B6674}`：白底上的值要退到 dim 一档才不抢主标签
+            valueView.setTextColor(if (focused) colors.dim else colors.muted)
+        }
     }
 }

@@ -108,6 +108,12 @@ data class Type(
     val pageTitle: Float = 28f,
     /** 多行正文的行距倍数（B 方案简介 1.6）。 */
     val lineSpacing: Float = 1.6f,
+
+    /**
+     * 主按钮第二行相对主行的字号比例（15sp → 12sp）。
+     * 用比例而不是绝对字号：按钮的主行字号换档时，副行跟着换，不会一大一小。
+     */
+    val noteScale: Float = 0.8f,
 )
 
 /**
@@ -213,12 +219,18 @@ data class Metrics(
     val heroCoverHeight: Int = 214,
     val heroColumnGap: Int = 22,
     /** 动作列宽：三个胶囊竖排的固定宽。 */
-    val heroActionsWidth: Int = 172,
+    val heroActionsWidth: Int = 168,
+    /**
+     * 动作列右侧留白（2026-10-24 验收口径）：三个按钮整体左移、右边不贴内容边缘。
+     * 缩窄列宽只会让左缘往右跑，真正把按钮块推左的是这条留白。
+     */
+    val heroActionRightInset: Int = 28,
     /** 动作列里两个胶囊之间的间距（mockup `.b-acts{gap:9px}`）。 */
-    val heroActionGap: Int = 9,
+    val heroActionGap: Int = 8,
     /** 规格表 label 列宽。 */
     val specLabelWidth: Int = 56,
-    val specRowGap: Int = 9,
+    /** 规格表行距（2026-10-24 验收：行与行拉开一档，信息块才不挤成一片）。 */
+    val specRowGap: Int = 12,
     /** 简介两行封顶，超出省略号（不做滚动框）。 */
     val introMaxLines: Int = 2,
 
@@ -256,8 +268,11 @@ data class Metrics(
     val drawerPaddingBottom: Int = 14,
     /** 抽屉 / 提示层离画面底缘的距离（mockup `.b-drawer{bottom:16px}`）。 */
     val overlayBottomGap: Int = 16,
-    /** 抽屉右列（五项设置）的固定宽。 */
-    val drawerSettingsWidth: Int = 236,
+    /**
+     * 抽屉右列（五项设置）的固定宽。
+     * 2026-10-24 验收：右列收窄一档，把宽度让给左侧分集格两侧的翻组长条。
+     */
+    val drawerSettingsWidth: Int = 196,
     val drawerRowHeight: Int = 34,
 
     // ---------- 设置面板 ----------

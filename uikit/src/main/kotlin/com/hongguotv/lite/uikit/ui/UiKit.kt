@@ -137,9 +137,17 @@ class UiKit(
 
     fun link(label: String, onTap: () -> Unit): TvLink = TvLink(context, tokens, label, onTap)
 
-    /** 设置面板的一行：左标签 + 右值 + 箭头（B 方案 mockup 画面7）。 */
+    /** 设置面板的一行：左标签 + 右值（B 方案 mockup 画面7）。 */
     fun settingRow(label: String, value: String, onTap: () -> Unit): SettingRow =
-        SettingRow(this, label, value, onTap)
+        SettingRow(this, label, value, SettingRowStyle.PANEL, onTap)
+
+    /** 带样式的重载（播放抽屉的紧凑行）。单独一个重载是为了让 `{ ... }` 仍能作尾随 lambda。 */
+    fun settingRow(
+        label: String,
+        value: String,
+        style: SettingRowStyle,
+        onTap: () -> Unit,
+    ): SettingRow = SettingRow(this, label, value, style, onTap)
 
     /**
      * 键帽（信息栏右侧的「OK / ◀▶」、播放抽屉顶行的「MENU」）。

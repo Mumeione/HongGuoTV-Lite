@@ -55,11 +55,22 @@ class PlayerTextTest {
         assertEquals("", PlayerText.range(IntRange.EMPTY, 0))
     }
 
+    /**
+     * 名称与值分列（2026-10-24 验收）：写成一整串「倍速 · 1×」时，名称和当前档位
+     * 同一个字号同一个颜色，抽屉打开后分不出哪部分是设置。
+     */
     @Test
-    fun theSettingsRowsShowTheCurrentValues() {
+    fun theSettingsRowsSplitNameAndValue() {
         val settings = Settings(quality = 720, speed = 1.5f, frame = FrameMode.ZOOM)
         assertEquals(
-            listOf("倍速 · 1.5×", "清晰度 · 720P", "画面 · 等比铺满", "定时停止 · 关闭", "从头播放"),
+            listOf(
+                PlayerSettingLine("倍速", "1.5×"),
+                PlayerSettingLine("清晰度", "720P"),
+                PlayerSettingLine("画面", "等比铺满"),
+                PlayerSettingLine("定时停止", "关闭"),
+                // 动作不是设置：没有"当前值"
+                PlayerSettingLine("从头播放", ""),
+            ),
             PlayerText.settingsRows(settings, sleep = "关闭"),
         )
     }
