@@ -14,6 +14,13 @@ data class Series(
     val tags: String = "",
     /** 季号；0 = 单季或未知。仅用于收藏 base 键与季线定序。 */
     val season: Int = 0,
+    /**
+     * 所属专辑 id（详情响应的 `related_album_id`）。空串 = 同 IP 作品，不属于任何季线。
+     *
+     * 这是"这一部是不是某系列的一季"的唯一硬证据：同 IP 作品的详情里这个字段是空的，
+     * 而它们的标题同样会带「第一季」——靠标题判断会把同 IP 全部塞进季线（2026-10-24 踩过）。
+     */
+    val albumId: String = "",
     /** false = 未上线季（episode_cnt=0）：保留在季线中但不可点击、不参与连播。 */
     val released: Boolean = true,
     /**

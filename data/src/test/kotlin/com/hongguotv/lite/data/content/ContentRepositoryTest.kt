@@ -75,8 +75,12 @@ class ContentRepositoryTest {
         .put("suggest_list", JSONArray(rows))
         .toString()
 
-    private fun planCard(id: String, title: String, count: Int, tag: String?) = JSONObject()
-        .put("video_data", JSONObject().put("series_id", id).put("title", title).put("episode_cnt", count).put("cover", "https://img.example/c.jpg"))
+    private fun planCard(id: String, title: String, count: Int, tag: String?, seasonIndex: Int = 0) = JSONObject()
+        .put(
+            "video_data",
+            JSONObject().put("series_id", id).put("title", title).put("episode_cnt", count)
+                .put("cover", "https://img.example/c.jpg").put("season_index", seasonIndex),
+        )
         .put("tag_info", if (tag == null) JSONObject() else JSONObject().put("text", tag))
 
     private fun planResponse(cards: List<JSONObject>): String = JSONObject()
@@ -84,11 +88,12 @@ class ContentRepositoryTest {
         .put("data", JSONArray().put(JSONObject().put("show_type", 547).put("video_data", JSONArray(cards))))
         .toString()
 
-    private fun videoDetailResponse(code: Int = 0): String = JSONObject()
+    private fun videoDetailResponse(code: Int = 0, seasonIndex: Int = 3, albumId: String = "7655951352136207384"): String = JSONObject()
         .put("code", code)
         .put("data", JSONObject().put("video_data", JSONObject()
             .put("series_id", "7").put("series_title", "凡人测试书第三季").put("series_cover", "https://img.example/d.jpg")
             .put("series_intro", "简介").put("episode_cnt", 3)
+            .put("season_index", seasonIndex).put("related_album_id", albumId)
             .put("video_list", JSONArray(listOf(
                 JSONObject().put("vid", "100"),
                 JSONObject().put("vid", "500"),
@@ -283,7 +288,7 @@ class ContentRepositoryTest {
                 planCard("4", "凡人测试书第三季", 60, "第3季"),
             )))
         }
-        val anchor = Series(id = "1", title = "凡人测试书第二季", season = 2)
+        val anchor = Series(id = "1", title = "凡人测试书第二季", season = 2, albumId = "album-1")
         val line = repo.seasons(anchor.id, anchor)
         assertEquals(listOf("1", "4", "3"), line.seasons.map { it.id })
         assertEquals(listOf(2, 3, 8), line.seasons.map { it.season })
@@ -296,37 +301,63 @@ class ContentRepositoryTest {
     }
 
     /**
-     * 2026-10-24 验收：正传/分宗篇这类标题不带「第N季」的锚点，季号原本是 0，
-     * 被当成"未知季"排到第 10 季后面。相关作品从第 2 季起，锚点就是第 1 季。
+     * 2026-10-24 验收（第二次）：锚点本尊不在相关作品里时，靠**详情**给的季号并入。
+     *
+     * 分宗篇的详情响应有 `season_index=1` 与 `related_album_id`，它就是第 1 季；
+     * 只按标题解析会得到 0（标题「魏家逆子成首辅分宗篇」没有「第N季」）。
      */
     @Test
-    fun seasonsGivesTheUnnumberedAnchorTheFirstSlot() = runTest {
+    fun seasonsMergesTheAnchorUsingTheSeasonIndexFromDetail() = runTest {
         val repo = repository { request ->
             route(request, search = "", plan = planResponse(listOf(
-                planCard("2", "魏家测试书第二季", 64, "第2季"),
-                planCard("10", "魏家测试书第十季", 0, "第10季"),
+                planCard("2", "魏家测试书折桂篇", 64, "第2季", seasonIndex = 2),
+                planCard("3", "魏家测试书第三季", 65, "第3季", seasonIndex = 3),
             )))
         }
-        val anchor = Series(id = "1", title = "魏家测试书")
+        val anchor = Series(id = "1", title = "魏家测试书分宗篇", season = 1, albumId = "7655951352136207384")
         val line = repo.seasons(anchor.id, anchor)
-        assertEquals(listOf("1", "2", "10"), line.seasons.map { it.id })
-        assertEquals(listOf(1, 2, 10), line.seasons.map { it.season })
+        assertEquals(listOf("1", "2", "3"), line.seasons.map { it.id })
+        assertEquals(listOf(1, 2, 3), line.seasons.map { it.season })
     }
 
-    /** 相关作品里已经有第 1 季时，锚点不属于这条季线（同 IP 番外）：保持季号 0，不抢第 1 季。 */
+    /**
+     * 同 IP 正传（详情里 `related_album_id` 为空、季号为 0）**不是**季线的第 1 季。
+     * 把它并进来会顶掉真正的第 1 季（分宗篇）——维护者点名的就是这个坑。
+     */
     @Test
-    fun seasonsLeavesAnUnnumberedAnchorUnknownWhenTheLineStartsAtOne() = runTest {
+    fun seasonsLeavesASameIpAnchorOutOfTheLine() = runTest {
         val repo = repository { request ->
             route(request, search = "", plan = planResponse(listOf(
-                planCard("1", "凡人测试书第一季", 81, "第1季"),
-                planCard("2", "凡人测试书第二季", 64, "第2季"),
+                planCard("2", "魏家测试书折桂篇", 64, "第2季", seasonIndex = 2),
+                planCard("3", "魏家测试书第三季", 65, "第3季", seasonIndex = 3),
             )))
         }
-        val anchor = Series(id = "9", title = "凡人测试书番外篇")
+        val anchor = Series(id = "9", title = "魏家测试书", season = 0, albumId = "")
         val line = repo.seasons(anchor.id, anchor)
-        // 数据层按季号升序，未知季（0）在最前；页面排序时再把它挪到末尾
-        assertEquals(listOf(0, 1, 2), line.seasons.map { it.season })
-        assertEquals("9", line.seasons.first().id)
+        assertEquals(listOf("2", "3"), line.seasons.map { it.id })
+        assertEquals(listOf(2, 3), line.seasons.map { it.season })
+    }
+
+    /** 详情响应的 `season_index` / `related_album_id` 要落到模型上：季线并入靠它们判断。 */
+    @Test
+    fun detailReadsSeasonIndexAndAlbumId() = runTest {
+        val repo = repository { request ->
+            route(request, search = "", detail = videoDetailResponse(seasonIndex = 5, albumId = "album-42"))
+        }
+        val detail = repo.detail("7")
+        assertEquals("详情给了季号时以它为准（标题只是第二来源）", 5, detail.series.season)
+        assertEquals("album-42", detail.series.albumId)
+    }
+
+    /** 同 IP 正传的详情没有 `related_album_id`：模型据此知道自己不在任何季线里。 */
+    @Test
+    fun detailKeepsAnEmptyAlbumForSameIpWorks() = runTest {
+        val repo = repository { request ->
+            route(request, search = "", detail = videoDetailResponse(seasonIndex = 0, albumId = ""))
+        }
+        val detail = repo.detail("7")
+        assertEquals("", detail.series.albumId)
+        assertEquals("季号 0 时退回标题里的季号", 3, detail.series.season)
     }
 
     // ---------- 取流 ----------

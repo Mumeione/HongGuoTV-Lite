@@ -217,7 +217,12 @@ class ContentRepository(
                 intro = vd.str(Fields.Detail.SERIES_INTRO),
                 badge = "全 ${vd.optInt(Fields.Detail.EPISODE_CNT, vids.size)} 集",
                 tags = Parsers.detailTags(vd),
-                season = SeasonKeys.seasonNumber(title),
+                // 详情的 season_index 是权威季号（「分宗篇」这种标题不带季号的季也能定序）；
+                // 没有时退回标题解析（老数据/单季剧）
+                season = vd.optInt(Fields.Detail.SEASON_INDEX, 0).takeIf { it > 0 }
+                    ?: SeasonKeys.seasonNumber(title),
+                // 空 = 同 IP 作品：它不属于任何季线，季线并入时据此把它挡在外面
+                albumId = vd.str(Fields.Detail.RELATED_ALBUM_ID),
             )
             Detail(series, vids.mapIndexed { index, vid -> Episode(vid, index) })
         }
@@ -233,8 +238,11 @@ class ContentRepository(
 
     /**
      * plan 接口返回「相关作品」cell（show_type=547）：本系列全部季（第 2 季起）自带季标签与集数；
-     * 锚点本尊不在卡片里（如分宗篇=第 1 季），按其标题季号并入，无季号的锚点视为系列起点。
-     * 返回季按季号升序（旧 → 新）。
+     * 锚点本尊不在卡片里（如分宗篇=第 1 季），按其**详情给的**季号并入。
+     *
+     * 并入的两个条件（缺一不可）：锚点有季号，且它属于某张专辑（`albumId` 非空）。
+     * 同 IP 正传的详情没有 `related_album_id`、季号也是 0——把它并进来会被当成第 1 季，
+     * 顶掉真正的分宗篇（2026-10-24 维护者点名的坑）。
      */
     private suspend fun planCells(seriesId: String, anchor: Series?): SeasonLine {
         require(SeriesIds.ID.matches(seriesId)) { "剧集 id 无效：$seriesId" }
@@ -244,20 +252,17 @@ class ContentRepository(
             val data = runCatching { JSONObject(raw).optJSONArray(Fields.Envelope.DATA) ?: JSONArray() }
                 .getOrElse { throw UpstreamError.Shape("body") }
             val entries = Parsers.planCell(data).toMutableList()
-            if (anchor != null && entries.none { it.second.id == anchor.id }) {
-                // 锚点本尊不在卡片里（如分宗篇=第 1 季）：季号优先取标题；标题也没有季号时，
-                // 用"最小季号 − 1"——相关作品从第 2 季起，锚点就是第 1 季。
-                // 相关作品已含第 1 季时推不出 1（0 被拒绝），保持未知（0），不抢别人的位置。
-                val inferred = SeasonKeys.seasonNumber(anchor.title).takeIf { it > 0 }
-                    ?: entries.minOfOrNull { it.first }?.minus(1)?.takeIf { it >= 1 }
-                    ?: 0
-                entries += inferred to (if (inferred > 0) anchor.copy(season = inferred) else anchor)
+            if (anchor != null && entries.none { it.second.id == anchor.id } && anchor.isSeriesSeason) {
+                entries += anchor.season to anchor
             }
             SeasonLine(entries.sortedBy { it.first }.map { it.second })
         }
         diagnostics.event("seasons.loaded", mapOf("seasons" to line.seasons.size))
         return line
     }
+
+    /** 锚点是不是某条季线的一季：有季号，且属于某张专辑（同 IP 作品两个条件都不满足）。 */
+    private val Series.isSeriesSeason: Boolean get() = season > 0 && albumId.isNotBlank()
 
     // ---------- 取流 ----------
 

@@ -61,6 +61,9 @@ object Fields {
         const val VIDEO_DATA = "video_data"
         const val TAG_INFO = "tag_info"
         const val TAG_TEXT = "text"
+
+        /** 卡片在系列里的季序号（服务端给，比 tag 文案可靠）。 */
+        const val SEASON_INDEX = "season_index"
     }
 
     /** 详情：全集清单与分类。 */
@@ -82,6 +85,12 @@ object Fields {
         const val DATA_TYPE = "data_type"
         const val DATA_TYPE_CATEGORY = 3
         const val CONTENT = "content"
+
+        /** 这一季在系列里的序号；0/缺失 = 同 IP 作品（不是任何季线的一季）。 */
+        const val SEASON_INDEX = "season_index"
+
+        /** 所属专辑 id：同一系列的各季共用。同 IP 作品的这个字段是空的。 */
+        const val RELATED_ALBUM_ID = "related_album_id"
     }
 
     /** 取流：video_model → fallback_api → video_list。 */

@@ -122,8 +122,12 @@ class ParsersTest {
 
     // ---------- plan 季线 ----------
 
-    private fun planCard(id: String, title: String, count: Int, tag: String?) = JSONObject()
-        .put("video_data", JSONObject().put("series_id", id).put("title", title).put("episode_cnt", count).put("cover", "https://img.example/c.jpg"))
+    private fun planCard(id: String, title: String, count: Int, tag: String?, seasonIndex: Int = 0) = JSONObject()
+        .put(
+            "video_data",
+            JSONObject().put("series_id", id).put("title", title).put("episode_cnt", count)
+                .put("cover", "https://img.example/c.jpg").put("season_index", seasonIndex),
+        )
         .put("tag_info", if (tag == null) JSONObject() else JSONObject().put("text", tag))
 
     private fun planResponse(cards: List<JSONObject>): JSONArray = JSONArray()
@@ -152,25 +156,29 @@ class ParsersTest {
     }
 
     /**
-     * 2026-10-24 验收：季号标签不是每条都有（第二季实测就是空的），
-     * 标题里的「第N季」是同一事实的第二来源——只看标签会整季丢失。
+     * 2026-10-24 验收（第二次）：**同 IP 卡片一律不进季线**，哪怕它标题里带「第一季」。
+     *
+     * 实测相关作品里混着同 IP 作品的「3D 版第一季」「月落镇魔第二季」——它们各有各的季号，
+     * 按标题兜底会把 37 张卡全塞进同一条季线（维护者截图：一屏全是「第一季」）。
+     * 判定只看**服务端给的季号**：`tag_info.text` 能解析出「第N季」或带 `season_index` 才是本系列，
+     * 写「同IP」的一律不是。
      */
     @Test
-    fun planCellFallsBackToTheTitleWhenTheTagIsMissing() {
+    fun planCellDropsSameIpCardsEvenWhenTheTitleCarriesASeasonTag() {
         val seasons = Parsers.planCell(planResponse(listOf(
-            planCard("1", "万妖图录传第一季", 81, null),
-            planCard("2", "万妖图录传第二季", 53, ""),
-            planCard("3", "万妖图录传第三季", 58, "第3季"),
+            planCard("2", "测试书第二季", 64, "第2季", seasonIndex = 2),
+            planCard("90", "测试书3D版第一季", 69, "同IP", seasonIndex = 1),
+            planCard("91", "测试书：月落篇第二季", 58, "同IP", seasonIndex = 2),
         )))
-        assertEquals(listOf(1, 2, 3), seasons.map { it.first })
-        assertEquals(listOf("1", "2", "3"), seasons.map { it.second.id })
+        assertEquals(listOf("2"), seasons.map { it.second.id })
     }
 
-    /** 标签解析不出季号但标题能解析时，用标题的号——标签是脏值，不代表这一季不存在。 */
+    /** 卡片自带 `season_index` 时以它为准（标签是展示文案，可能写成「第九季」而序号是 9）。 */
     @Test
-    fun planCellIgnoresAUsableTagThatYieldsNoSeason() {
-        val seasons = Parsers.planCell(planResponse(listOf(planCard("4", "测试书第四季", 60, "特别篇"))))
-        assertEquals(listOf(4), seasons.map { it.first })
+    fun planCellPrefersSeasonIndexOverTheTagText() {
+        val seasons = Parsers.planCell(planResponse(listOf(planCard("3", "测试书", 80, "第2季", seasonIndex = 3))))
+        assertEquals(listOf(3), seasons.map { it.first })
+        assertEquals(3, seasons[0].second.season)
     }
 
     @Test

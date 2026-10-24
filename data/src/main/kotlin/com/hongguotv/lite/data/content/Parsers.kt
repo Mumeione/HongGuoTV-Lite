@@ -167,11 +167,14 @@ internal object Parsers {
 
     /**
      * plan 响应解析（纯函数，供单测）：data 里 show_type=547 的 cell 即「相关作品」。
-     * 卡片带「第N季」→ 季线；无季标签 → 同 IP 卡片（明确不展示，解析后丢弃）。
-     * 介质不在卡片上：plan 卡片无 celebrities 字段，过滤由调用方按锚点整线传播。
      *
-     * 季号两个来源，按可靠度取：`tag_info.text`（权威标签）→ 标题里的「第N季」。
-     * 只看标签会整季丢失——实测万妖图录传第二季的标签是空的，而标题写着「第二季」。
+     * **判定只看卡片自己的季号，绝不看标题**（2026-10-24 第二次验收）：
+     * 同 IP 作品的标题同样叫「…3D版第一季」「…月落篇第二季」，按标题兜底会把它们全当成
+     * 本系列的季——维护者实测一条季线 37 季、一屏全是「第一季」。
+     * `tag_info.text` 写「同IP」的卡片、或 `season_index` 缺失且标签解析不出季号的卡片，
+     * 一律不进季线（产品口径：一部剧只有一个制作组能活）。
+     *
+     * 季号优先取 `season_index`（服务端序号），标签是展示文案、只作后备。
      */
     fun planCell(data: JSONArray): List<Pair<Int, Series>> {
         val cell = data.objects().firstOrNull { it.optInt(Fields.Plan.SHOW_TYPE) == Fields.Plan.SHOW_TYPE_RELATED }
@@ -183,9 +186,11 @@ internal object Parsers {
             if (!SeriesIds.ID.matches(id)) continue
             val count = o.optInt(Fields.Card.EPISODE_CNT, 0)
             val title = o.str(Fields.Card.TITLE).ifEmpty { o.str(Fields.Card.SERIES_NAME) }
-            val n = SeasonKeys.seasonNumber(card.optJSONObject(Fields.Plan.TAG_INFO)?.str(Fields.Plan.TAG_TEXT).orEmpty())
-                .takeIf { it > 0 }
-                ?: SeasonKeys.seasonNumber(title)
+            val tag = card.optJSONObject(Fields.Plan.TAG_INFO)?.str(Fields.Plan.TAG_TEXT).orEmpty()
+            // 标签写明「同IP」（可能带后缀，如「同IP作品」）= 服务端自己说它不是本系列，别猜
+            if (tag.startsWith(SAME_IP_TAG, ignoreCase = true)) continue
+            val n = o.optInt(Fields.Plan.SEASON_INDEX, 0).takeIf { it > 0 }
+                ?: SeasonKeys.seasonNumber(tag)
             // 两个来源都读不出季号 = 同 IP 无季标签条目，不进入季线
             if (n <= 0) continue
             seasons += n to Series(
@@ -201,8 +206,15 @@ internal object Parsers {
                 episodeCount = count,
             )
         }
-        return seasons
+        // 同一季号只留一张：服务端偶尔把两个制作组的「第 N 季」都塞进相关作品，
+        // 取集数更多的那个（口径：只认市场认可的那个制作组，不让页面出现两张「第N季」）。
+        return seasons.groupBy { it.first }.values.map { group ->
+            group.maxByOrNull { it.second.episodeCount }!!
+        }
     }
+
+    /** 相关作品卡片上"不是本系列"的标签文案（服务端原文，大小写不敏感地比）。 */
+    private const val SAME_IP_TAG = "同IP"
 
     /** 详情响应没有 tags 字段：分类在 category_schema（JSON 字符串），再退 secondary_infos 里 data_type=3 的标签位。 */
     fun detailTags(vd: JSONObject): String {
