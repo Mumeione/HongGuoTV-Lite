@@ -69,11 +69,18 @@ class TvButton internal constructor(
     private val onTap: () -> Unit,
 ) : FocusControl(context, tokens) {
 
-    private var primary: String = label
-    private var note: String = ""
+    /**
+     * 主行 / 第二行。**必须是可空的**：`FocusControl` 的构造器里就会 `paint(false)`，
+     * 那时子类的属性初始化还没跑（Kotlin 先调 super），非空 String 会是 null 引用，
+     * `SpannableStringBuilder(null)` 直接崩在主线程。这里让 renderLabel 在构造期直接返回，
+     * init 末尾再补画一次。
+     */
+    private var primary: String? = null
+    private var note: String? = null
 
     init {
         text = label
+        primary = label
         val cell = variant == ButtonVariant.CELL || variant == ButtonVariant.GRID_CELL
         val row = variant == ButtonVariant.ROW
         val smallRow = variant == ButtonVariant.SMALL_ROW
@@ -128,18 +135,21 @@ class TvButton internal constructor(
     }
 
     /**
-     * 按当前焦点态重画两行标签。
+     * 按当前焦点态重画两行标签。构造期 `paint(false)` 会先跑一次（此时主行还没赋值），
+     * 直接返回；`init` 末尾的 `repaint()` 与 `label()` 再补画。
      *
      * 第二行用 span 自带颜色：TextView 的 `setTextColor` 只能给"没有显式颜色的文字"上色，
      * 焦点态（白底深字）必须把第二行同步压深，否则白底上是一行看不见的浅灰。
      */
     private fun renderLabel() {
-        if (note.isEmpty()) {
-            if (text?.toString() != primary) text = primary
+        val value = primary ?: return
+        val sub = note.orEmpty()
+        if (sub.isEmpty()) {
+            if (text?.toString() != value) text = value
             return
         }
-        val start = primary.length + 1
-        val spanned = SpannableStringBuilder(primary).append('\n').append(note)
+        val start = value.length + 1
+        val spanned = SpannableStringBuilder(value).append('\n').append(sub)
         spanned.setSpan(RelativeSizeSpan(tokens.type.noteScale), start, spanned.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         spanned.setSpan(
             ForegroundColorSpan(if (isFocused) tokens.colors.dim else tokens.colors.muted),
