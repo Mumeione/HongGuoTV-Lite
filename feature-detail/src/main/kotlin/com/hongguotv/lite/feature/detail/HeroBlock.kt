@@ -35,7 +35,7 @@ import com.hongguotv.lite.uikit.ui.UiKit
  * - **说明行贴着封面底**：动作列高 3×40 + 2×8 = 136，加上片名/副行/说明约 213，
  *   与 214 的封面自然平齐；收藏页的说明句本身就是一行（没有换行），不需要额外截断。
  *
- * 这里的字都是调用方给的字符串——不认"季""季线"这些概念（词汇在 feature 与 `CONTEXT.md`）。
+ * 这里的字都是调用方给的字符串——不认"季""季线"这些概念（词汇属于 feature）。
  */
 internal class HeroBlock(private val ui: UiKit) {
 

@@ -14,8 +14,8 @@ package com.hongguotv.lite.uikit.token
  * 之前那套 `Motion(enabled/focusScale/duration)` 已移除——它带来的裁切、遮挡、
  * 焦点漂移 bug 远多于观感收益。
  *
- * 当前取值来源是 B 方案（`docs/specs/2026-10-21-ui-b-redesign.md` +
- * `docs/UI/mockups/2026-10-21-B方案v4.html`，后者是唯一视觉基准）。
+ * 当前取值来自界面设计基准（逐页截图与设计稿）。改数值前先对照真机观感，
+ * 不要为了「看起来更松」单独改某一页——页面只允许引用令牌，不允许写死尺寸。
  */
 
 /**
@@ -54,7 +54,7 @@ data class Colors(
     val focus: Int = 0xFFFFFFFF.toInt(),
     /**
      * 胶囊筛选（片库、倒序）的**选中**描边：60% 白。它与焦点白底常驻同一行，
-     * 全亮白框会让"光标在哪"远看变成两处（审计 2026-10-22 #2-d）；其它控件的选中描边
+     * 全亮白框会让"光标在哪"远看变成两处；其它控件的选中描边
      * 仍然用 [focus]（分集格、季卡离焦点白底足够远）。
      */
     val selectionStroke: Int = 0x99FFFFFF.toInt(),
@@ -187,7 +187,7 @@ data class Metrics(
     val pillSmallHeight: Int = 32,
     val pillPaddingH: Int = 20,
     val pillSmallPaddingH: Int = 14,
-    /** 页头贴身动作胶囊（「检查更新」）的定宽：文案在「检查更新」↔「正在检查…」间切换时不重排（审计 #10）。 */
+    /** 页头贴身动作胶囊（「检查更新」）的定宽：文案在「检查更新」↔「正在检查…」间切换时不重排。 */
     val leadActionWidth: Int = 100,
 
     /** 分集格/季线卡两侧长条翻组键的宽（2026-10-24 取代顶行翻组胶囊）。 */

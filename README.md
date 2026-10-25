@@ -1,200 +1,103 @@
 # 红果 TV Lite
 
-An unofficial, non-commercial Android TV client for 红果短剧, written in Kotlin. GPL-3.0.
+面向 Android TV 的红果短剧非官方客户端，使用 Kotlin 与原生 View 实现，全程通过遥控器操作，最低支持 Android 6.0（API 23）。
 
-安卓 TV 端的红果短剧第三方客户端，Kotlin + 原生 View + Media3，**最低 Android 6.0（API 23）**。
-本项目是一次**搬迁式重构**：把已经验证可用的播放与交互实现，搬进一套依赖方向被强制约束的模块结构里。
-
-> **状态：S4 完成，尚不可用。** 协议层、数据层（`data`）、设计系统（`uikit`）与目录四页
-> （`feature-catalog`：搜索 / 收藏 / 历史 / 设置）已就位；详情与播放（S5–S6）、`app` 收口（S7）
-> 尚未开始，当前 APK 仍是空壳——四页要等 S7 组装进 Activity 才能看到。
-> 进度见[路线图](#路线图)，逐阶段记录见 `docs/handoff/`。
-
----
+本项目为**精简版（Lite）**：以已经验证可用的播放与交互实现为基础，只保留搜索、浏览、播放与本地数据能力；
+相比上游移除了首页推荐、榜单、局域网与扫码服务等模块，并将代码重构为依赖方向受构建系统约束的结构，以降低后续维护成本。
 
 ## 免责声明
 
-本项目是**非官方**第三方客户端，与红果短剧及其运营方**没有任何隶属、合作或授权关系**。
+本项目为非官方第三方客户端，与红果短剧及其运营方不存在隶属、合作或授权关系。
 
-- 项目仅包含**客户端实现**，不托管、不转存、不分发任何音视频内容；所有内容由用户设备实时请求获得。
-- 不包含账号登录、会员权益、付费内容绕过、去广告等任何相关实现。
-- 仅供**个人学习与技术研究**，请勿用于商业用途。
-- 使用者应自行确保其使用行为符合所在地法律法规及平台服务条款。
+- 仓库仅包含客户端实现，不托管、不转存、不分发任何音视频内容；所有内容均由用户设备实时请求获得。
+- 不包含账号登录、会员权益、付费内容绕过与去广告等相关实现。
+- 仅限个人学习与技术研究，请勿用于商业用途。
+- 使用者应自行确保使用行为符合所在地法律法规及平台服务条款。
 - 作者不对因使用本项目产生的任何后果负责，亦不提供任何形式的担保。
 
----
+## 功能
 
-## 这是什么，不是什么
+- 搜索：按剧名检索，使用官方网页的分页结果；输入完整剧名时聚合完整季线，支持正序与倒序。
+- 收藏：以「系列」为单位收藏，而非按单季收藏；支持检查是否新增季。
+- 历史：自动记录观看进度，保留最近 30 条，支持批量管理。
+- 详情：展示封面、简介、分类与分集清单，分集按 20 列 × 5 行分页。
+- 播放：支持断点续播、上下键切换集数、跨季连播、片尾预取下一集、失败自动重试与断网等待。
+- 设置：清晰度、倍速、画面模式、自动连播、默认筛选、搜索顺序、启动页与清空观看记录。
 
-**是**：一个为电视遥控器设计的内容浏览器 + 播放器。搜索、收藏（按系列而非单季）、观看历史、断点续播、跨季连播、片尾预取、故障自动恢复。
+## 范围之外
 
-**不是**：内容平台、下载器、多端同步、排行榜、推荐流、弹幕、账号体系。这些是被明确排除的范围，不是"还没做"。
+内容平台、下载、多端同步、排行榜、推荐流、弹幕与账号体系均不在本项目范围内，属于有意排除，而非尚未实现。
 
-技术上的两个取舍，值得先说清楚：
+## 遥控器操作
 
-1. **不为框架而框架。** 用原生 View 而不是 Compose——目标是低配电视盒上的焦点可控与内存可预期，不是开发体验。
-2. **协议层与业务层强制分离。** 上游接口与风控会变，所以"它长什么样"必须集中在能一处修改的地方。这不是洁癖，是这个项目能活下去的前提。
+| 范围 | 按键 | 行为 |
+| --- | --- | --- |
+| 全局 | 方向键 / 确定 | 移动光标 / 执行 |
+| 全局 | 返回 | 返回上一层；在目录页中先返回搜索页，再次按下才退出 |
+| 历史页 | MENU | 进入或退出管理状态（继续播放、标记已看、删除） |
+| 播放页 | MENU | 展开或收起底部抽屉（左侧选集，右侧播放设置） |
+| 播放页 | 左右方向键 / 长按右键 | 快退、快进 10 秒 / 2 倍速快进 |
+| 播放页 | 上下方向键 | 切换上一集或下一集 |
+| 播放页 | 确定 | 暂停或继续 |
+| 播放抽屉 | 数字键 | 跳转到指定集数 |
 
----
+界面中有两种状态标识：白色填充表示光标所在位置，白色描边表示当前选中项，二者含义不同。
 
-## 架构
+## 构建与验证
 
-七个 Gradle 模块，依赖只能向下，**违反会让构建直接失败**（配置期校验，不是警告）。
+需要 JDK 17 与 Android SDK 36（含 build-tools 36.0.0）。目前仅在 Windows 环境完成验证。
+
+```sh
+# JAVA_HOME 指向 JDK 17，local.properties 中的 sdk.dir 指向 Android SDK
+./gradlew :app:assembleDebug
+```
+
+提交前执行以下命令，将依次运行全部单元测试、六个 Android 模块的 lint 检查，并构建 debug 包：
+
+```sh
+./gradlew verify --console=plain
+```
+
+真实网络探针默认跳过，设置 `HGTV_PROBE=1` 后可单独运行。正式签名需要 `keystore.properties`（不入库），也可通过 `HONGGUOTV_KEYSTORE`、`HONGGUOTV_STORE_PASSWORD`、`HONGGUOTV_KEY_ALIAS`、`HONGGUOTV_KEY_PASSWORD` 环境变量提供。
+
+## 代码结构
+
+项目由七个 Gradle 模块组成，依赖方向自上而下；违反该方向的引用会导致构建失败。
 
 ```
-app               壳：Activity、导航、依赖组装（目标 ≤250 行）
+app                壳：Activity、导航、依赖组装
 ├── feature-catalog   搜索 / 收藏 / 历史 / 设置
 ├── feature-detail    详情 / 收藏系列
-├── feature-player    播放页 / 侧栏 / 播放会话
-├── uikit             设计令牌 / 六种控件 / 焦点图 / 页面骨架
-└── data              端口实现：上游 HTTP / 本地存储 / 取流
-    └── core          纯 JVM：协议 / 模型 / 端口 / 用例
+├── feature-player    播放页 / 抽屉 / 播放会话
+├── uikit             设计令牌 / 控件 / 焦点图 / 页面骨架
+└── data              网络 / 存储 / 取流 / 封面 / 日志的实现
+    └── core          纯 JVM：模型 / 接口 / 协议 / 用例
 ```
 
-| 模块 | 类型 | 不得依赖 |
-| --- | --- | --- |
-| `core` | `kotlin("jvm")`，无 Android SDK | 任何本工程模块 |
-| `data` | android library | `uikit`、`feature-*` |
-| `uikit` | android library | `data`、`feature-*` |
-| `feature-catalog` / `-detail` / `-player` | android library | 互相之间、`data` |
-| `app` | android application | — |
+上述结构由三条规则保证，均由构建系统校验，而非依赖开发者自觉：
 
-三条规则由构建系统兜底，不靠自觉：
+1. `core` 不包含 Android SDK，导入 `android.*` 会直接编译失败，因此业务逻辑可以脱离设备完成单元测试。
+2. 三个 feature 模块互不依赖，页面跳转统一通过 `Navigator` 完成。
+3. 页面只依赖 `core.port` 中定义的接口，具体实现由 `app` 模块注入。
 
-- `core` 里 **`import android.*` 直接编译失败**（它没有 Android SDK），因此全部业务逻辑可脱离设备单测。
-- 三个 feature **互不依赖**：目录页想跳详情，调 `Navigator.detail(id)`，不知道详情页在哪个模块。
-- feature **只能依赖 `core.port` 的接口**，拿不到任何实现类；实现由 `app` 注入。
+进一步阅读：[架构说明](docs/ARCHITECTURE.md)、[平台与 API 基线](docs/PLATFORM.md)、[界面与焦点规则](docs/UI/UI-RULES.md)。
 
-核心接缝是一个只有五个方法的内容端口：
+## 设计取舍
 
-```kotlin
-interface ContentPort {
-    suspend fun search(keyword: String, filter: ContentFilter): SearchResult
-    suspend fun suggest(keyword: String): List<Suggestion>
-    suspend fun detail(seriesId: String): Detail
-    suspend fun seasons(seriesId: String, anchor: Series?): SeasonLine
-    suspend fun stream(vid: String, maxHeight: Int): StreamInfo
-}
-```
-
-端点、请求签名、字段映射、季线排序、介质过滤全部在它背后。
-
-协议形状本身是一张数据表，不是代码：`core/src/main/resources/endpoints.json`。端点、query 顺序、
-body 模板、用哪套签名，都在这一个文件里。Kotlin 侧由 `protocol/Endpoints.kt` 读取；
-S8 的诊断探针会读同一份文件（当前尚未接入）。上游改一个字段名，改动落在 `Fields.kt` 的一行；
-改一个端点，落在表里的一个块。
-
-```jsonc
-"preload": {
-  "host": "stream",
-  "path": "/novel/player/multi_video_model/preload/v1/",
-  "signer": "preload",          // 取流用简化签名，不能用完整套件
-  "queryProfile": "none",       // 自带全部 20 个参数，不并入公共设备常量
-  "query": [["aid", "8662"], ["device_id", "$deviceId"], "…"]
-}
-```
-
-`query` 是数组而不是对象，因为签名覆盖 query 的字节顺序——顺序是协议的一部分。
-
-失败也分类，而不是拼中文字符串给上层猜：
-
-```kotlin
-sealed class UpstreamError {
-    class Network(cause: Throwable) : UpstreamError()
-    class HttpStatus(val code: Int) : UpstreamError()
-    class EmptyBody : UpstreamError()      // 风控的强特征，单独成类
-    class Shape(val path: String) : UpstreamError()
-    class RiskControl(val code: Int) : UpstreamError()
-    class Decrypt(val step: String) : UpstreamError()
-}
-```
-
----
-
-## 构建
-
-需要 JDK 17、Android SDK 36（含 build-tools 36.0.0）。本项目**只在 Windows 上构建**（不做 WSL/Linux 交叉验证）：
-
-```sh
-# JAVA_HOME 指向 JDK 17，local.properties 里的 sdk.dir 指向 Android SDK
-./gradlew :core:test :data:testDebugUnitTest :uikit:testDebugUnitTest :feature-catalog:testDebugUnitTest :app:assembleDebug --console=plain
-```
-
-一阶段一次全量验证（**测试总数与分模块计数见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 的「当前状态」**；本节不再维护具体数字）：
-
-```sh
-./gradlew :core:test :data:testDebugUnitTest :uikit:testDebugUnitTest :feature-catalog:testDebugUnitTest \
-  :uikit:lintDebug :feature-catalog:lintDebug :app:assembleDebug --console=plain
-```
-
-> **`:app:lintDebug` 目前是红的，原因是 S0 遗留的一处清单问题**：manifest 声明了 Leanback 入口却没有
-> `android:banner`，Lint 的 `MissingTvBanner` 会让 app 模块的 lint 任务失败。各模块自己的
-> `NewApi`（API 23 守卫）是干净的，例如 `:uikit:lintDebug` 输出 "No issues found"。
-> 修法二选一（补 banner 图 / 去掉 Leanback 入口），排在 S7 收口，详见 `docs/PLATFORM.md` 的「构建期守卫（S8 历史快照）」。
-
-正式签名需要 `keystore.properties`（不入库），或用环境变量 `HONGGUOTV_KEYSTORE` / `HONGGUOTV_STORE_PASSWORD` / `HONGGUOTV_KEY_ALIAS` / `HONGGUOTV_KEY_PASSWORD`。
-
-**验证依赖规则真的生效**：给 `feature-catalog/build.gradle.kts` 加一行 `implementation(project(":feature-player"))`，再跑任意任务——应当直接报错退出。这是本项目最重要的一条不变量，值得亲手试一次。
-
----
-
-## 路线图
-
-| 阶段 | 内容 | 状态 |
-| --- | --- | --- |
-| S0 | 七模块骨架、依赖规则、端口接口、空壳 APK | ✅ 完成 |
-| S1 | `protocol`：端点表、字段表、请求签名、Spade 解密、MP4 CENC 索引 | 🟡 代码完成；实网探针待 S8 |
-| S2 | `data`：内容端口实现、本地存储（进度/收藏/设置）、错误分类 | ✅ 完成（103 项单测） |
-| S3 | `uikit`：设计令牌、控件、焦点图纯函数、页面骨架 | ✅ 完成（41 项单测） |
-| S4 | `feature-catalog`：搜索 / 收藏 / 历史 / 设置 | ✅ 完成（31 项单测） |
-| S5 | `feature-detail`：详情、收藏系列页、跨季 | 待开始 |
-| S6 | `feature-player`：播放会话状态机、按键表、侧栏菜单 | 待开始 |
-| S7 | `app` 收口：导航、依赖组装 | 待开始 |
-| S8 | 诊断探针、CI、文档收尾 | 待开始 |
-
-功能在 S5–S7 之后才可用。在那之前，从旧仓库安装包体验更实际。
-
----
-
-## 目录结构
-
-```
-core/        纯 JVM。protocol/ 协议与密码学 · model/ 领域模型 · port/ 端口接口与失败分类
-data/        端口实现。content/ 内容仓库与解析 · http/ 传输与错误分类 · library/ 本地存储
-uikit/       设计系统。token/ 令牌 · focus/ 焦点图与节流 · layout/ 几何与滚动 · ui/ 控件 · page/ 骨架与网格
-feature-*/   三个业务模块，互不感知（S4 已交付 feature-catalog，S5–S6 尚无源码）
-app/         装配与导航（S7，当前仍是 S0 的空壳 Activity）
-licenses/    第三方许可证全文
-```
-
----
+- 采用原生 View 而非 Compose：目标设备为低配置电视盒子，优先保证焦点控制与内存占用可预期，而非开发效率。
+- 最低版本为 Android 6.0：大量电视设备仍停留在 6.0，厂商少有升级意愿，因此从项目初期即按该基线编写，而非事后补充兼容。
+- 不使用 SQLite，不提供下载与多端同步：项目由单人维护，范围越窄，长期维护的成本越低。
 
 ## 参与
 
-欢迎 issue 与 PR。三条约定：
+1. 一次提交只处理一件事；格式化、重命名与行为变更分开提交。
+2. 提交信息格式为 `类型: 中文摘要`，类型取 `feat` / `fix` / `refactor` / `test` / `chore`。
+3. 不为通过构建而放宽模块边界，这一约束优先于任何单个功能的交付。
 
-1. **一次只推进一个 S 阶段**，不要跨阶段混提。
-2. **搬迁提交只允许"移动 + 改名"**。任何行为变更必须单独提交，并在描述里指明对应的功能条目。
-3. **依赖规则必须过**。为了让构建通过而放宽模块边界，比功能缺失更不可接受。
+## 许可与出处
 
-提交信息用 `类型: 中文摘要`，类型取 `feat` / `fix` / `refactor` / `docs` / `chore` / `test`。
+代码以 GPL-3.0-only 发布，全文见 [LICENSE](LICENSE)。
 
----
-
-## 许可
-
-代码以 **GPL-3.0-only** 发布，全文见 [LICENSE](LICENSE)。
-
-本项目派生自 [N3urda/hongguoTV](https://github.com/N3urda/hongguoTV)（GPL-3.0，`eea73e6a`），并相对其做了大量修改与裁剪。
-内容请求签名、Spade 处理与 MP4 CENC 处理移植自 [drpys](https://github.com/woshishiq1/drpys)（GPL-3.0）。
-工程骨架思想源自 [@react-native-tvos/template-tv](https://github.com/react-native-tvos/template-tv)（MIT）。
-
-完整的衍生关系、改动说明与依赖清单见 [NOTICE.md](NOTICE.md)。
-
----
-
-## 致谢
-
-- [N3urda/hongguoTV](https://github.com/N3urda/hongguoTV) — 本项目的起点
-- [woshishiq1/drpys](https://github.com/woshishiq1/drpys) — 内容接口与签名算法的参考实现
-- [androidx/media3](https://github.com/androidx/media) — 播放与取流的基础设施
+本项目派生自 [N3urda/hongguoTV](https://github.com/N3urda/hongguoTV)（GPL-3.0）：重新划分模块结构，重写数据层与季线逻辑，并移除不需要的功能。
+内容请求相关实现移植自 [woshishiq1/drpys](https://github.com/woshishiq1/drpys)（GPL-3.0）；工程骨架思路源自 [@react-native-tvos/template-tv](https://github.com/react-native-tvos/template-tv)（MIT）。
+完整的衍生关系、修改说明与依赖清单见 [NOTICE.md](NOTICE.md)。

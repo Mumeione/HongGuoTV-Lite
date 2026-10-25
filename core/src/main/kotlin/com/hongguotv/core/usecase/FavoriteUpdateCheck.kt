@@ -36,7 +36,7 @@ data class FavoriteCheckReport(
  */
 object FavoriteUpdateCheck {
 
-    /** 过期时间：一小时内检查过就跳过（`docs/CONTEXT.md`「收藏更新检查」）。 */
+    /** 过期时间：一小时内检查过就跳过（收藏看的是新季，低频检查足够）。 */
     const val FRESH_MS: Long = 3_600_000L
 
     /** 连续失败上限：断网时别把整个收藏列表空转一遍。 */

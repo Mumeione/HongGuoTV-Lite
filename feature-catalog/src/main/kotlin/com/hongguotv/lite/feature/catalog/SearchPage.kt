@@ -73,7 +73,7 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
 
     override fun onBuild() {
         // 信息栏只在"焦点落定且落在卡片上"时出现：焦点在输入框/片库/侧栏上时收起，
-        // 一帧内的中间态（焦点路过某张卡）不更新内容（审计 2026-10-22 #5-c / #6）
+        // 一帧内的中间态（焦点路过某张卡）不更新内容
         focus.onSettled = { key -> onCardSettled(key) }
 
         val body = scaffold.body()
@@ -271,7 +271,7 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
                     model.absorb(result)
                     presentAndRender(1)
                     // 完整剧名 → 追加拉完整季线（含未上线新季）。失败静默：网页结果已经在屏上。
-                    // 只捕 UpstreamError 不用 runCatching：取消必须原样传播（ARCHITECTURE 口径）。
+                    // 只捕 UpstreamError 不用 runCatching：取消必须原样传播。
                     // 单季剧（<2 季）没有"线"可言，保持网页结果。
                     val anchor = model.anchor()
                     if (anchor != null) {
@@ -423,7 +423,7 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
 
     /**
      * 焦点落定后的信息栏：落在「继续看」或结果网格的卡片上才显示，落到输入区/片库/侧栏
-     * 整条收起（审计 2026-10-22 #5-c）。两个网格共用一个回调，按段名前缀分发。
+     * 整条收起。两个网格共用一个回调，按段名前缀分发。
      */
     private fun onCardSettled(key: FocusKey) {
         val continueId = continueGrid.cardIdOf(key)
@@ -557,7 +557,7 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
 
     /**
      * 首焦：第一张结果卡 → 搜索框。
-     * 搜索完成、切回本页、页面重建都按这条走，不再落回侧栏（UI-02/03）。
+     * 搜索完成、切回本页、页面重建都按这条走，不再落回侧栏。
      */
     override fun startFocus(): List<FocusKey> =
         listOfNotNull(rendered?.keys?.firstOrNull() ?: continueRendered?.keys?.firstOrNull(), FocusKey("search:input"))

@@ -36,7 +36,7 @@ class TokensTest {
         val colors = Tokens.Default.colors
         assertEquals("强调色只有白色", 0xFFFFFFFF.toInt(), colors.focus)
         assertTrue("深色底上的字必须是浅色", colors.text != colors.background)
-        // B 方案令牌表（docs/specs/2026-10-21-ui-b-redesign.md）钉死的值
+        // 令牌基准值：这些数字是界面设计的硬约定，改动会改变所有页面的比例
         assertEquals(0xFF0B0F15.toInt(), colors.background)
         assertEquals(0xFF171E28.toInt(), colors.surface)
         assertEquals(0xFF242F3D.toInt(), colors.watched)

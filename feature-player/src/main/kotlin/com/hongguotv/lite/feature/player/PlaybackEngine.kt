@@ -4,7 +4,7 @@ import com.hongguotv.core.model.FrameMode
 import com.hongguotv.core.port.MediaStream
 
 /**
- * 播放页的状态归属（`ARCHITECTURE.md`「状态归属」）。**播放只有一个所有者**，就是这里。
+ * 播放页的状态只有一个所有者：本文件。**播放状态归这里**，页面只画它。
  *
  * `pausedBy` 是这一版最关键的一处类型化：旧实现用
  * `requestedAutoplay + pausedForLifecycle + sleepStopped + playError` 四个布尔拼出"该不该续播"，

@@ -241,7 +241,7 @@ class TvChip internal constructor(
         // 焦点 = 白底深字（与 TvButton 同一条规则）：底色必须跟着焦点走，
         // 漏了这一步就是"深底 + 深字"，字直接看不见（本轮实测踩到）。
         // 选中框用 60% 白（Colors.selectionStroke）：片库胶囊与焦点白底常驻同一行，
-        // 全亮白框会让远看的人认错光标（审计 2026-10-22 #2-d）。焦点仍是唯一的全白。
+        // 全亮白框会让远看的人认错光标。焦点仍是唯一的全白。
         background = when {
             chosen && !focused -> shape(
                 colors.surface,

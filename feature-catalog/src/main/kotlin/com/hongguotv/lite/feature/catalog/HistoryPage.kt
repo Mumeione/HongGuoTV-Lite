@@ -49,7 +49,7 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
 
     override fun onBuild() {
         // 信息栏只在"焦点落定且落在卡片上"时出现：离开卡片区（输入框、侧栏、管理动作条）就收起，
-        // 中间态不更新内容（审计 2026-10-22 #5-a / #5-c，回调机制见 FocusSession.onSettled）
+        // 中间态不更新内容（回调机制见 FocusSession.onSettled）
         focus.onSettled = { key -> onCardSettled(key) }
 
         val header = scaffold.showHeader("观看历史")
@@ -119,7 +119,7 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
             footer.visibility = View.GONE
         } else {
             pane.showContent()
-            // 管理态与信息栏互斥（审计 #5-a）：两条底栏会把第二行卡片压掉一半
+            // 管理态与信息栏互斥：两条底栏会把第二行卡片压掉一半
             if (managing) scaffold.hideBand()
         }
         updateFooter()
@@ -145,7 +145,7 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
 
     /**
      * 焦点落定后的信息栏：落在本页网格的卡片上才显示（片名 + 收藏状态 + 分类），
-     * 落到别处（侧栏、输入区、管理动作条）整条收起——"离开卡片区信息栏残留"（审计 #5-c）的解法。
+     * 落到别处（侧栏、输入区、管理动作条）整条收起——避免「离开卡片区信息栏残留」。
      */
     private fun onCardSettled(key: FocusKey) {
         val entry = grid.cardIdOf(key)?.let { id -> entries.firstOrNull { it.series.id == id } }
@@ -189,7 +189,7 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
         confirm.disarm()
         if (value && targetId == null) targetId = entries.firstOrNull()?.series?.id
         footer.visibility = if (value) View.VISIBLE else View.GONE
-        // 管理态与信息栏互斥（审计 #5-a）：动作条自己带说明，不再让两条底栏摞在一起
+        // 管理态与信息栏互斥：动作条自己带说明，不再让两条底栏摞在一起
         if (value) scaffold.hideBand()
         updateFooter()
         applyFocus()

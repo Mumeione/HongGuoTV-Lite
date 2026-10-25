@@ -91,7 +91,7 @@ class FocusGraphTest {
 
     @Test
     fun `five column row moves up into a three item row on the aligned column`() {
-        // 审计 2026-10-22 #6 的回归钉：搜索页「继续看」一行 5 张，按上要落输入行 3 项的
+        // 回归钉：搜索页「继续看」一行 5 张，按上要落输入行 3 项的
         // 列对齐位置——最后一列（第 5 张）必须落到第 3 项（「倒序」）。中心对齐映射下
         // 5 列 → 3 项的目标列是 [0, 0, 1, 1, 2]，若实现改回"按下标缩放"这里就会变脸。
         val plan = FocusPlan(

@@ -80,7 +80,7 @@ class CatalogLabelsTest {
 
     @Test
     fun theCardBadgeSplitsIntoTwoLinesWhenBothSeasonAndEpisodeAreKnown() {
-        // 审计 2026-10-22 #2-a 的维护者口径（2026-10-23）：卡片角标拆两行——
+        // 产品口径：卡片角标拆两行——
         // 「更新到第X季」一行、「第X集」一行，单行放不下完整一句话会被截断
         assertEquals(
             "更新到第九季\n第352集",

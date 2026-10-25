@@ -36,7 +36,7 @@ class LiteActivity : Activity(), Navigator {
     private lateinit var graph: AppGraph
     private lateinit var root: FrameLayout
 
-    /** 页面栈归宿主所有：`app` 是唯一的导航权威（见 `ARCHITECTURE.md` 的状态归属表）。 */
+    /** 页面栈归宿主所有：`app` 是唯一的导航权威。 */
     private val stack = RouteStack(Route.Catalog)
 
     /**

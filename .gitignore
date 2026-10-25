@@ -16,5 +16,10 @@ keystore.properties
 *.keystore
 .kotlin/
 
-# 文档不入库
-docs/
+# 文档默认留在本地，只有白名单会随仓库公开
+docs/**
+!docs/**/
+!docs/ARCHITECTURE.md
+!docs/PLATFORM.md
+!docs/UI/UI-RULES.md
+!docs/ui-assets/**

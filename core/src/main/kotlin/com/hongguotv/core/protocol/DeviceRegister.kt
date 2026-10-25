@@ -15,7 +15,7 @@ import kotlin.random.Random
  *
  * 平台的内容接口**按设备放行**：搜索/详情/取流都认"服务端注册过的
  * `device_id` + `install_id` 这一对"。注册本身不需要账号、密码或短信——
- * 一台设备发一次匿名请求就够（协议依据：`HGTV/docs/DEVICE_REGISTER.md`）。
+ * 一台设备发一次匿名请求就够：成功后身份与 Cookie 一起落盘，之后复用；被风控才换新。
  *
  * ```
  * POST https://log5-applog-lf.fqnovel.com/service/2/device_register/

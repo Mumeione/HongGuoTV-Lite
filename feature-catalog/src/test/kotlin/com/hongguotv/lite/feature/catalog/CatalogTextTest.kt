@@ -86,7 +86,7 @@ class CatalogTextTest {
 
     @Test
     fun historyBandTagsFallBackToTheFavoriteCopy() {
-        // 审计 2026-10-22 #5-b：历史记录的 tags 经常是空串（早期记录只存了片名/封面），
+        // 历史记录的 tags 经常是空串（早期记录只存了片名/封面），
         // 分类回退到收藏那份；两处都没有就不显示——角标（「全 90 集」）不是分类，不能兜底
         assertEquals("古装 / 逆袭", CatalogText.historyTags(historyTags = "古装 / 逆袭", favoriteTags = "已丢失的旧分类"))
         assertEquals("古装 / 逆袭", CatalogText.historyTags(historyTags = "", favoriteTags = "古装 / 逆袭"))

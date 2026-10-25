@@ -46,7 +46,7 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
     private var checking: Boolean = false
 
     override fun onBuild() {
-        // 信息栏只在"焦点落定且落在卡片上"时出现，离开卡片区就收起（审计 2026-10-22 #5-c）
+        // 信息栏只在"焦点落定且落在卡片上"时出现，离开卡片区就收起
         focus.onSettled = { key -> onCardSettled(key) }
 
         val header = scaffold.showHeader("我的收藏")
@@ -55,7 +55,7 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
         // 顺序按维护者口径：我的收藏 → 检查更新 → 更新说明，三者贴在一起靠左，不推到屏幕右边。
         // 2026-10-24 口径：按钮与说明都缩小一档（小号胶囊 + footnote），它是低频动作不抢主视觉。
         checkButton = ui.button("检查更新", variant = ButtonVariant.SMALL) { startCheck(force = true) }
-        // 定宽（不是 minWidth）：文案在「检查更新」↔「正在检查…」间切换时右侧说明不重排（审计 #10）。
+        // 定宽（不是 minWidth）：文案在「检查更新」↔「正在检查…」间切换时右侧说明不重排。
         // minWidth 只保下限，长文案仍会把说明顶走——这条要的是"宽度不变"。
         header.lead().addView(
             checkButton,
@@ -73,7 +73,7 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
         grid = ui.grid(GRID_SECTION).apply {
             // 收藏封面值得占电视存储（旧行为）：列表稳定，复看频率高
             persistCovers = true
-            // 聚光压暗与搜索页「继续看」、历史页一致（审计 #9）：非焦点卡 0.62
+            // 聚光压暗与搜索页「继续看」、历史页一致：非焦点卡 0.62
             spotlight = true
             onCardActivated = { item -> openFavorite(item) }
         }
@@ -177,7 +177,7 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
 
     /**
      * 焦点落定后的信息栏：落在本页网格的卡片上才显示（片名 + 已收藏 + 更新到…），
-     * 落到别处（「检查更新」、侧栏）整条收起（审计 2026-10-22 #5-c）。
+     * 落到别处（「检查更新」、侧栏）整条收起。
      */
     private fun onCardSettled(key: FocusKey) {
         val entry = grid.cardIdOf(key)?.let { id -> entries.firstOrNull { it.series.id == id } }

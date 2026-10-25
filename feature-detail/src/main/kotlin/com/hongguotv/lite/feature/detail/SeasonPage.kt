@@ -225,7 +225,7 @@ internal class SeasonPage(
 
     /**
      * 按"上次光标停在那一季"把组别翻回去：几十季的剧一页 8 张，返回时还在第一组
-     * 等于把用户刚翻的那几页丢了（story 10）。记忆里不是季卡就当没记过。
+     * 等于把用户刚翻的那几页丢了。记忆里不是季卡就当没记过。
      */
     private fun restorePageIndex(ordered: List<Series>) {
         val remembered = host.lastFocus[pageKey]?.value ?: return

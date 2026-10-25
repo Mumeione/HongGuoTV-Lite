@@ -103,7 +103,7 @@ object TvText {
     /**
      * 失败文案按**类型**映射，不匹配中文字符串。
      * 风控空体（[UpstreamError.EmptyBody]）必须单独说"被限制"，不能说成"没有内容"——
-     * 后者会让用户去换剧名，而不是等一会儿（`docs/CONTEXT.md`「风控空体」）。
+     * 后者会让用户去换剧名，而不是等一会儿（200 空体是风控特征，不是「没有内容」）。
      */
     fun error(cause: Throwable): String = when (cause) {
         is UpstreamError.Network -> "连不上内容网站，请检查网络后重试。"

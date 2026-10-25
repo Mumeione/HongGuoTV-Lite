@@ -4,7 +4,7 @@ package com.hongguotv.core.model
  * 季号与系列键（季键）。规则逐条沿用旧仓库 `ContentRepository` 的 companion（行为基准），
  * 只在收藏 base 键、锚点定序与"是否已收藏"判断时使用——季线排序本身由服务端下发，本地不重排。
  *
- * 放在 core 而不是 data：季键是领域概念（`docs/CONTEXT.md`「季键」），
+ * 放在 core 而不是 data：季键是领域概念，
  * 收藏页与搜索页都要用它判断"这是不是同一个系列"。留在实现层会让 feature 复制一份规则。
  */
 object SeasonKeys {

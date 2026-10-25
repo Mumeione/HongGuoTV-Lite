@@ -25,7 +25,7 @@ import com.hongguotv.lite.uikit.token.UiTier
  * DataSource"的适配），模块边界由此成立：app 拿不到 ExoPlayer 类型，换播放器实现时
  * 状态机、按键表、侧栏一行都不用动。
  *
- * 两处按设备能力分档（`docs/PLATFORM.md`「内存极小」）：老盒子的缓冲窗口与目标字节都调小，
+ * 两处按设备能力分档（老盒子内存小）：缓冲窗口与目标字节都调小，
  * 否则 512MB 的设备会在起播时被自己的缓冲区顶穿。
  *
  * 画面之上**不放任何常驻控件**：`useController = false`，选集与设置全在 MENU 侧栏里。

@@ -17,7 +17,7 @@ import com.hongguotv.lite.uikit.ui.UiKit
 internal enum class NoticeAction { RETRY, LOWER_QUALITY, STOP_RETRY, REPLAY, NEXT, RESUME, BACK }
 
 /**
- * 播放页的提示层（B 方案，与抽屉同构；审计 2026-10-22 #7 的重绘）：
+ * 播放页的提示层（与抽屉同构）：
  *
  * ```
  * ┌──────────────────────────────────────────┐
