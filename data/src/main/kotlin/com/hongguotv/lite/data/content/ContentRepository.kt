@@ -258,11 +258,42 @@ class ContentRepository(
             SeasonLine(entries.sortedBy { it.first }.map { it.second })
         }
         diagnostics.event("seasons.loaded", mapOf("seasons" to line.seasons.size))
-        return line
+        // 锚点不是本系列的一季（同 IP 正传）时，相关作品里只有第 2 季起：
+        // 用一次搜索 + 一次详情把第 1 季补回来，否则这一页永远少一季（维护者实测）。
+        val missingFirst = line.seasons.isNotEmpty() && line.seasons.none { it.season == 1 } &&
+            (anchor == null || !anchor.isSeriesSeason)
+        if (!missingFirst) return line
+        val base = anchor?.let { SeasonKeys.seasonKey(it.title) }.orEmpty()
+        if (base.isBlank()) return line
+        val first = backfillFirstSeason(base, excludeId = seriesId) ?: return line
+        return SeasonLine((line.seasons + first).sortedBy { it.season })
     }
 
     /** 锚点是不是某条季线的一季：有季号，且属于某张专辑（同 IP 作品两个条件都不满足）。 */
     private val Series.isSeriesSeason: Boolean get() = season > 0 && albumId.isNotBlank()
+
+    /**
+     * 找系列的第 1 季：按基名搜一次，取"标题只比基名长几个字、自己不带季号"的同名篇
+     * （分宗篇这类），再用详情确认它确实 `season_index = 1` 且属于某张专辑。
+     *
+     * 这条兜底只在锚点是同 IP 作品、且季线缺第 1 季时才会走；失败静默，不影响已经拿到的季线。
+     * 两个候选封顶：一次进页多三次请求已经是极限，不能为了补一季把页面拖成转圈。
+     */
+    private suspend fun backfillFirstSeason(base: String, excludeId: String): Series? {
+        val page = runCatching { search(base, ContentFilter.ALL, 1) }.getOrNull() ?: return null
+        val candidates = page.items.asSequence()
+            .filter { item ->
+                item.id != excludeId && item.season == 0 &&
+                    SeasonKeys.normalizeTitle(item.title).let { it.startsWith(base) && it.length - base.length in 1..4 }
+            }
+            .sortedByDescending { it.episodeCount }
+            .take(MAX_FIRST_SEASON_CANDIDATES)
+        for (candidate in candidates) {
+            val detail = runCatching { detail(candidate.id) }.getOrNull() ?: continue
+            if (detail.series.season == 1 && detail.series.albumId.isNotBlank()) return detail.series
+        }
+        return null
+    }
 
     // ---------- 取流 ----------
 
@@ -334,6 +365,8 @@ class ContentRepository(
         /** 官网请求最少间隔：补搜多季时限流的实测安全值（旧行为）。 */
         const val SITE_INTERVAL_MS = 400L
 
+        /** 补第 1 季时最多试几个候选：一次进页多三次请求已经是极限，不能为了补一季把页面拖成转圈。 */
+        const val MAX_FIRST_SEASON_CANDIDATES = 2
     }
 }
 

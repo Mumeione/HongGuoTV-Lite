@@ -49,6 +49,9 @@ internal class HeroBlock(private val ui: UiKit) {
     private val rightColumn: LinearLayout = ui.column()
     private val rightParams: LinearLayout.LayoutParams = ui.params(width = 0, weight = 1f)
 
+    /** 右列被固定到封面高之后才显形的弹性空格（见 [syncCoverHeight]）。 */
+    private val flexGap: View = View(ui.context).apply { visibility = View.GONE }
+
     /** 右列被固定到的像素高（0 = 仍然 WRAP_CONTENT）。 */
     private var rightFixed: Int = 0
 
@@ -128,9 +131,11 @@ internal class HeroBlock(private val ui: UiKit) {
                 leftMargin = ui.dp(tokens.metrics.heroColumnGap)
             },
         )
-        // 弹性空格：右列被固定到封面高时由它吃掉差额，把说明推到最底部；
-        // 内容自己就比封面高时它分不到空间（WRAP 容器里 weight 不生效）
-        rightColumn.addView(View(ui.context), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        // 弹性空格：**默认 GONE**。它在右列被固定高度后才会显形——那时它的 weight
+        // 吃掉"固定高 − 内容高"的差额，把说明推到最底部。
+        // 一开始就让它可见的话，LinearLayout 在 AT_MOST 下会把整页剩余高度都分给它，
+        // 右列被拉成一整屏、封面跟着变成一根长条（2026-10-25 维护者截图）。
+        rightColumn.addView(flexGap, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         // 说明收尾：它的底边就是右列的底边，封面按这个高度同步（见 syncCoverHeight）
         rightColumn.addView(introText, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT))
     }
@@ -151,8 +156,11 @@ internal class HeroBlock(private val ui: UiKit) {
 
     /**
      * 右列多高，封面就多高。两种情形：
-     * - 内容比封面矮 → 把右列**固定**到封面高（弹性空格吃掉差额，说明贴底）；
-     * - 内容比封面高 → 封面跟着内容长。
+     * - 内容比封面矮 → 把右列**固定**到封面高，并放出弹性空格（说明贴底）；
+     * - 内容比封面高 → 封面跟着内容长，弹性空格保持隐藏。
+     *
+     * 空格必须先隐藏再量：可见的空格带 `weight=1`，会把父容器的可用高度吃满，
+     * 量出来的"内容高"其实是一整屏（封面跟着变长条的 bug 就这么来的）。
      */
     private fun syncCoverHeight(rightHeight: Int) {
         if (rightHeight <= 0 || rightFixed > 0) return
@@ -161,6 +169,7 @@ internal class HeroBlock(private val ui: UiKit) {
         if (target > rightHeight) {
             rightFixed = target
             rightParams.height = target
+            flexGap.visibility = View.VISIBLE
             rightColumn.requestLayout()
         }
         if (coverHeightPx == target) return
@@ -173,6 +182,7 @@ internal class HeroBlock(private val ui: UiKit) {
         if (rightFixed == 0) return
         rightFixed = 0
         rightParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
+        flexGap.visibility = View.GONE
         rightColumn.requestLayout()
     }
 }

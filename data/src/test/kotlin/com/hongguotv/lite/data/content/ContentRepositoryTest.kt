@@ -88,10 +88,15 @@ class ContentRepositoryTest {
         .put("data", JSONArray().put(JSONObject().put("show_type", 547).put("video_data", JSONArray(cards))))
         .toString()
 
-    private fun videoDetailResponse(code: Int = 0, seasonIndex: Int = 3, albumId: String = "7655951352136207384"): String = JSONObject()
+    private fun videoDetailResponse(
+        code: Int = 0,
+        seasonIndex: Int = 3,
+        albumId: String = "7655951352136207384",
+        id: String = "7",
+    ): String = JSONObject()
         .put("code", code)
         .put("data", JSONObject().put("video_data", JSONObject()
-            .put("series_id", "7").put("series_title", "凡人测试书第三季").put("series_cover", "https://img.example/d.jpg")
+            .put("series_id", id).put("series_title", "凡人测试书第三季").put("series_cover", "https://img.example/d.jpg")
             .put("series_intro", "简介").put("episode_cnt", 3)
             .put("season_index", seasonIndex).put("related_album_id", albumId)
             .put("video_list", JSONArray(listOf(
@@ -358,6 +363,54 @@ class ContentRepositoryTest {
         val detail = repo.detail("7")
         assertEquals("", detail.series.albumId)
         assertEquals("季号 0 时退回标题里的季号", 3, detail.series.season)
+    }
+
+    /**
+     * 从同 IP 正传进系列页时，相关作品里只有第 2 季起——分宗篇（真正的第 1 季）不在卡片里。
+     * 兜底：按基名搜一次，取"标题只比基名长几个字"的同名篇，用详情确认它是第 1 季。
+     */
+    @Test
+    fun seasonsBackfillsTheFirstSeasonWhenTheAnchorIsSameIp() = runTest {
+        val repo = repository { request ->
+            when {
+                request.url.contains("/reading/bookapi/plan/") -> planResponse(listOf(
+                    planCard("2", "魏家测试书折桂篇", 64, "第2季", seasonIndex = 2),
+                ))
+                request.url.contains("/api/search/result") -> searchBody(listOf(
+                    JSONObject().put("series_id", "9").put("series_name", "魏家测试书")
+                        .put("episode_cnt", 56).put("celebrities", JSONArray()),
+                    JSONObject().put("series_id", "1").put("series_name", "魏家测试书分宗篇")
+                        .put("episode_cnt", 90).put("celebrities", JSONArray()),
+                ))
+                request.url.contains("/novel/player/video_detail/") -> videoDetailResponse(id = "1", seasonIndex = 1)
+                else -> ""
+            }
+        }
+        val anchor = Series(id = "9", title = "魏家测试书", season = 0, albumId = "")
+        val line = repo.seasons(anchor.id, anchor)
+        assertEquals(listOf("1", "2"), line.seasons.map { it.id })
+        assertEquals(listOf(1, 2), line.seasons.map { it.season })
+    }
+
+    /** 候选的详情不是第 1 季（或不属于专辑）时不补：宁可少一季，也不能把别的剧塞进来。 */
+    @Test
+    fun seasonsDoesNotBackfillAFirstSeasonThatIsNotOne() = runTest {
+        val repo = repository { request ->
+            when {
+                request.url.contains("/reading/bookapi/plan/") -> planResponse(listOf(
+                    planCard("2", "魏家测试书折桂篇", 64, "第2季", seasonIndex = 2),
+                ))
+                request.url.contains("/api/search/result") -> searchBody(listOf(
+                    JSONObject().put("series_id", "1").put("series_name", "魏家测试书分宗篇")
+                        .put("episode_cnt", 90).put("celebrities", JSONArray()),
+                ))
+                request.url.contains("/novel/player/video_detail/") -> videoDetailResponse(id = "1", seasonIndex = 3)
+                else -> ""
+            }
+        }
+        val anchor = Series(id = "9", title = "魏家测试书", season = 0, albumId = "")
+        val line = repo.seasons(anchor.id, anchor)
+        assertEquals(listOf("2"), line.seasons.map { it.id })
     }
 
     // ---------- 取流 ----------
