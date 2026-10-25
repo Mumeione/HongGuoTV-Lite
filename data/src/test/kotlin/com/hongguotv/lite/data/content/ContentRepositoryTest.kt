@@ -346,6 +346,30 @@ class ContentRepositoryTest {
         assertEquals(listOf(1, 2), line.seasons.map { it.season })
     }
 
+    /** 同一个搜索卡锚点第二次进聚合时不再补详情：证据在会话内复用（B3）。 */
+    @Test
+    fun seasonsReusesResolvedAnchorEvidenceWithinTheSession() = runTest {
+        val repo = repository { request ->
+            when {
+                request.url.contains("/reading/bookapi/plan/") -> planResponse(listOf(
+                    planCard("2", "魏家测试书折桂篇", 64, "第2季", seasonIndex = 2),
+                ))
+                request.url.contains("/novel/player/video_detail/") ->
+                    videoDetailResponse(id = "9", seasonIndex = 9, albumId = "album-1")
+                else -> ""
+            }
+        }
+        val searchCard = Series(id = "9", title = "魏家测试书第九季", season = 9, albumId = "")
+        val first = repo.seasons(searchCard.id, searchCard)
+        val second = repo.seasons(searchCard.id, searchCard)
+        assertEquals(first.seasons.map { it.id }, second.seasons.map { it.id })
+        assertEquals(
+            "同一部剧的锚点详情只该补一次：${transport!!.urls}",
+            1,
+            transport!!.urls.count { it.contains("/novel/player/video_detail/") },
+        )
+    }
+
     @Test
     fun seasonsRequiresANumericId() = runTest {
         val repo = repository { "" }

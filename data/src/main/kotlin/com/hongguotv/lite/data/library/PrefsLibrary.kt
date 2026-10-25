@@ -498,6 +498,8 @@ class PrefsLibrary(
 
     private fun encodeHistory(rows: List<HistoryRow>): String = JSONArray(rows.map { row ->
         JSONObject()
+            // seriesId 显式落盘：`series` 是展示元数据，解不开时也不能拿 episodeId 冒充剧集 id
+            .put("seriesId", row.progress.seriesId)
             .put("series", SeriesCodec.toJson(row.series))
             .put("episodeId", row.progress.episodeVid)
             .put("episodeIndex", row.progress.episodeIndex)
@@ -510,25 +512,34 @@ class PrefsLibrary(
     private fun decodeHistory(raw: String?, onPartitionCorrupt: () -> Unit = {}): List<HistoryRow> {
         if (raw.isNullOrEmpty()) return emptyList()
         val rows = runCatching { JSONArray(raw) }.getOrNull() ?: run { onPartitionCorrupt(); return emptyList() }
+        // 单行坏掉不拖垮整段历史：跳过该行并留痕，绝不用 episodeId 冒充 seriesId
+        var corrupt = false
         return (0 until rows.length()).mapNotNull { i ->
+            val row = runCatching { rows.getJSONObject(i) }.getOrNull() ?: return@mapNotNull null
+            val parsed = runCatching { SeriesCodec.fromJson(row.getJSONObject("series")) }
+                .getOrElse { corrupt = true; null }
+            if (parsed == null) return@mapNotNull null
             runCatching {
-                val o = rows.getJSONObject(i)
-                val series = runCatching { SeriesCodec.fromJson(o.getJSONObject("series")) }
-                    .getOrElse { Series(id = o.optString("episodeId"), title = "") }
+                // 新数据优先读显式 seriesId；旧数据没有这个字段时退回 series.id（迁移兼容）
+                val storedId = row.optString("seriesId")
+                val seriesId = storedId.ifEmpty { parsed.id }
+                if (seriesId.isBlank()) { corrupt = true; return@runCatching null }
+                val series = if (storedId.isNotEmpty() && parsed.id != storedId) parsed.copy(id = storedId) else parsed
                 HistoryRow(
                     series,
                     Progress(
-                        seriesId = series.id,
-                        episodeVid = o.getString("episodeId"),
-                        episodeIndex = o.getInt("episodeIndex"),
-                        positionMs = o.getLong("position"),
-                        durationMs = o.getLong("duration"),
-                        completed = o.optBoolean("completed"),
-                        updatedAt = o.getLong("updatedAt"),
+                        seriesId = seriesId,
+                        episodeVid = row.getString("episodeId"),
+                        episodeIndex = row.getInt("episodeIndex"),
+                        positionMs = row.getLong("position"),
+                        durationMs = row.getLong("duration"),
+                        completed = row.optBoolean("completed"),
+                        updatedAt = row.getLong("updatedAt"),
                     ),
                 )
             }.getOrNull()
         }
+            .also { if (corrupt) onPartitionCorrupt() }
             .sortedByDescending { it.progress.updatedAt }
             .distinctBy { it.progress.seriesId }
             .take(HISTORY_LIMIT)

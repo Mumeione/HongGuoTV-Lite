@@ -4,8 +4,10 @@ import android.annotation.SuppressLint
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
+import com.hongguotv.core.port.ArtworkSpec
 import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.internal.dp
+import com.hongguotv.lite.uikit.layout.CardFit
 import com.hongguotv.lite.uikit.layout.GridGeometry
 import com.hongguotv.lite.uikit.ui.CardItem
 import com.hongguotv.lite.uikit.ui.PosterCard
@@ -151,6 +153,48 @@ class PosterGrid internal constructor(
         limited.forEach { item -> cards[item.id]?.let { views[keyOf(item.id)] = it } }
         return GridRendered(keys = ids.map(::keyOf), views = views, columns = columns)
     }
+
+    /**
+     * 预热一批封面：按本网格**当前渲染规格**取图进内存，不贴图。
+     *
+     * 用途是翻页预热：下一页的数据已经在内存时，先把封面取回来，翻过去直接命中。
+     * 尺寸必须与卡片自己的请求同键（卡宽 + 按内容算出的封面高），否则预热等于白做。
+     */
+    fun prefetchCovers(items: List<CardItem>, limit: Int = 0) {
+        val port = ui.artwork ?: return
+        if (lastCardWidth <= 0 || lastColumns <= 0) return
+        val targets = items.take(if (limit > 0) limit else tokens.pageCardLimit)
+        if (targets.isEmpty()) return
+        // 行数按**目标页**自己的条目数算：末页只有一行时封面比两行页更高，键也就不同
+        val rowGap = dp(if (rowGapDp > 0) rowGapDp else tokens.metrics.cardGap)
+        val rows = GridGeometry.rowsOf(targets.size, lastColumns).size
+        val cardLimit = GridGeometry.cardHeightForRows(cardHeightLimit, rows, rowGap)
+        targets.forEach { item ->
+            if (item.coverUrl.isBlank()) return@forEach
+            port.prefetch(
+                item.coverUrl,
+                ArtworkSpec(
+                    widthPx = lastCardWidth,
+                    heightPx = coverHeight(item, cardLimit),
+                    priority = ArtworkSpec.PRIORITY_PREFETCH,
+                ),
+            )
+        }
+    }
+
+    /** 与 PosterCard 的封面高度口径一致：预热键要和真正贴图时一样。 */
+    private fun coverHeight(item: CardItem, cardLimit: Int): Int = CardFit.artworkHeight(
+        cardWidthPx = lastCardWidth,
+        aspect = tokens.metrics.posterAspect,
+        cardHeightLimitPx = cardLimit,
+        textBlockHeightPx = if (item.title.isEmpty()) {
+            dp(if (stripHeightDp > 0) stripHeightDp else tokens.metrics.catalogStripHeight)
+        } else {
+            dp(tokens.metrics.seasonTitleHeight + tokens.metrics.seasonStatusHeight)
+        },
+        minArtworkHeightPx = dp(tokens.metrics.artworkMinHeight),
+        explicitHeightPx = if (coverHeightDp > 0) dp(coverHeightDp) else 0,
+    )
 
     /** 把"哪张卡正亮着"同步给全部卡。焦点落到本网格之外时（全暗）由下一次 render 修正。 */
     private fun applySpotlight() {

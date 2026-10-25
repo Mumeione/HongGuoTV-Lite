@@ -23,15 +23,16 @@ import java.util.WeakHashMap
 import java.util.concurrent.TimeUnit
 
 /**
- * `ArtworkPort` 的实现（S7 起草，S9 收口落盘策略）。
+ * `ArtworkPort` 的实现（S7 起草，S9 收口落盘策略，C1 补翻页预热）。
  *
- * 只做三件必须做的事，预取 / 翻页预热 / 按远端尺寸二次校准仍留给后续：
+ * 只做四件必须做的事，按远端尺寸二次校准仍留给后续：
  * 1. **内存 LRU**：多页来回切时同一张封面不该重复解码，容量按 `isLowRamDevice` 分档；
  * 2. **收藏 / 历史封面落盘**：这些封面会被反复回看，落盘值得；一次性封面（搜索 / 详情）不占电视存储；
- * 3. **按目标尺寸降采样**：电视上一次解码一张 4K 海报就是一次 OOM。
+ * 3. **按目标尺寸降采样**：电视上一次解码一张 4K 海报就是一次 OOM；
+ * 4. **翻页预热**：下一页数据已在内存时，用 [prefetch] 先把封面取进内存，翻过去直接命中。
  *
- * 线程约定：`load` / `cancelPage` 可以从任意线程调，内部会切到主线程；解码与下载在后台线程，
- * 结果回主线程贴图（贴图要求视图还在、且这一代页面还没被换掉）。
+ * 线程约定：`load` / `prefetch` / `cancelPage` 可以从任意线程调，内部会切到主线程；
+ * 解码与下载在后台线程，结果回主线程贴图（贴图要求视图还在、且这一代页面还没被换掉）。
  *
  * **落盘资格只有收藏 / 历史**（`ArtworkSpec.persist`）：这些封面会被反复回看，落盘值得；
  * 搜索、详情、季线只记地址，看过就扔。落盘发生在两处：
@@ -39,7 +40,7 @@ import java.util.concurrent.TimeUnit
  * 2. **内存命中但磁盘没有**时补写一次（同一张图可能先在搜索页以不落盘的方式取过，
  *    不补写就永远进不了磁盘——旧实现在这里删过路径，UI-06 的"封面存不住"就是它）。
  *
- * 与旧实现（337 行）的差别是删掉了没有消费者的部分：`prefetch`、按布局变化重新请求
+ * 与旧实现（337 行）的差别是删掉了没有消费者的部分：按布局变化重新请求
  * （规格里尺寸是显式给的）、`refillVisible`。
  * 留下的骨架同型——代际号（`cancelPage`）、同键合并、超限丢弃，都是旧实现在真机上试出来的。
  */
@@ -110,6 +111,8 @@ class ArtworkLoader(
 
     /** 已经排了"只落盘"任务的 key：同一张图不重复补写。 */
     private val diskWrites = HashSet<Key>()
+    /** 预热失败的 key：同一代页面内不再反复重试（卡片自己的 `load` 不受影响）。 */
+    private val prefetchFailed = HashSet<Key>()
     private val bindings = WeakHashMap<ImageView, Binding>()
 
     /** 代际号：`cancelPage` 递增。旧页排队中与在途的请求据此作废，不必逐个找回来。 */
@@ -168,6 +171,33 @@ class ArtworkLoader(
         request(binding)
     }
 
+    override fun prefetch(url: String, spec: ArtworkSpec) {
+        if (!onMain()) {
+            main.post { prefetch(url, spec) }
+            return
+        }
+        if (closed) return
+        val normalized = CoverUrls.normalize(url)
+        if (normalized.isBlank() || spec.widthPx <= 0 || spec.heightPx <= 0) return
+        val key = Key(normalized, spec.widthPx, spec.heightPx)
+        if (cache.get(key) != null) return
+        synchronized(signal) {
+            if (closed || key in prefetchFailed || jobs.containsKey(key)) return
+            // 预热不挤占队列：满了就放弃这一张，绝不淘汰正在等图的可见卡
+            if (pending.size >= MAX_PENDING) return
+            val job = Job(
+                key = key,
+                generation = generation,
+                priority = ArtworkSpec.PRIORITY_PREFETCH,
+                order = ++order,
+                persist = false,
+            )
+            jobs[key] = job
+            pending += job
+            signal.notifyAll()
+        }
+    }
+
     override fun cancelPage(clearMemory: Boolean) {
         if (!onMain()) {
             main.post { cancelPage(clearMemory) }
@@ -176,6 +206,7 @@ class ArtworkLoader(
         generation++
         bindings.clear()
         val cancelled = synchronized(signal) {
+            prefetchFailed.clear()
             jobs.values.toList().also { list ->
                 list.forEach { cancelLocked(it) }
                 signal.notifyAll()
@@ -351,7 +382,12 @@ class ArtworkLoader(
             val listeners = synchronized(signal) {
                 if (jobs[job.key] === job) jobs.remove(job.key)
                 if (job.diskOnly) diskWrites.remove(job.key)
+                val wanted = job.listeners.isNotEmpty()
                 if (!job.cancelled && !closed && bitmap != null) cache.put(job.key, bitmap)
+                // 无监听者 = 预热任务：失败后记下来，同一代页面内不再反复重试
+                if (!job.cancelled && !closed && bitmap == null && !job.diskOnly && !wanted) {
+                    prefetchFailed += job.key
+                }
                 job.listeners.toList().also { job.listeners.clear() }
             }
             if (job.cancelled || closed) continue

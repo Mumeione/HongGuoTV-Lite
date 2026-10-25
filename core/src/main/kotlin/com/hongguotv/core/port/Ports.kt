@@ -113,6 +113,14 @@ interface Navigator {
 /** 封面端口：调用方只给"要什么规格"，策略在实现里。 */
 interface ArtworkPort {
     fun load(host: Any, url: String, spec: ArtworkSpec)
+
+    /**
+     * 预热一张封面：只取图进内存缓存，不贴图、不落盘。
+     *
+     * 用于翻页预热——下一页数据已在内存时先把封面取回来，翻过去直接命中。
+     * 预热必须让位于可见卡：实现里优先级低于 [ArtworkSpec.PRIORITY_VISIBLE]。
+     */
+    fun prefetch(url: String, spec: ArtworkSpec)
     fun cancelPage(clearMemory: Boolean)
     fun trim(level: Int)
 }
@@ -132,6 +140,8 @@ data class ArtworkSpec(
         const val PRIORITY_FOCUSED = 0
         /** 已在屏幕内但未聚焦：常规优先级（也是默认值）。 */
         const val PRIORITY_VISIBLE = 1
+        /** 翻页预热：没有视图在等它，排在任何可见卡之后。 */
+        const val PRIORITY_PREFETCH = 2
     }
 }
 

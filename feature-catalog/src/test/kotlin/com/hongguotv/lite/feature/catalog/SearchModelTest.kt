@@ -59,6 +59,20 @@ class SearchModelTest {
         assertEquals((11..20).map { "$it" }, model.items.map { it.id })
     }
 
+    /** 翻页预热只读内存：下一页没补拉过就返回空，绝不为此额外打上游。 */
+    @Test
+    fun `page items are available for prefetch only when already in memory`() {
+        val model = SearchModel()
+        model.absorb(page((1..10).map { series("$it", "剧$it") }, page = 1, pages = 3, total = 30))
+        model.present(1, ascending = false)
+        assertTrue(model.pageItems(2, ascending = false).isEmpty())
+
+        model.absorb(page((11..20).map { series("$it", "剧$it") }, page = 2, pages = 3, total = 30))
+        assertEquals((11..20).map { "$it" }, model.pageItems(2, ascending = false).map { it.id })
+        // 预热不切换当前窗口：用户还停在第 1 页
+        assertEquals((1..10).map { "$it" }, model.items.map { it.id })
+    }
+
     @Test
     fun `overlapping items from later pages are dropped against earlier data`() {
         // 上游翻页会重叠（实测第 2 页开头重复第 1 页末尾的季）

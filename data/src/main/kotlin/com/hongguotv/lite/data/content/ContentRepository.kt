@@ -272,6 +272,28 @@ class ContentRepository(
     }
 
     /**
+     * 搜索卡锚点的详情证据：id → 详情补出的 `season_index` / `albumId`。
+     *
+     * 搜索聚合每搜一次，无 `albumId` 的锚点都要补一次详情；同一部剧反复搜/翻页时这条证据不变。
+     * 缓存把"每部剧一次详情"压在会话内，避免搜索路径重复请求（B3）。
+     * 不用 `LruCache`：这里只是十几条小对象，按最近使用淘汰即可。
+     */
+    private val anchorEvidence = LinkedHashMap<String, Series>()
+    private val anchorEvidenceLock = Any()
+
+    private fun anchorEvidenceOf(id: String): Series? = synchronized(anchorEvidenceLock) {
+        anchorEvidence.remove(id)?.also { anchorEvidence[id] = it }
+    }
+
+    private fun rememberAnchorEvidence(id: String, series: Series) {
+        synchronized(anchorEvidenceLock) {
+            anchorEvidence.remove(id)
+            anchorEvidence[id] = series
+            while (anchorEvidence.size > ANCHOR_EVIDENCE_LIMIT) anchorEvidence.remove(anchorEvidence.keys.first())
+        }
+    }
+
+    /**
      * 锚点没有专辑证据、又不在 plan 的相关作品里时，问一次详情把 `season_index` / `albumId` 补齐。
      *
      * 失败静默：已经拿到的相关作品仍然可用，少一季比整页变错误态好。
@@ -284,16 +306,19 @@ class ContentRepository(
         if (anchor == null || anchor.albumId.isNotBlank()) return anchor
         if (entries.any { it.second.id == anchor.id }) return anchor
         if (!SeriesIds.ID.matches(anchor.id)) return anchor
+        anchorEvidenceOf(anchor.id)?.let { return it }
         val detail = try {
             loadDetail(anchor.id)
         } catch (error: UpstreamError) {
             diagnostics.event("seasons.anchor_failed", mapOf("reason" to error.javaClass.simpleName))
             return anchor
         }
-        return detail.series.takeIf { it.id == anchor.id } ?: run {
+        if (detail.series.id != anchor.id) {
             diagnostics.event("seasons.anchor_mismatch", mapOf("requested" to anchor.id, "got" to detail.series.id))
-            anchor
+            return anchor
         }
+        rememberAnchorEvidence(anchor.id, detail.series)
+        return detail.series
     }
 
     /** 锚点是不是某条季线的一季：有季号，且属于某张专辑（同 IP 作品两个条件都不满足）。 */
@@ -394,6 +419,9 @@ class ContentRepository(
 
         /** 补第 1 季时最多试几个候选：一次进页多三次请求已经是极限，不能为了补一季把页面拖成转圈。 */
         const val MAX_FIRST_SEASON_CANDIDATES = 2
+
+        /** 搜索卡锚点证据缓存上限：会话内同一部剧最多补一次详情。 */
+        const val ANCHOR_EVIDENCE_LIMIT = 16
     }
 }
 

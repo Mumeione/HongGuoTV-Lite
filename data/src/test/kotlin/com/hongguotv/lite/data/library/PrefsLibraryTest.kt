@@ -119,6 +119,52 @@ class PrefsLibraryTest {
         assertEquals(listOf("seasonGroups", "progress"), lib.corruptPartitions)
     }
 
+    @Test
+    fun corruptHistoryRowIsSkippedWithoutBorrowingTheEpisodeId() = runTest {
+        // 旧实现会把 episodeId 当 seriesId 建一条假记录，污染历史与进度；现在整行跳过并留痕
+        val bad = JSONObject()
+            .put("series", "坏掉的展示元数据")
+            .put("episodeId", "900").put("episodeIndex", 2)
+            .put("position", 1_000L).put("duration", 100_000L)
+            .put("completed", false).put("updatedAt", 2_000L)
+        val good = JSONObject()
+            .put("seriesId", "7")
+            .put("series", SeriesCodec.toJson(Series("7", "正常剧")))
+            .put("episodeId", "700").put("episodeIndex", 1)
+            .put("position", 1_000L).put("duration", 100_000L)
+            .put("completed", false).put("updatedAt", 1_000L)
+        val lib = PrefsLibrary(store(
+            "favoriteSeries" to "{}",
+            "progress" to JSONArray().put(bad).put(good).toString(),
+        ))
+        assertEquals(listOf("7"), lib.history().map { it.progress.seriesId })
+        assertEquals(listOf("progress"), lib.corruptPartitions)
+    }
+
+    @Test
+    fun historyPrefersTheExplicitSeriesIdOverTheMetadataCopy() = runTest {
+        val row = JSONObject()
+            .put("seriesId", "42")
+            .put("series", JSONObject().put("id", "41").put("title", "旧元数据"))
+            .put("episodeId", "900").put("episodeIndex", 2)
+            .put("position", 1_000L).put("duration", 100_000L)
+            .put("completed", false).put("updatedAt", 1_000L)
+        val lib = PrefsLibrary(store("favoriteSeries" to "{}", "progress" to JSONArray().put(row).toString()))
+        val entry = lib.history().single()
+        assertEquals("42", entry.progress.seriesId)
+        assertEquals("42", entry.series.id)
+    }
+
+    @Test
+    fun historyWritesTheSeriesIdExplicitly() = runTest {
+        val s = store("favoriteSeries" to "{}")
+        val lib = PrefsLibrary(s)
+        lib.save(progress(index = 3, updatedAt = 2_000L, seriesId = "7"))
+        lib.flush()
+        val row = JSONArray(s.data["progress"] as String).getJSONObject(0)
+        assertEquals("7", row.getString("seriesId"))
+    }
+
     // ---------- 进度 ----------
 
     private fun progress(index: Int, updatedAt: Long, completed: Boolean = false, seriesId: String = "1") = Progress(

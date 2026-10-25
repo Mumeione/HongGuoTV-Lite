@@ -527,6 +527,15 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         }
         rendered = if (showResult) resultGrid.render(model.items.map { CatalogCards.search(it, model.aggregated) }) else null
 
+        // 翻页预热：下一页的数据已在内存时先把封面取回来，翻过去直接命中；
+        // 数据还没补拉（需要额外请求）就不预取——预热不能变成额外的上游流量。
+        if (showResult) {
+            resultGrid.prefetchCovers(
+                model.pageItems(model.page + 1, current.seasonSortAsc)
+                    .map { CatalogCards.search(it, model.aggregated) },
+            )
+        }
+
         applyFocus()
     }
 

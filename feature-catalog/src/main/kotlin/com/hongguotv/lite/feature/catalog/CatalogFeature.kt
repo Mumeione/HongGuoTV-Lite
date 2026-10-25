@@ -256,6 +256,19 @@ internal class SearchModel {
             .take(CatalogText.PAGE_SIZE)
     }
 
+    /**
+     * 某一展示页的内容（**不切换窗口**）。
+     *
+     * 该页数据还没在内存（服务端还没补拉）时返回空列表——翻页预热据此决定要不要预取，
+     * 不为了预热额外打上游。
+     */
+    fun pageItems(target: Int, ascending: Boolean): List<Series> {
+        if (target < 1) return emptyList()
+        return view(ascending)
+            .drop((target - 1) * CatalogText.PAGE_SIZE)
+            .take(CatalogText.PAGE_SIZE)
+    }
+
     /** 排序开关来回切都从内存视图现算：正序结果不是"另一种原序"。 */
     fun reorder(ascending: Boolean) {
         present(page, ascending)

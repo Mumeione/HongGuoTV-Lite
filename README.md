@@ -120,7 +120,7 @@ sealed class UpstreamError {
 ./gradlew :core:test :data:testDebugUnitTest :uikit:testDebugUnitTest :feature-catalog:testDebugUnitTest :app:assembleDebug --console=plain
 ```
 
-一阶段一次全量验证（当前基线：core 67 项、data 49 项、uikit 41 项、feature-catalog 31 项）：
+一阶段一次全量验证（**测试总数与分模块计数见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 的「当前状态」**；本节不再维护具体数字）：
 
 ```sh
 ./gradlew :core:test :data:testDebugUnitTest :uikit:testDebugUnitTest :feature-catalog:testDebugUnitTest \
@@ -130,7 +130,7 @@ sealed class UpstreamError {
 > **`:app:lintDebug` 目前是红的，原因是 S0 遗留的一处清单问题**：manifest 声明了 Leanback 入口却没有
 > `android:banner`，Lint 的 `MissingTvBanner` 会让 app 模块的 lint 任务失败。各模块自己的
 > `NewApi`（API 23 守卫）是干净的，例如 `:uikit:lintDebug` 输出 "No issues found"。
-> 修法二选一（补 banner 图 / 去掉 Leanback 入口），排在 S7 收口，详见 `docs/PLATFORM.md` 的「构建期守卫的当前状态」。
+> 修法二选一（补 banner 图 / 去掉 Leanback 入口），排在 S7 收口，详见 `docs/PLATFORM.md` 的「构建期守卫（S8 历史快照）」。
 
 正式签名需要 `keystore.properties`（不入库），或用环境变量 `HONGGUOTV_KEYSTORE` / `HONGGUOTV_STORE_PASSWORD` / `HONGGUOTV_KEY_ALIAS` / `HONGGUOTV_KEY_PASSWORD`。
 
