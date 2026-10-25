@@ -144,13 +144,6 @@ class ContentRepository(
         }
         val cards = Parsers.valid(loaded.cards)
         val items = Parsers.filterType(cards, filter).map { it.series }
-        // 排序开关只排"这一页里与关键词同系列的季"。跨页的季由服务端分页负责，
-        // 客户端拿不到也不该假装拿得到。
-        val keywordKey = SeasonKeys.seasonKey(keyword)
-        val seasons = cards
-            .filter { it.series.season > 0 && SeasonKeys.seasonKey(it.series.title) == keywordKey }
-            .sortedBy { it.series.season }
-            .map { it.series }
         diagnostics.event(
             "search.results",
             mapOf(
@@ -162,7 +155,6 @@ class ContentRepository(
         )
         return SearchResult(
             items = items,
-            seasonLine = seasons,
             page = loaded.page,
             totalPages = loaded.totalPages,
             totalCount = loaded.totalCount,
@@ -210,12 +202,15 @@ class ContentRepository(
                 .distinct()
             if (vids.isEmpty()) throw UpstreamError.Shape("data.video_data.video_list")
             val title = vd.str(Fields.Detail.SERIES_TITLE).ifEmpty { vd.str(Fields.Detail.SERIES_NAME) }
+            // 详情集数同时写进 badge 与 episodeCount：收藏详情的「更新」靠后者；
+            // 只写 badge 会让并入季线的锚点季集数为 0，回退成「第九季第90集」这种错文案。
+            val total = vd.optInt(Fields.Detail.EPISODE_CNT, 0).takeIf { it > 0 } ?: vids.size
             val series = Series(
                 id = vd.str(Fields.Detail.SERIES_ID).ifEmpty { seriesId },
                 title = title,
                 cover = Parsers.cleanUrl(vd.str(Fields.Detail.SERIES_COVER)),
                 intro = vd.str(Fields.Detail.SERIES_INTRO),
-                badge = "全 ${vd.optInt(Fields.Detail.EPISODE_CNT, vids.size)} 集",
+                badge = "全 $total 集",
                 tags = Parsers.detailTags(vd),
                 // 详情的 season_index 是权威季号（「分宗篇」这种标题不带季号的季也能定序）；
                 // 没有时退回标题解析（老数据/单季剧）
@@ -223,6 +218,7 @@ class ContentRepository(
                     ?: SeasonKeys.seasonNumber(title),
                 // 空 = 同 IP 作品：它不属于任何季线，季线并入时据此把它挡在外面
                 albumId = vd.str(Fields.Detail.RELATED_ALBUM_ID),
+                episodeCount = total,
             )
             Detail(series, vids.mapIndexed { index, vid -> Episode(vid, index) })
         }
@@ -243,30 +239,61 @@ class ContentRepository(
      * 并入的两个条件（缺一不可）：锚点有季号，且它属于某张专辑（`albumId` 非空）。
      * 同 IP 正传的详情没有 `related_album_id`、季号也是 0——把它并进来会被当成第 1 季，
      * 顶掉真正的分宗篇（2026-10-24 维护者点名的坑）。
+     *
+     * 搜索卡/旧收藏行的锚点没有 `albumId`，又不一定在相关作品里：先问一次详情补齐证据，
+     * 失败静默（少一季比整页错误态好）。这是搜索聚合不缺锚点季的唯一保证。
      */
     private suspend fun planCells(seriesId: String, anchor: Series?): SeasonLine {
         require(SeriesIds.ID.matches(seriesId)) { "剧集 id 无效：$seriesId" }
         val signed = sign("seasonLine", mapOf("seriesId" to seriesId))
         val raw = http.text(signed)
-        val line = diagnostics.stageTimed(DiagnosticsPort.Stage.PARSE, "seasonLine") {
+        val entries = diagnostics.stageTimed(DiagnosticsPort.Stage.PARSE, "seasonLine") {
             val data = runCatching { JSONObject(raw).optJSONArray(Fields.Envelope.DATA) ?: JSONArray() }
                 .getOrElse { throw UpstreamError.Shape("body") }
-            val entries = Parsers.planCell(data).toMutableList()
-            if (anchor != null && entries.none { it.second.id == anchor.id } && anchor.isSeriesSeason) {
-                entries += anchor.season to anchor
-            }
-            SeasonLine(entries.sortedBy { it.first }.map { it.second })
+            Parsers.planCell(data).toMutableList()
         }
+        // 搜索卡/旧收藏行没有 albumId：plan 的相关作品又不含锚点本尊，直接按
+        // "有季号 + 专辑"并入会把锚点那一季丢掉（实测魏家缺 S9、万妖缺 S1、聚宝缺 S14）。
+        val resolved = resolveAnchor(entries, anchor)
+        if (resolved != null && entries.none { it.second.id == resolved.id } && resolved.isSeriesSeason) {
+            entries += resolved.season to resolved
+        }
+        val line = SeasonLine(entries.sortedBy { it.first }.map { it.second })
         diagnostics.event("seasons.loaded", mapOf("seasons" to line.seasons.size))
         // 锚点不是本系列的一季（同 IP 正传）时，相关作品里只有第 2 季起：
         // 用一次搜索 + 一次详情把第 1 季补回来，否则这一页永远少一季（维护者实测）。
         val missingFirst = line.seasons.isNotEmpty() && line.seasons.none { it.season == 1 } &&
-            (anchor == null || !anchor.isSeriesSeason)
+            (resolved == null || !resolved.isSeriesSeason)
         if (!missingFirst) return line
-        val base = anchor?.let { SeasonKeys.seasonKey(it.title) }.orEmpty()
+        val base = resolved?.let { SeasonKeys.seasonKey(it.title) }.orEmpty()
         if (base.isBlank()) return line
         val first = backfillFirstSeason(base, excludeId = seriesId) ?: return line
         return SeasonLine((line.seasons + first).sortedBy { it.season })
+    }
+
+    /**
+     * 锚点没有专辑证据、又不在 plan 的相关作品里时，问一次详情把 `season_index` / `albumId` 补齐。
+     *
+     * 失败静默：已经拿到的相关作品仍然可用，少一季比整页变错误态好。
+     * 详情返回的 id 与请求不一致时不采信——宁可少一季，也不把别的剧并进来。
+     */
+    private suspend fun resolveAnchor(
+        entries: List<Pair<Int, Series>>,
+        anchor: Series?,
+    ): Series? {
+        if (anchor == null || anchor.albumId.isNotBlank()) return anchor
+        if (entries.any { it.second.id == anchor.id }) return anchor
+        if (!SeriesIds.ID.matches(anchor.id)) return anchor
+        val detail = try {
+            loadDetail(anchor.id)
+        } catch (error: UpstreamError) {
+            diagnostics.event("seasons.anchor_failed", mapOf("reason" to error.javaClass.simpleName))
+            return anchor
+        }
+        return detail.series.takeIf { it.id == anchor.id } ?: run {
+            diagnostics.event("seasons.anchor_mismatch", mapOf("requested" to anchor.id, "got" to detail.series.id))
+            anchor
+        }
     }
 
     /** 锚点是不是某条季线的一季：有季号，且属于某张专辑（同 IP 作品两个条件都不满足）。 */

@@ -53,7 +53,7 @@ class FavoriteUpdateCheckTest {
         val failingLines = mutableSetOf<String>()
 
         override suspend fun search(keyword: String, filter: ContentFilter, page: Int): SearchResult =
-            SearchResult(emptyList(), emptyList())
+            SearchResult(emptyList())
 
         override suspend fun suggest(keyword: String): List<Suggestion> = emptyList()
 

@@ -53,7 +53,7 @@ class RealNetworkProbe {
             found?.let { result ->
                 report.line(
                     "  page=${result.page}/${result.totalPages} total=${result.totalCount} " +
-                        "items=${result.items.size} seasonLine=${result.seasonLine.size}",
+                        "items=${result.items.size}",
                 )
                 result.items.forEach { report.line("  - ${it.id} ${it.title}") }
             }

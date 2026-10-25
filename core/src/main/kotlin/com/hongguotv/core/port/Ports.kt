@@ -33,7 +33,7 @@ interface ContentPort {
     /** 详情：分集清单以服务端顺序为准。 */
     suspend fun detail(seriesId: String): Detail
 
-    /** 季线：旧 → 新。[anchor] 用于把本尊按季号并入（plan cell 不含锚点）。 */
+    /** 季线：旧 → 新。[anchor] 用于把本尊按季号并入（plan cell 不含锚点）；没有 `albumId` 的锚点会先补一次详情。 */
     suspend fun seasons(seriesId: String, anchor: Series?): SeasonLine
 
     /** 取流：返回解密后的地址与内容密钥。 */

@@ -20,9 +20,9 @@ import com.hongguotv.core.model.Detail
 import com.hongguotv.core.model.FrameMode
 import com.hongguotv.core.model.PlaybackOptions
 import com.hongguotv.core.model.Progress
-import com.hongguotv.core.model.SeasonKeys
 import com.hongguotv.core.model.Settings
 import com.hongguotv.core.port.UpstreamError
+import com.hongguotv.core.usecase.FavoriteLookup
 import com.hongguotv.core.usecase.SeasonLineBackfill
 import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.focus.FocusSession
@@ -233,7 +233,8 @@ internal class PlayerPage(
      * 播放器无法判断"是不是最后一季"，片尾就不敢说"全剧已播完"。
      */
     private fun preloadSeasonLine(data: Detail) {
-        val key = SeasonKeys.seasonKey(data.series.title)
+        // 与详情/系列页同一条键：收藏过的剧用收藏行键，避免分宗篇/折桂篇各落一份缓存。
+        val key = FavoriteLookup.favoriteKey(data.series, host.favorites)
         if (key.isBlank()) return
         if (host.favorites.seasonLine(key) != null) return
         // 读请求挂页面作用域：用户离开播放页就不必再为"也许有下一季"发请求

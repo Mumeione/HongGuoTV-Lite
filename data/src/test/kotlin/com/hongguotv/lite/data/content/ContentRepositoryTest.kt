@@ -194,21 +194,6 @@ class ContentRepositoryTest {
     }
 
     @Test
-    fun seasonLineOfThePageOnlyContainsTheSameSeries() = runTest {
-        // 搜索页的排序开关只排"这一页里与关键词同系列的季"：跨页的季由服务端分页负责。
-        val repo = repository { request ->
-            route(request, search = searchBody(listOf(
-                seriesJson("3", "万妖图录传第三季", celebs = false),
-                seriesJson("9", "完全无关的剧第二季", celebs = false),
-                seriesJson("1", "万妖图录传第一季", celebs = false),
-            )))
-        }
-        val out = repo.search("万妖图录传", ContentFilter.ALL)
-        assertEquals(listOf("1", "3"), out.seasonLine.map { it.id })
-        assertEquals(3, out.items.size)
-    }
-
-    @Test
     fun searchUrlShapeIsOwnedByTheEndpointTable() = runTest {
         val repo = repository { request ->
             route(request, search = searchBody(listOf(seriesJson("1", "凡人测试书", celebs = false))))
@@ -268,6 +253,21 @@ class ContentRepositoryTest {
         assertEquals(3, d.series.season)
     }
 
+    /**
+     * 详情集数要落到 [Series.episodeCount]。
+     *
+     * 收藏详情的「更新」行靠它；为 0 时会退回**当前季**的集数，写成
+     * 「更新到 第九季第90集」这种季号对、集数错的文案。
+     */
+    @Test
+    fun detailCarriesEpisodeCountForFavoriteUpdates() = runTest {
+        val repo = repository { request ->
+            route(request, search = "", detail = videoDetailResponse())
+        }
+        val d = repo.detail("7")
+        assertEquals("详情集数必须带出来，不能只写在 badge 里", 3, d.series.episodeCount)
+    }
+
     @Test
     fun detailApiErrorBecomesRiskControl() = runTest {
         val repo = repository { request ->
@@ -297,6 +297,53 @@ class ContentRepositoryTest {
         val line = repo.seasons(anchor.id, anchor)
         assertEquals(listOf("1", "4", "3"), line.seasons.map { it.id })
         assertEquals(listOf(2, 3, 8), line.seasons.map { it.season })
+    }
+
+    /**
+     * 搜索聚合把**搜索卡**当锚点：卡上没有 `albumId`，季号只从标题来。
+     * plan 的相关作品又不含锚点本尊——不补一次详情，聚合结果就会丢掉锚点那一季
+     * （实测魏家缺 S9、万妖缺 S1、聚宝缺 S14）。
+     */
+    @Test
+    fun seasonsResolvesASearchCardAnchorThroughDetail() = runTest {
+        val repo = repository { request ->
+            when {
+                request.url.contains("/reading/bookapi/plan/") -> planResponse(listOf(
+                    planCard("2", "魏家测试书折桂篇", 64, "第2季", seasonIndex = 2),
+                    planCard("3", "魏家测试书第三季", 65, "第3季", seasonIndex = 3),
+                ))
+                request.url.contains("/novel/player/video_detail/") ->
+                    videoDetailResponse(id = "9", seasonIndex = 9, albumId = "album-1")
+                else -> ""
+            }
+        }
+        val searchCard = Series(id = "9", title = "魏家测试书第九季", season = 9, albumId = "")
+        val line = repo.seasons(searchCard.id, searchCard)
+        assertEquals(listOf("2", "3", "9"), line.seasons.map { it.id })
+        assertEquals(listOf(2, 3, 9), line.seasons.map { it.season })
+        assertTrue(
+            "锚点不在 plan 里时必须问一次详情：${transport!!.urls}",
+            transport!!.urls.any { it.contains("/novel/player/video_detail/") },
+        )
+    }
+
+    /** 篇名季（分宗篇）在搜索卡上季号是 0：同样要靠详情补出 season_index 与 album。 */
+    @Test
+    fun seasonsResolvesANoSeasonSearchCardThroughDetail() = runTest {
+        val repo = repository { request ->
+            when {
+                request.url.contains("/reading/bookapi/plan/") -> planResponse(listOf(
+                    planCard("2", "魏家测试书折桂篇", 64, "第2季", seasonIndex = 2),
+                ))
+                request.url.contains("/novel/player/video_detail/") ->
+                    videoDetailResponse(id = "1", seasonIndex = 1, albumId = "album-1")
+                else -> ""
+            }
+        }
+        val searchCard = Series(id = "1", title = "魏家测试书分宗篇", season = 0, albumId = "")
+        val line = repo.seasons(searchCard.id, searchCard)
+        assertEquals(listOf("1", "2"), line.seasons.map { it.id })
+        assertEquals(listOf(1, 2), line.seasons.map { it.season })
     }
 
     @Test

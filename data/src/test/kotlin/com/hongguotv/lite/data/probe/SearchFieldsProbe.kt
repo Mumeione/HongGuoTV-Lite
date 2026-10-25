@@ -37,7 +37,7 @@ class SearchFieldsProbe {
                     println("[$keyword] 失败 ${it::class.java.simpleName}: ${it.message}")
                     return@forEach
                 }
-                println("[$keyword] items=${result.items.size} seasons=${result.seasonLine.size}")
+                println("[$keyword] items=${result.items.size}")
                 result.items.take(6).forEach { series ->
                     println("    ${series.id} | ${series.title} | tags='${series.tags}' | ${series.badge} | season=${series.season} | released=${series.released}")
                 }

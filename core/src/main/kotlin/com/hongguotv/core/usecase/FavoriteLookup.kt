@@ -29,11 +29,29 @@ object FavoriteLookup {
         lineOf: (String) -> SeasonLine?,
     ): FavoriteEntry? {
         val key = SeasonKeys.seasonKey(series.title)
-        entries.firstOrNull { it.seriesKey == key }?.let { return it }
+        entries.firstOrNull { it.seriesKey == key && albumAllowsKeyMatch(it.series, series) }?.let { return it }
         // 键对不上：看这一季的 id 在不在某个收藏系列的季线里
         return entries.firstOrNull { entry ->
             lineOf(entry.seriesKey)?.seasons?.any { it.id == series.id } == true
         }
+    }
+
+    /**
+     * 标题键相同还不够：同 IP 正传的键就是系列基名，会把 S3–S10 全判成「已收藏」。
+     *
+     * 证据优先级：
+     * - 候选有 albumId → 收藏行也必须有且相同（同 IP 的不同制作组也可以共用标题基名）；
+     * - 候选没有 albumId（搜索卡 / 旧历史行）→ 沿用标题键，避免把已收藏显示成未收藏；
+     *   但收藏行是「同 IP 正传」（album 空、季号 0）时，不能认领带季号的季。
+     *   旧收藏行没有 albumId 但有季号（>0），它确实是某一季，继续按键匹配。
+     * - 键不成立时还有第二证据：这一季的 id 在收藏的季线里。
+     */
+    private fun albumAllowsKeyMatch(favorite: Series, candidate: Series): Boolean {
+        if (candidate.albumId.isNotBlank()) {
+            return favorite.albumId.isNotBlank() && favorite.albumId == candidate.albumId
+        }
+        if (favorite.albumId.isBlank() && favorite.season <= 0 && candidate.season > 0) return false
+        return true
     }
 
     /**

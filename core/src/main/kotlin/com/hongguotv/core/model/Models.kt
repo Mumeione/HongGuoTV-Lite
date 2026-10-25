@@ -119,16 +119,17 @@ data class Settings(
 /**
  * 搜索结果。字段语义不同，用类型名写清楚，不靠注释：
  * - [items]：**当前这一页**已按筛选处理好的展示序（UI 直接用）
- * - [seasonLine]：本页命中的同系列季，旧 → 新（展示层排序用；为空表示这页没有多季信息）
  * - [page] / [totalPages] / [totalCount]：官网搜索的分页事实。上游一页固定 10 条，
  *   与界面"两行 10 张"的口径一致；[totalCount] 为 0 表示上游没给总数。
  *
  * 分页为什么在端口上而不是界面里：官网搜索**服务端分页**（`page` 参数有效），
  * 界面自己做"假分页"只能翻到客户端手里那 10 条，翻不出第 2 页。
+ *
+ * 季线不在这里：搜索卡没有 `albumId`，按标题算出的"季线"既不全也不可信
+ * （实测魏家 10 季只能算出 4 季）。要完整季线一律走 `ContentPort.seasons`。
  */
 data class SearchResult(
     val items: List<Series>,
-    val seasonLine: List<Series>,
     val page: Int = 1,
     val totalPages: Int = 1,
     val totalCount: Int = 0,

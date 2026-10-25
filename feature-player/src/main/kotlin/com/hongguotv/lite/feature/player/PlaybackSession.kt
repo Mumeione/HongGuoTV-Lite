@@ -4,12 +4,12 @@ import com.hongguotv.core.model.Detail
 import com.hongguotv.core.model.FrameMode
 import com.hongguotv.core.model.PlaybackOptions
 import com.hongguotv.core.model.Progress
-import com.hongguotv.core.model.SeasonKeys
 import com.hongguotv.core.port.FavoritesPort
 import com.hongguotv.core.port.MediaStream
 import com.hongguotv.core.port.SettingsPort
 import com.hongguotv.core.usecase.EndAction
 import com.hongguotv.core.usecase.EpisodeFlow
+import com.hongguotv.core.usecase.FavoriteLookup
 import com.hongguotv.core.usecase.RecoveryBudget
 import com.hongguotv.core.usecase.ResumePoint
 import com.hongguotv.core.usecase.SleepTimer
@@ -419,7 +419,9 @@ class PlaybackSession(
     }
 
     /** 季线只认缓存：详情页收藏时已经落库，播放器不为了"也许有下一季"额外发请求。 */
-    private fun seasonLine() = detail?.let { favorites.seasonLine(SeasonKeys.seasonKey(it.series.title)) }
+    private fun seasonLine() = detail?.let {
+        favorites.seasonLine(FavoriteLookup.favoriteKey(it.series, favorites))
+    }
 
     // ---------- 进度 ----------
 

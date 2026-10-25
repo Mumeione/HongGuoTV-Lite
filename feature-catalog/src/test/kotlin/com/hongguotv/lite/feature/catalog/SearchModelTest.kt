@@ -29,7 +29,7 @@ class SearchModelTest {
         pages: Int = 3,
         total: Int = 30,
         hasMore: Boolean = page < pages,
-    ) = SearchResult(items, seasonLine = emptyList(), page = page, totalPages = pages, totalCount = total, hasMore = hasMore)
+    ) = SearchResult(items, page = page, totalPages = pages, totalCount = total, hasMore = hasMore)
 
     // ---------- 纯网页结果（不聚合） ----------
 

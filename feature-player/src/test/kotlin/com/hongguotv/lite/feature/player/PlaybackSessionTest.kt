@@ -3,6 +3,7 @@ package com.hongguotv.lite.feature.player
 import com.hongguotv.core.model.Detail
 import com.hongguotv.core.model.Episode
 import com.hongguotv.core.model.FavoriteEntry
+import com.hongguotv.core.model.FavoriteStatus
 import com.hongguotv.core.model.FrameMode
 import com.hongguotv.core.model.Progress
 import com.hongguotv.core.model.SeasonLine
@@ -125,13 +126,23 @@ class PlaybackSessionTest {
         }
     }
 
-    private class FakeFavorites(private val line: SeasonLine?) : FavoritesPort {
-        override fun all(): List<FavoriteEntry> = emptyList()
-        override fun isFavorite(seriesKey: String): Boolean = false
-        override fun entry(seriesKey: String): FavoriteEntry? = null
+    private class FakeFavorites(
+        private val line: SeasonLine?,
+        private val lineKey: String? = null,
+        private val favorite: FavoriteEntry? = null,
+    ) : FavoritesPort {
+        /** 播放器读季线时实际用的键：用于断言它跟收藏行键一致，而不是标题键。 */
+        val requestedKeys = mutableListOf<String>()
+
+        override fun all(): List<FavoriteEntry> = listOfNotNull(favorite)
+        override fun isFavorite(seriesKey: String): Boolean = favorite?.seriesKey == seriesKey
+        override fun entry(seriesKey: String): FavoriteEntry? = favorite?.takeIf { it.seriesKey == seriesKey }
         override suspend fun toggle(series: Series): Boolean = false
         override suspend fun setCurrentSeason(seriesKey: String, series: Series) = Unit
-        override fun seasonLine(seriesKey: String): SeasonLine? = line
+        override fun seasonLine(seriesKey: String): SeasonLine? {
+            requestedKeys += seriesKey
+            return if (lineKey == null || seriesKey == lineKey) line else null
+        }
         override fun rememberSeasonLine(seriesKey: String, line: SeasonLine) = Unit
         override fun acknowledge(seriesId: String, totalEpisodes: Int, at: Long) = Unit
     }
@@ -201,15 +212,19 @@ class PlaybackSessionTest {
         speed: Float = 1f,
         frame: FrameMode = FrameMode.FIT,
         line: SeasonLine? = null,
+        lineKey: String? = null,
+        favorite: FavoriteEntry? = null,
+        title: String = "某剧第一季",
     ) {
         val engine = FakeEngine()
         val settingsPort = FakeSettings(Settings(autoNext = autoNext, speed = speed, frame = frame))
         val host = RecordingHost()
         val scheduler = FakeScheduler()
+        val favorites = FakeFavorites(line, lineKey, favorite)
         var now = 1_000_000L
-        val session = PlaybackSession(engine, settingsPort, FakeFavorites(line), host, scheduler) { now }
+        val session = PlaybackSession(engine, settingsPort, favorites, host, scheduler) { now }
         val detail = Detail(
-            series = Series(id = "s1", title = "某剧第一季", season = 1),
+            series = Series(id = "s1", title = title, season = 1),
             episodes = List(episodes) { Episode(vid = "v$it", index = it) },
         )
 
@@ -347,6 +362,37 @@ class PlaybackSessionTest {
         f.engine.emitEnded()
         assertEquals(Triple("s2", 0, 0L), f.host.openPlayer)
         assertEquals(PlaybackState.Ended(1, lastOfSeason = true), f.session.state)
+    }
+
+    /**
+     * 分宗篇这类标题不带季号：标题键与收藏行键不同。
+     * 播放器读季线必须用收藏行键，否则会各落一份缓存、跨季链也可能读空。
+     */
+    @Test
+    fun seasonLineIsLookedUpByTheFavoriteKeyNotTheTitleKey() {
+        val line = SeasonLine(
+            listOf(
+                Series(id = "s1", title = "某剧分宗篇", season = 1),
+                Series(id = "s2", title = "某剧第二季", season = 2),
+            ),
+        )
+        val favorite = FavoriteEntry(
+            series = Series(id = "s1", title = "某剧", season = 1),
+            addedAt = 0L,
+            status = FavoriteStatus.UNCHECKED,
+            seriesKey = "某剧",
+        )
+        val f = Fixture(
+            episodes = 2,
+            line = line,
+            lineKey = "某剧",
+            favorite = favorite,
+            title = "某剧分宗篇",
+        ).start(index = 1).ready()
+        f.engine.positionMs = 300_000
+        f.engine.emitEnded()
+        assertEquals(setOf("某剧"), f.favorites.requestedKeys.toSet())
+        assertEquals(Triple("s2", 0, 0L), f.host.openPlayer)
     }
 
     @Test

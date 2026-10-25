@@ -159,26 +159,13 @@ internal class SeasonPage(
 
     private fun fetchLine() {
         if (fetching) return
-        var series = anchor ?: return
+        val series = anchor ?: return
         fetching = true
         // 已有缓存时不进加载态：页面上已经有一条可用的季线，不该为了刷新闪一下空
         if (line == null) render()
         scope.launch {
-            // 旧收藏行没有 albumId（这个字段是 2026-10-24 才落盘的）：先问一次详情。
-            // 不补这一步，"分宗篇=第 1 季"永远并不进季线（锚点并入要求 albumId 非空）。
-            if (series.albumId.isBlank()) {
-                val detail = try {
-                    host.content.detail(series.id)
-                } catch (error: UpstreamError) {
-                    null
-                }
-                if (!isActive) return@launch
-                if (detail != null) {
-                    series = detail.series
-                    anchor = series
-                    host.favorites.setCurrentSeason(seriesKey, series)
-                }
-            }
+            // 旧收藏行没有 albumId（这个字段是 2026-10-24 才落盘的）：seasons() 会先问一次详情，
+            // 把「分宗篇=第 1 季」按详情季号并入；这里不再重复取详情。
             val fetched = try {
                 host.content.seasons(series.id, series)
             } catch (error: UpstreamError) {
@@ -193,8 +180,14 @@ internal class SeasonPage(
                 fetched.seasons.size >= 2 -> {
                     host.favorites.rememberSeasonLine(seriesKey, fetched)
                     line = fetched
+                    // 锚点本尊带着详情元数据（封面/分类/集数）：写回收藏行，
+                    // 旧收藏的 albumId 与元数据一起补全，下次直接读本地。
+                    fetched.seasons.firstOrNull { it.id == series.id }?.let {
+                        host.favorites.setCurrentSeason(seriesKey, it)
+                    }
                     // 重读收藏行：「更新」与「记录」都从季线派生，缓存刚换过，snapshot 已过期
                     entry = host.favorites.entry(seriesKey)
+                    anchor = entry?.series ?: anchor
                 }
                 line == null -> singleSeason = fetched.seasons.firstOrNull() ?: series
             }
