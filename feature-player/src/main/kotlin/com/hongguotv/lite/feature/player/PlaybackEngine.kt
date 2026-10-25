@@ -107,8 +107,13 @@ interface EngineListener {
 interface PlaybackEngine {
     fun setListener(listener: EngineListener?)
 
-    /** 装一条流。[stream] 的归属交给引擎：下一次装载或释放时由引擎关闭它。 */
-    fun load(stream: MediaStream, positionMs: Long, playWhenReady: Boolean)
+    /**
+     * 装一条流。[stream] 的归属交给引擎：下一次装载或释放时由引擎关闭它。
+     *
+     * [seamless] 表示这条流已经在片尾前预取好、是"上一集接下一集"的切换：
+     * 实现应尽量不让缓冲指示闪一下（旧实现的无感切集口径）。
+     */
+    fun load(stream: MediaStream, positionMs: Long, playWhenReady: Boolean, seamless: Boolean = false)
 
     fun play()
 
@@ -126,6 +131,10 @@ interface PlaybackEngine {
     fun release()
 
     val positionMs: Long
+
+    /** 当前位置之后已经缓冲到多远；预取要留出缓冲余量，不能边卡边取下一集。 */
+    val bufferedPositionMs: Long
+
     val durationMs: Long
     val buffering: Boolean
     val ready: Boolean

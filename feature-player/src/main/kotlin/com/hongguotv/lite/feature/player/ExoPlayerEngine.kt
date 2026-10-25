@@ -113,6 +113,11 @@ internal class ExoPlayerEngine(context: Context, tokens: Tokens) : PlaybackEngin
         })
     }
 
+    /** 无感切集的缓冲指示兜底：超时把转圈恢复成常开。 */
+    private val restoreBuffering = Runnable {
+        playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
+    }
+
     /** 画面视图。由页面负责挂到树上、以及 `keepScreenOn`。 */
     fun view(): View = playerView
 
@@ -120,10 +125,20 @@ internal class ExoPlayerEngine(context: Context, tokens: Tokens) : PlaybackEngin
         this.listener = listener
     }
 
-    override fun load(stream: MediaStream, positionMs: Long, playWhenReady: Boolean) {
+    override fun load(stream: MediaStream, positionMs: Long, playWhenReady: Boolean, seamless: Boolean) {
         this.stream?.close()
         this.stream = stream
         tracksChecked = false
+        // 无感切集：上一集最后一帧留在画面上，同时把缓冲转圈压掉。
+        // 只压 1.2 秒——预取的数据万一被换出、还得走网络，转圈该回来就回来，
+        // 不能让用户对着一帧静止画面干等（旧实现同口径）。
+        playerView.removeCallbacks(restoreBuffering)
+        if (seamless) {
+            playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+            playerView.postDelayed(restoreBuffering, SEAMLESS_BUFFERING_MS)
+        } else {
+            playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
+        }
         val source = ProgressiveMediaSource.Factory { StreamDataSource(stream) }
             .createMediaSource(
                 MediaItem.Builder()
@@ -162,6 +177,8 @@ internal class ExoPlayerEngine(context: Context, tokens: Tokens) : PlaybackEngin
     }
 
     override fun stop() {
+        playerView.removeCallbacks(restoreBuffering)
+        playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
         player.stop()
         player.clearMediaItems()
         stream?.close()
@@ -170,6 +187,7 @@ internal class ExoPlayerEngine(context: Context, tokens: Tokens) : PlaybackEngin
     }
 
     override fun release() {
+        playerView.removeCallbacks(restoreBuffering)
         player.stop()
         player.release()
         stream?.close()
@@ -179,6 +197,9 @@ internal class ExoPlayerEngine(context: Context, tokens: Tokens) : PlaybackEngin
 
     override val positionMs: Long
         get() = player.currentPosition.coerceAtLeast(0)
+
+    override val bufferedPositionMs: Long
+        get() = player.bufferedPosition.coerceAtLeast(0)
 
     override val durationMs: Long
         get() = player.duration.let { if (it == C.TIME_UNSET) 0L else it.coerceAtLeast(0) }
@@ -211,5 +232,8 @@ internal class ExoPlayerEngine(context: Context, tokens: Tokens) : PlaybackEngin
 
         /** media3 的解码类错误码区间（`PlaybackException.ERROR_CODE_DECODING_*` 到 `ERROR_CODE_DRM_*`）。 */
         val DECODE_ERROR_RANGE = 3_000..4_999
+
+        /** 无感切集最多压住缓冲转圈的时长（旧实现同值）。 */
+        const val SEAMLESS_BUFFERING_MS = 1_200L
     }
 }

@@ -8,6 +8,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
@@ -29,6 +30,7 @@ import com.hongguotv.lite.uikit.focus.FocusSession
 import com.hongguotv.lite.uikit.focus.KeyRepeatGate
 import com.hongguotv.lite.uikit.text.TvText
 import com.hongguotv.lite.uikit.token.Tokens
+import com.hongguotv.lite.uikit.token.UiTier
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -74,6 +76,13 @@ internal class PlayerPage(
     private var toast: Toast? = null
     private var lastFocusToken: String? = null
 
+    /** 片尾预取：决定、去重、预备流归属都在这一层，页面只喂当前播放状态。 */
+    private val prefetcher = EpisodePrefetcher(
+        scope = scope,
+        media = host.media,
+        clock = { SystemClock.elapsedRealtime() },
+    )
+
     /**
      * 会话还没建起来就被要求暂停（宿主在后台把播放页推上来时会发生）：
      * 记下来，等 `start()` 之后补一次生命周期暂停。否则流一回来就出声——
@@ -92,7 +101,10 @@ internal class PlayerPage(
         session = PlaybackSession(engine, host.settings, host.favorites, this, HandlerScheduler(handler)) {
             System.currentTimeMillis()
         }
-        session.onStateChanged = { render() }
+        session.onStateChanged = { state ->
+            prefetcher.onSessionState(state)
+            render()
+        }
         notice = PlayerNotice(ui) { action -> runNoticeAction(action) }
         notice.attachTo(root)
         buildOperationHint()
@@ -252,6 +264,50 @@ internal class PlayerPage(
         }
     }
 
+    // ---------- 片尾预取 ----------
+
+    /**
+     * 片尾前把下一集的流备好：到了片尾只是"换一条已经打开的流"，不再等取地址与解索引。
+     *
+     * 页面只负责把"播放器现在是什么样"喂给 [EpisodePrefetcher]；
+     * 该不该取、失败怎么退避、预备流归谁，都在那一层。
+     */
+    private fun maybePrefetch() {
+        val data = detail
+        val state = session.state as? PlaybackState.Playing
+        if (data == null || state == null) {
+            prefetcher.clear()
+            return
+        }
+        prefetcher.tick(
+            nextVid = data.episodes.getOrNull(state.index + 1)?.vid,
+            quality = session.quality,
+            conditions = EpisodePrefetcher.Conditions(
+                positionMs = engine.positionMs,
+                durationMs = engine.durationMs,
+                bufferedPositionMs = engine.bufferedPositionMs,
+                speed = session.effectiveSpeed,
+                playing = state.pausedBy == null,
+                autoNext = host.settings.current().autoNext,
+                lowRam = tokens.tier == UiTier.LOW_RAM,
+                online = isOnline(),
+                metered = meteredNetwork(),
+            ),
+        )
+    }
+
+    /**
+     * 计费网络（手机热点）不预取：下一集不是用户此刻要的，不该花他现在的流量。
+     * 拿不到网络能力时按计费处理（保守）。
+     */
+    @SuppressLint("MissingPermission")
+    private fun meteredNetwork(): Boolean {
+        val manager = ui.context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
+        val network = manager.activeNetwork ?: return true
+        val capabilities = manager.getNetworkCapabilities(network) ?: return true
+        return !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+    }
+
     // ---------- 渲染 ----------
 
     private fun render() {
@@ -339,6 +395,8 @@ internal class PlayerPage(
 
     private fun openMenu() {
         if (detail == null || sidebar.visible) return
+        // 打开侧栏就暂停：预备流也一并收掉（暂停时不预取，也不占着连接）
+        prefetcher.clear()
         session.openMenu()
         sidebar.setMode(PlayerSidebar.Mode.EPISODES)
         sidebar.show()
@@ -527,6 +585,7 @@ internal class PlayerPage(
     private val tick = object : Runnable {
         override fun run() {
             session.onTick()
+            maybePrefetch()
             if (sidebar.visible) sidebarModel()?.let { sidebar.bind(it) }
             handler.postDelayed(this, TICK_MS)
         }
@@ -535,6 +594,7 @@ internal class PlayerPage(
     // ---------- 生命周期 ----------
 
     fun pause() {
+        prefetcher.clear()
         if (::session.isInitialized) session.onLifecyclePause() else pausedBeforeStart = true
         // 后台不心跳：定时停止、断网重连都等回到前台再说。
         // 留着 tick 的话，"等联网自动重试"会在用户看不见的时候重新取流并开播。
@@ -549,6 +609,7 @@ internal class PlayerPage(
     }
 
     fun release() {
+        prefetcher.clear()
         handler.removeCallbacksAndMessages(null)
         streamJob?.cancel()
         jobs.cancel()
@@ -560,6 +621,14 @@ internal class PlayerPage(
 
     override fun requestStream(vid: String, quality: Int) {
         streamJob?.cancel()
+        streamJob = null
+        // 片尾预取好了就直接换上去：取地址与解索引都已经在本地完成，
+        // 画面上只剩"换源"这一下，不再有等网络的转圈。
+        val prepared = prefetcher.take(vid, quality)
+        if (prepared != null) {
+            session.onStreamReady(prepared, seamless = true)
+            return
+        }
         streamJob = scope.launch {
             val stream = try {
                 host.media.open(vid, quality)

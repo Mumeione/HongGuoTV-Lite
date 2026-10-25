@@ -66,6 +66,12 @@ class PlaybackSession(
     var frame: FrameMode = FrameMode.FIT
         private set
 
+    /**
+     * 实际生效的倍速：按住右键的临时 2 倍速也算。
+     * 片尾预取按墙钟时间算窗口，读的必须是这个值而不是 [speed]（用户设定值）。
+     */
+    val effectiveSpeed: Float get() = if (fastForward) PlayerKeys.FAST_FORWARD_SPEED else userSpeed
+
     /** 侧栏是否打开。 */
     val isMenuOpen: Boolean get() = menuOpen
 
@@ -111,11 +117,15 @@ class PlaybackSession(
         host.requestStream(data.episodes[index].vid, quality)
     }
 
-    /** 页面取流成功。引擎装载之后由引擎回调把状态推到 [PlaybackState.Playing]。 */
-    fun onStreamReady(stream: MediaStream) {
+    /**
+     * 页面取流成功。引擎装载之后由引擎回调把状态推到 [PlaybackState.Playing]。
+     *
+     * [seamless] 只影响显示：片尾前预取好、接下一集的那条流不在画面上闪缓冲转圈。
+     */
+    fun onStreamReady(stream: MediaStream, seamless: Boolean = false) {
         streamLoaded = true
-        engine.setSpeed(if (fastForward) PlayerKeys.FAST_FORWARD_SPEED else userSpeed)
-        engine.load(stream, startPositionMs, playWhenReady = pausedBy == null)
+        engine.setSpeed(effectiveSpeed)
+        engine.load(stream, startPositionMs, playWhenReady = pausedBy == null, seamless = seamless)
         setState(PlaybackState.Playing(index, pausedBy, buffering = true))
     }
 

@@ -30,7 +30,7 @@ class PlaybackSessionTest {
     // ---------- 假件 ----------
 
     private class FakeEngine : PlaybackEngine {
-        data class Load(val positionMs: Long, val playWhenReady: Boolean)
+        data class Load(val positionMs: Long, val playWhenReady: Boolean, val seamless: Boolean = false)
 
         private var listener: EngineListener? = null
         val loads = mutableListOf<Load>()
@@ -44,6 +44,7 @@ class PlaybackSessionTest {
 
         override var positionMs = 0L
         override var durationMs = 0L
+        override var bufferedPositionMs = 0L
         override var buffering = false
         override var ready = false
         override var ended = false
@@ -55,8 +56,8 @@ class PlaybackSessionTest {
             this.listener = listener
         }
 
-        override fun load(stream: MediaStream, positionMs: Long, playWhenReady: Boolean) {
-            loads += Load(positionMs, playWhenReady)
+        override fun load(stream: MediaStream, positionMs: Long, playWhenReady: Boolean, seamless: Boolean) {
+            loads += Load(positionMs, playWhenReady, seamless)
             this.positionMs = positionMs
             ready = false
             ended = false
@@ -598,6 +599,24 @@ class PlaybackSessionTest {
         val f = Fixture(speed = 2f).start().ready()
         f.session.fastForward(true)
         assertEquals(0, f.host.notices.count { it == PlayerText.FAST_FORWARD })
+    }
+
+    @Test
+    fun theEffectiveSpeedIncludesTheTemporaryFastForward() {
+        // 片尾预取按墙钟算窗口：按住右键快进时，剩余"墙钟时间"比设定倍速算出来的更短
+        val f = Fixture(speed = 1f).start().ready()
+        assertEquals(1f, f.session.effectiveSpeed)
+        f.session.fastForward(true)
+        assertEquals(PlayerKeys.FAST_FORWARD_SPEED, f.session.effectiveSpeed)
+        f.session.fastForward(false)
+        assertEquals(1f, f.session.effectiveSpeed)
+    }
+
+    @Test
+    fun aPrefetchedStreamIsLoadedWithoutTheBufferingSpinner() {
+        val f = Fixture().start().ready()
+        f.session.onStreamReady(FakeStream, seamless = true)
+        assertTrue(f.engine.loads.last().seamless)
     }
 
     @Test
