@@ -547,11 +547,21 @@ internal class SeasonPage(
         // 季卡按上固定回「排序」，「排序」按下固定回第一张季卡：不再按矩形距离
         // 在排序键与右侧动作列之间二选一（用户按上/下的意图都是"上一行"）。
         // 目标不在屏上时退回几何，不改 FocusExits 的约定。
-        val exits = if (firstCard == null) {
-            ACTION_EXITS
+        //
+        // 「排序」左右都没有同一行的项：两侧都夹住自己，别按几何越过季卡或跳进侧栏；
+        // 季卡行缘在没有长条时同样夹住自己，不撞侧栏、不撞动作列。
+        val sortExit = if (seasonHeader.visibility == View.VISIBLE) {
+            FocusExits.left(KEY_SORT, listOf(KEY_SORT)) + FocusExits.right(KEY_SORT, listOf(KEY_SORT))
         } else {
-            ACTION_EXITS + FocusExits.up(KEY_SORT, cardKeys) + FocusExits.down(firstCard, listOf(KEY_SORT))
+            FocusExits.NONE
         }
+        val cardExits = if (firstCard == null) {
+            FocusExits.NONE
+        } else {
+            FocusExits.up(KEY_SORT, cardKeys) + FocusExits.down(firstCard, listOf(KEY_SORT))
+        }
+        val exits = ACTION_EXITS + sortExit + cardExits +
+            gridEdgeExits(cardKeys, SEASON_COLUMNS, leftFlank, rightFlank)
 
         submitPlan(
             sections = listOf(

@@ -416,6 +416,10 @@ internal class EpisodePage(
         episodeCells.forEach { (key, cell) -> views[FocusKey(key)] = cell }
         // 两侧长条必须在 views 里，否则焦点图声明了侧翼也没有落点（按不进去）
         strips.bindInto(views)
+        val leftFlank = strips.leftSection()
+        val rightFlank = strips.rightSection()
+        // 单页剧没有长条：分集格行缘由页面夹住，别按几何落到侧栏或动作列
+        val gridExits = gridEdgeExits(episodeKeys, pagination.columns, leftFlank, rightFlank)
 
         submitPlan(
             sections = listOf(
@@ -429,9 +433,9 @@ internal class EpisodePage(
             preferred = wanted,
             // 没有显式目标也没有记忆时落主操作：进这页是要看剧，不是要看「返回」
             ladder = if (loaded) listOf(KEY_PLAY) else emptyList(),
-            leftFlank = strips.leftSection(),
-            rightFlank = strips.rightSection(),
-            visualExits = ACTION_EXITS,
+            leftFlank = leftFlank,
+            rightFlank = rightFlank,
+            visualExits = ACTION_EXITS + gridExits,
         )
     }
 

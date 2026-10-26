@@ -157,7 +157,16 @@ data class FocusPlan(
  * 四个方向的落点。**一律非空**：走到页面边上时落点是自己（夹住），
  * 不是"交给系统猜"。旧实现里"按了没反应"与"跳到奇怪的地方"都来自这个区别。
  */
-data class Neighbors(val left: FocusKey, val right: FocusKey, val up: FocusKey, val down: FocusKey)
+data class Neighbors(val left: FocusKey, val right: FocusKey, val up: FocusKey, val down: FocusKey) {
+
+    /** 该方向的落点。视觉绑定的几何候选为空时用它回到语义规则。 */
+    fun toward(direction: FocusDirection): FocusKey = when (direction) {
+        FocusDirection.LEFT -> left
+        FocusDirection.RIGHT -> right
+        FocusDirection.UP -> up
+        FocusDirection.DOWN -> down
+    }
+}
 
 class FocusGraph private constructor(
     private val map: Map<FocusKey, Neighbors>,
@@ -169,6 +178,9 @@ class FocusGraph private constructor(
     fun contains(key: FocusKey): Boolean = map.containsKey(key)
 
     fun neighborsOf(key: FocusKey): Neighbors? = map[key]
+
+    /** [key] 在该方向的语义落点；不在图里时为 null。视觉绑定的几何候选为空时用它。 */
+    fun toward(key: FocusKey, direction: FocusDirection): FocusKey? = map[key]?.toward(direction)
 
     fun first(): FocusKey? = order.firstOrNull()
 

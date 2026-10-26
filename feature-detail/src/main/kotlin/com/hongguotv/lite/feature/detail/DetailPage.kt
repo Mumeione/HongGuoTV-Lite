@@ -16,12 +16,40 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 
 /**
- * 详情两页共用的动作列出口：按左固定回页头返回。
+ * 详情两页共用的动作列出口：按左固定回页头返回，返回按下固定回主操作。
  *
  * 动作列左边是封面与简介（不可聚焦），按矩形的最近项是侧栏——不声明出口就会"按左跑出这一页"。
+ * 返回下方同样是封面与简介，按几何会落到分集格或侧栏；页头按下的意图是"去主操作"。
  */
 internal fun detailActionExits(back: FocusKey, play: FocusKey, pick: FocusKey, favorite: FocusKey): FocusExits =
-    FocusExits.left(back, listOf(play, pick, favorite))
+    FocusExits.left(back, listOf(play, pick, favorite)) +
+        FocusExits.down(play, listOf(back))
+
+/**
+ * 网格行缘出口：**没有长条的一侧由页面夹住自己**。
+ *
+ * 视觉绑定按真实矩形算落点，单页网格（无翻组键）的行首按左会撞到侧栏的「设置」、
+ * 行尾按右会撞到动作列——两者都不是用户按方向键的意图。长条在屏上时交给几何正常进条；
+ * 不在的那一侧显式指向自身，把"边缘"变成真正的边缘。
+ */
+internal fun gridEdgeExits(
+    keys: List<FocusKey>,
+    columns: Int,
+    leftFlank: FocusSection?,
+    rightFlank: FocusSection?,
+): FocusExits {
+    if (keys.isEmpty() || columns <= 0) return FocusExits.NONE
+    var exits = FocusExits.NONE
+    if (leftFlank == null) {
+        exits += FocusExits.clampLeft(keys.filterIndexed { index, _ -> index % columns == 0 })
+    }
+    if (rightFlank == null) {
+        exits += FocusExits.clampRight(
+            keys.filterIndexed { index, _ -> (index + 1) % columns == 0 || index == keys.lastIndex },
+        )
+    }
+    return exits
+}
 
 /**
  * 一页的公共骨架：稳定树、左侧栏、页头、焦点会话、页面作用域。

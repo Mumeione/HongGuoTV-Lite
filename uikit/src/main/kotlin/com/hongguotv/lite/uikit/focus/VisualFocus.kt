@@ -9,8 +9,10 @@ import kotlin.math.abs
  * 在右上角"这种布局是无能为力的：两段之间只有上下关系，按右键只能夹住自己。维护者实测
  * "返回按右键应该去继续播放"就是这条缝。
  *
- * 这里用真实的视图矩形算落点：先筛出该方向上的候选（中心在该方向、且确实更靠那边），
- * 再按"轴向距离 + 垂直/水平错位"排序。错位越小越优先，所以同一行的按钮会先于更远的行。
+ * 生产落点只走 [pickVisual]：显式出口 → 45° 视锥内最近的内容项 → 焦点图的语义落点。
+ * 几何只在锥内挑，**不再回退到"全方向最近"**——那条回退会让行首按左掉进侧栏、
+ * 返回按下扎进分集格，跑到屏幕另一头。锥内确实没有时，焦点图本来就有正确答案
+ * （侧栏锚点、侧翼长条或自身），没有答案才夹住自己。
  *
  * 只依赖 [FocusRect]，不依赖 `android.view.View`，单测可以直接喂矩形。
  */
@@ -70,41 +72,25 @@ class FocusExits private constructor(
         fun down(target: FocusKey, keys: List<FocusKey>): FocusExits =
             build(FocusDirection.DOWN, target, keys)
 
+        /** [keys] 按右一律回 [target]（单键行右缘夹住自己）。 */
+        fun right(target: FocusKey, keys: List<FocusKey>): FocusExits =
+            build(FocusDirection.RIGHT, target, keys)
+
+        /** [keys] 各自按左夹住自己（网格行首没有左侧长条时）。 */
+        fun clampLeft(keys: List<FocusKey>): FocusExits = clamp(FocusDirection.LEFT, keys)
+
+        /** [keys] 各自按右夹住自己（网格行尾没有右侧长条时）。 */
+        fun clampRight(keys: List<FocusKey>): FocusExits = clamp(FocusDirection.RIGHT, keys)
+
+        private fun clamp(direction: FocusDirection, keys: List<FocusKey>): FocusExits =
+            keys.fold(NONE) { exits, key -> exits + build(direction, key, listOf(key)) }
+
         private fun build(direction: FocusDirection, target: FocusKey, keys: List<FocusKey>): FocusExits =
             if (keys.isEmpty()) NONE else FocusExits(mapOf(direction to keys.associateWith { target }))
     }
 }
 
 object VisualFocus {
-
-    /**
-     * 在该方向上离 [self] 最近的候选；没有就返回 null（调用方夹住自己）。
-     *
-     * 页面声明了 [exits] 时先看显式出口：命中且目标在屏上就直接回去。
-     * 其余仍按几何：先只在 **45° 视线锥**内挑（左右方向 `|dy| ≤ |dx|`，上下方向 `|dx| ≤ |dy|`），
-     * 锥内有候选就取最近的；锥内没有才退回全方向最近。
-     *
-     * 为什么要锥：详情页的「‹ 返回」在左上角，斜下方紧挨着第一行集数格——只按距离算，
-     * 按右会落到"第二集"；视觉上右边那一列是「继续播放」。锥把"正右方"排在"斜下方"前，
-     * 同时保留退化路径（第一行集数格按上，正上方什么都没有，仍要能回到页头）。
-     */
-    fun neighbor(
-        self: FocusRect,
-        candidates: List<FocusRect>,
-        direction: FocusDirection,
-        exits: FocusExits = FocusExits.NONE,
-    ): FocusKey? {
-        exits.target(self.key, direction)?.takeIf { target -> candidates.any { it.key == target } }?.let { return it }
-        val scored = candidates.asSequence()
-            .filter { it.key != self.key }
-            .mapNotNull { other ->
-                score(self, other, direction)?.let { Scored(other.key, it, inCone(self, other, direction)) }
-            }
-            .toList()
-        if (scored.isEmpty()) return null
-        val cone = scored.filter { it.inCone }
-        return (if (cone.isNotEmpty()) cone else scored).minByOrNull { it.score }?.key
-    }
 
     /** 候选是否落在该方向的 45° 视锥里（用矩形中心算，与打分同一套坐标）。 */
     internal fun inCone(self: FocusRect, other: FocusRect, direction: FocusDirection): Boolean {
@@ -115,6 +101,51 @@ object VisualFocus {
             FocusDirection.UP, FocusDirection.DOWN -> dx <= dy
         }
     }
+
+    /**
+     * 视觉绑定的一条方向落点：**显式出口 → 内容区视锥几何 → 焦点图语义落点**。
+     *
+     * 侧栏（[sideKeys]）不参与内容项的几何候选：分集格/季卡按左时不会因为"最近的项是
+     * 设置按钮"而掉进左侧栏。内容区在 45° 视锥里没有候选时不再退回"全方向最近"——
+     * 那种远跳正是"返回按左跑到搜索、按下一头扎进分集格"的来源；改为回到 [semantic]
+     * （焦点图算出的侧栏锚点、侧翼或自身）。页头按左因此进当前 tab，行缘则夹住自己。
+     *
+     * [all] 是屏上真实可见的矩形；出口与语义目标都必须真的在屏上，否则继续按几何算。
+     */
+    fun pickVisual(
+        self: FocusRect,
+        all: List<FocusRect>,
+        direction: FocusDirection,
+        exits: FocusExits = FocusExits.NONE,
+        sideKeys: Set<FocusKey> = emptySet(),
+        semantic: FocusKey? = null,
+    ): FocusKey? {
+        exits.target(self.key, direction)?.takeIf { target -> all.any { it.key == target } }?.let { return it }
+        val candidates = if (self.key in sideKeys) all else all.filter { it.key !in sideKeys }
+        coneNeighbor(self, candidates, direction)?.let { return it }
+        return semantic?.takeIf { target -> all.any { it.key == target } }
+    }
+
+    /**
+     * 只在该方向的 45° 视锥里挑最近候选；锥内没有就返回 null。
+     *
+     * 视锥把"正前方"排在"斜对角"前：详情页「返回」的斜下方紧挨着第一行集数格，
+     * 但视觉上的右边是动作列。锥内没有候选时不回退到全方向最近，由 [pickVisual]
+     * 改走焦点图的语义落点。
+     */
+    fun coneNeighbor(
+        self: FocusRect,
+        candidates: List<FocusRect>,
+        direction: FocusDirection,
+    ): FocusKey? =
+        candidates.asSequence()
+            .filter { it.key != self.key }
+            .mapNotNull { other ->
+                score(self, other, direction)?.let { Scored(other.key, it, inCone(self, other, direction)) }
+            }
+            .filter { it.inCone }
+            .minByOrNull { it.score }
+            ?.key
 
     /** 候选的打分结果：key、方向分、是否在视锥内。 */
     private data class Scored(val key: FocusKey, val score: Int, val inCone: Boolean)

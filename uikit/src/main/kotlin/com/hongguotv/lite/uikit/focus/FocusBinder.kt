@@ -36,10 +36,35 @@ object FocusBinder {
      * [exits] 是页面声明的显式出口（例如详情页动作列按左回页头返回）。出口的目标必须在
      * 屏上，否则仍按几何算——不把光标指向一个被收起/移除的视图。
      *
-     * 不在 [views] 里、被 `GONE` 收起或已禁用的项不参与：它们本来就不该抢焦点。
-     * 某个方向没有候选时显式指向自己——把落点交回系统去猜，就会出现"按一下跳到屏幕另一头"。
+     * [sideKeys] 是左侧栏项：内容项的几何候选**不包含侧栏**，避免"分集格按左掉进设置"。
+     * 内容区在该方向没有候选时用 [graph] 的语义落点（侧栏锚点、侧翼或自身），
+     * 这样页头按左仍能按规则进当前 tab，网格行缘则夹住自己。
+     *
+     * 被 `GONE` 收起或已禁用的项不参与：它们本来就不该抢焦点。
+     * 某个方向没有落点时显式指向自己——把落点交回系统去猜，就会出现"按一下跳到屏幕另一头"。
      */
-    fun bindVisual(root: View, views: Map<FocusKey, View>, exits: FocusExits = FocusExits.NONE) {
+    fun bindVisual(
+        root: View,
+        views: Map<FocusKey, View>,
+        exits: FocusExits = FocusExits.NONE,
+    ) {
+        bindVisual(root, views, exits, graph = null, sideKeys = emptySet())
+    }
+
+    /**
+     * 同上，另带焦点图与侧栏 key。**单独重载而不是继续加默认参数**：跨模块调用点只认旧的
+     * `bindVisual` 描述符，新增默认参数会改变 JVM 签名（与 [FocusSession.bind] 同一条约束）。
+     *
+     * [graph] 只在几何候选为空时使用：内容区在该方向没有候选就回到焦点图的语义落点。
+     * [sideKeys] 是左侧栏项，内容项的几何候选不包含它们。
+     */
+    fun bindVisual(
+        root: View,
+        views: Map<FocusKey, View>,
+        exits: FocusExits,
+        graph: FocusGraph?,
+        sideKeys: Set<FocusKey>,
+    ) {
         val origin = IntArray(2)
         root.getLocationInWindow(origin)
         val placed = ArrayList<Placed>(views.size)
@@ -52,11 +77,13 @@ object FocusBinder {
             placed += Placed(FocusRect(key, left, top, left + view.width, top + view.height), view)
         }
         val rects = placed.map { it.rect }
+        val byKey = placed.associateBy { it.rect.key }
         placed.forEach { (self, view) ->
-            fun idOf(direction: FocusDirection): Int =
-                VisualFocus.neighbor(self, rects, direction, exits)
-                    ?.let { key -> placed.first { it.rect.key == key }.view.id }
-                    ?: view.id
+            fun idOf(direction: FocusDirection): Int {
+                val semantic = graph?.toward(self.key, direction)
+                val key = VisualFocus.pickVisual(self, rects, direction, exits, sideKeys, semantic)
+                return key?.let { byKey[it]?.view?.id } ?: view.id
+            }
             view.nextFocusLeftId = idOf(FocusDirection.LEFT)
             view.nextFocusRightId = idOf(FocusDirection.RIGHT)
             view.nextFocusUpId = idOf(FocusDirection.UP)

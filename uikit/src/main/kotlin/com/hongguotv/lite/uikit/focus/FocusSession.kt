@@ -105,7 +105,7 @@ class FocusSession(
         // 重建/刷新时视图树没换焦点（光标本来就在原位），也就不会有焦点变化事件：
         // 页面的信息栏要在这里补说一次"现在停在哪"
         settle()
-        if (visual) scheduleVisualBind(views, visualExits)
+        if (visual) scheduleVisualBind(views, visualExits, built, plan.side?.keys.orEmpty().toSet())
         return built
     }
 
@@ -115,11 +115,16 @@ class FocusSession(
      * 不能同步做：`bind` 往往发生在视图刚 addView、还没 measure/layout 的时候，
      * 量到的矩形是 0；而且这一刻的宽度也不是最终宽度（比如 weight 还没分配）。
      */
-    private fun scheduleVisualBind(bound: Map<FocusKey, View>, exits: FocusExits) {
+    private fun scheduleVisualBind(
+        bound: Map<FocusKey, View>,
+        exits: FocusExits,
+        graph: FocusGraph,
+        sideKeys: Set<FocusKey>,
+    ) {
         val anchor = root ?: return
         val generation = ++visualGeneration
         anchor.post {
-            if (generation == visualGeneration) FocusBinder.bindVisual(anchor, bound, exits)
+            if (generation == visualGeneration) FocusBinder.bindVisual(anchor, bound, exits, graph, sideKeys)
         }
         // 首次建页时 post 可能跑在第一次 measure 之前：布局完成后再补一次。
         // 上一轮还没等到布局的监听器先摘掉，否则翻组时每次 bind 都会挂一个。
@@ -128,7 +133,7 @@ class FocusSession(
             override fun onGlobalLayout() {
                 anchor.viewTreeObserver.removeOnGlobalLayoutListener(this)
                 if (pendingLayout === this) pendingLayout = null
-                if (generation == visualGeneration) FocusBinder.bindVisual(anchor, bound, exits)
+                if (generation == visualGeneration) FocusBinder.bindVisual(anchor, bound, exits, graph, sideKeys)
             }
         }
         pendingLayout = listener
