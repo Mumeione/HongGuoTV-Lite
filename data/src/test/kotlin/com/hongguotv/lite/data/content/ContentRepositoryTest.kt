@@ -581,6 +581,23 @@ class ContentRepositoryTest {
         assertEquals(720, info.height)
     }
 
+    /** 所有档都超上限时的最低档也要同高度 AVC 优先，不能按 JSON key 顺序碰运气。 */
+    @Test
+    fun streamPrefersAvcWhenEveryTierIsOverTheLimit() = runTest {
+        val repo = repository { request ->
+            when {
+                request.url.contains("/novel/player/video_model/") -> videoModelResponse()
+                request.url.startsWith("https://example.com/") -> streamInfo(JSONObject()
+                    .put("v0", JSONObject().put("vheight", 480).put("codec_type", "bytevc1").put("main_url", "https://example.com/hevc"))
+                    .put("v1", JSONObject().put("vheight", 480).put("codec_type", "h264").put("main_url", "https://example.com/avc")))
+                else -> throw IOException("未预期的请求：${request.url}")
+            }
+        }
+        val info = repo.stream("123", 360)
+        assertEquals("https://example.com/avc", info.url)
+        assertTrue(info.fellBack)
+    }
+
     @Test
     fun entirelyIncompatibleSourceFailsWithShape() = runTest {
         val repo = repository { request ->

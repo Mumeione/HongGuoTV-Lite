@@ -455,9 +455,9 @@ class ContentRepository(
         val unknown = rows.filter { it.codec == null }
         pickWithin(supported, maxHeight)?.let { return QualityPick(it, overLimit = false, codecUnsupported = false) }
         pickWithin(unknown, maxHeight)?.let { return QualityPick(it, overLimit = false, codecUnsupported = false) }
-        supported.lastOrNull()?.let { return QualityPick(it, overLimit = true, codecUnsupported = false) }
-        unknown.lastOrNull()?.let { return QualityPick(it, overLimit = true, codecUnsupported = false) }
-        val lowest = rows.last()
+        supported.lastOrNull()?.let { return QualityPick(pickLowest(supported), overLimit = true, codecUnsupported = false) }
+        unknown.lastOrNull()?.let { return QualityPick(pickLowest(unknown), overLimit = true, codecUnsupported = false) }
+        val lowest = pickLowest(rows)
         return QualityPick(lowest, overLimit = lowest.height > maxHeight, codecUnsupported = true)
     }
 
@@ -465,8 +465,15 @@ class ContentRepository(
     private fun pickWithin(rows: List<QualityRow>, maxHeight: Int): QualityRow? {
         val within = rows.filter { it.height <= maxHeight }
         if (within.isEmpty()) return null
-        val top = within.filter { it.height == within.first().height }
-        return top.firstOrNull { it.codec == VideoCodec.AVC } ?: top.first()
+        return preferAvcAt(within.first().height, within)
+    }
+
+    /** 候选里取最低档；同高度同样优先 AVC，不能按 JSON key 顺序碰运气。 */
+    private fun pickLowest(rows: List<QualityRow>): QualityRow = preferAvcAt(rows.last().height, rows)
+
+    private fun preferAvcAt(height: Int, rows: List<QualityRow>): QualityRow {
+        val sameHeight = rows.filter { it.height == height }
+        return sameHeight.firstOrNull { it.codec == VideoCodec.AVC } ?: sameHeight.first()
     }
 
     private val QualityRow.codec: VideoCodec? get() = Parsers.videoCodec(codecType)
