@@ -471,7 +471,12 @@ class PrefsLibrary(
             val base = SeasonKeys.seasonKey(series.title)
             if (base.isNotBlank()) all[base] = series.copy(title = base) to clock()
         }
-        synchronized(lock) { favoriteRows = LinkedHashMap(all.toList().take(FAVORITES_LIMIT).toMap()) }
+        synchronized(lock) {
+            // 截断口径与写入端一致：按 addedAt 最旧淘汰（迁移时全部同刻，退化为插入序）
+            favoriteRows = LinkedHashMap(
+                all.entries.sortedByDescending { it.value.second }.take(FAVORITES_LIMIT).associate { it.key to it.value },
+            )
+        }
         persist(KEY_FAVORITE_SERIES)
         // 旧版口径：迁移完立即同步检查结果——旧的无主 update 行不该活过这次迁移
         pruneUpdates()

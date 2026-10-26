@@ -208,7 +208,8 @@ object SilentDiagnostics : DiagnosticsPort {
 }
 
 /** 失败分类：UI 只按类型映射文案，不再匹配中文字符串。 */
-sealed class UpstreamError(message: String, cause: Throwable? = null) : Exception(message, cause) {    class Network(cause: Throwable) : UpstreamError("network", cause)
+sealed class UpstreamError(message: String, cause: Throwable? = null) : Exception(message, cause) {
+    class Network(cause: Throwable) : UpstreamError("network", cause)
     class HttpStatus(val code: Int) : UpstreamError("http $code")
     /** 200 空体：风控的强特征，必须单独成类，绝不能归成"这部剧没有剧集"。 */
     class EmptyBody : UpstreamError("empty body")

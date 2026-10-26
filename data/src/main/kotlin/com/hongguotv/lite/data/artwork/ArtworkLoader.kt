@@ -512,14 +512,17 @@ class ArtworkLoader(
             ?: return null
         val scaled = if (maxOf(decoded.width, decoded.height) > DISK_LONG_EDGE) {
             val scale = DISK_LONG_EDGE.toFloat() / maxOf(decoded.width, decoded.height)
-            runCatching {
+            val created = runCatching {
                 Bitmap.createScaledBitmap(
                     decoded,
                     (decoded.width * scale).toInt().coerceAtLeast(1),
                     (decoded.height * scale).toInt().coerceAtLeast(1),
                     true,
                 )
-            }.getOrElse { decoded }
+            }.getOrNull()
+            // 缩放成功后释放大图：老设备上原生位图不靠 GC 回收，攒几张就是一次 OOM
+            if (created != null && created !== decoded) decoded.recycle()
+            created ?: decoded
         } else {
             decoded
         }

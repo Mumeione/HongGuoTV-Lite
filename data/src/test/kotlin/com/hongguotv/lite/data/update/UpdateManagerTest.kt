@@ -152,7 +152,7 @@ class UpdateManagerTest {
         updates.check()
         updates.download()
         val state = updates.state()
-        assertEquals(UpdateState.Failed(UpdateManager.REASON_DOWNLOAD), state)
+        assertEquals(UpdateState.Failed(UpdateManager.REASON_INCOMPLETE), state)
     }
 
     @Test

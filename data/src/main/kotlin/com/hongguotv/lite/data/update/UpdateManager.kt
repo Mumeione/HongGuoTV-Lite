@@ -78,53 +78,54 @@ class UpdateManager(
     override suspend fun check() = checkInternal(silent = false)
 
     private suspend fun checkInternal(silent: Boolean) {
+        // 下载进行中不再检查：查完的 UpToDate/Available 会把"下载中 45%"盖掉，
+        // 而下载完成又会强设 ReadyToInstall——两边互相覆盖，UI 语义就乱了
+        if (downloadJob?.isActive == true) return
         set(UpdateState.Checking)
-        val state = when (val fetched = fetch()) {
-            is Fetch.Found -> when (val decision = UpdatePolicy.decide(versionCode, versionName, fetched.manifest)) {
-                is UpdatePolicy.Decision.Available ->
-                    UpdateState.Available(decision.manifest).also {
-                        diagnostics.event("update.available", mapOf("version" to it.manifest.versionName))
-                    }
-                UpdatePolicy.Decision.UpToDate -> UpdateState.UpToDate
+        try {
+            val state = when (val fetched = fetch()) {
+                is Fetch.Found -> when (val decision = UpdatePolicy.decide(versionCode, versionName, fetched.manifest)) {
+                    is UpdatePolicy.Decision.Available ->
+                        UpdateState.Available(decision.manifest).also {
+                            diagnostics.event("update.available", mapOf("version" to it.manifest.versionName))
+                        }
+                    UpdatePolicy.Decision.UpToDate -> UpdateState.UpToDate
+                }
+                // 双源都没货：这是"还没发版"，不是故障——文案按状态给，不是错误
+                Fetch.None -> if (silent) UpdateState.Idle else UpdateState.Failed(REASON_NONE)
+                Fetch.Unavailable -> if (silent) UpdateState.Idle else UpdateState.Failed(REASON_NETWORK)
             }
-            // 双源都没货：这是"还没发版"，不是故障——文案按状态给，不是错误
-            Fetch.None -> if (silent) UpdateState.Idle else UpdateState.Failed(REASON_NONE)
-            Fetch.Unavailable -> if (silent) UpdateState.Idle else UpdateState.Failed(REASON_NETWORK)
+            set(state)
+            store?.commit(mapOf(KEY_LAST_CHECK to clock()))
+        } catch (cancelled: CancellationException) {
+            // 手动检查挂页面作用域，离开设置页会取消：回落 Idle，别把状态卡死在 Checking
+            if (state() is UpdateState.Checking) set(UpdateState.Idle)
+            throw cancelled
         }
-        set(state)
-        store?.commit(mapOf(KEY_LAST_CHECK to clock()))
     }
 
     /** CNB 主源，缺货/不可用再试 GitHub。 */
     private suspend fun fetch(): Fetch {
-        val cnb = fetchCnb()
+        val cnb = fetchFrom(UpdateSources.CNB_MANIFEST_URL) {
+            UpdatePolicy.parseCnbUpdateJson(it, UpdateSources.CNB_APK_BASE)
+        }
         if (cnb is Fetch.Found) return cnb
         diagnostics.event("update.source", mapOf("cnb" to cnb.javaClass.simpleName))
-        return fetchGithub()
+        return fetchFrom(UpdateSources.GITHUB_LATEST_URL) { UpdatePolicy.parseGitHubReleaseJson(it) }
     }
 
-    private suspend fun fetchCnb(): Fetch = try {
-        val body = http.text(request(UpdateSources.CNB_MANIFEST_URL))
-        UpdatePolicy.parseCnbUpdateJson(body, UpdateSources.CNB_APK_BASE)?.let { Fetch.Found(it) } ?: Fetch.None
+    /**
+     * 单源的异常翻译（两源共用一份，别各写一份）：
+     * 404 与 200 空体 = 该源没货（None）；其余失败 = 源不可用（Unavailable，切下一源）。
+     */
+    private suspend fun fetchFrom(url: String, parse: (String) -> UpdateManifest?): Fetch = try {
+        parse(http.text(request(url)))?.let { Fetch.Found(it) } ?: Fetch.None
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (error: UpstreamError.HttpStatus) {
-        // 404 = 还没推 update.json；其余状态码当源不可用
         if (error.code == 404) Fetch.None else Fetch.Unavailable
     } catch (error: UpstreamError.EmptyBody) {
         Fetch.None
-    } catch (error: Exception) {
-        Fetch.Unavailable
-    }
-
-    private suspend fun fetchGithub(): Fetch = try {
-        val body = http.text(request(UpdateSources.GITHUB_LATEST_URL))
-        UpdatePolicy.parseGitHubReleaseJson(body)?.let { Fetch.Found(it) } ?: Fetch.None
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (error: UpstreamError.HttpStatus) {
-        // 404 = 一个 release 都没有（空仓库的常态）
-        if (error.code == 404) Fetch.None else Fetch.Unavailable
     } catch (error: Exception) {
         Fetch.Unavailable
     }
@@ -148,13 +149,14 @@ class UpdateManager(
             loadCatching({ error ->
                 diagnostics.event("update.download", mapOf("ok" to false, "error" to error.message))
                 runCatching { target.delete() }
-                set(UpdateState.Failed(REASON_DOWNLOAD))
+                set(UpdateState.Failed(if (error is IncompleteDownload) REASON_INCOMPLETE else REASON_DOWNLOAD))
             }) {
                 downloader.download(manifest, target) { percent -> set(UpdateState.Downloading(percent)) }
                 val actual = target.length()
                 if (manifest.sizeBytes > 0 && actual != manifest.sizeBytes) {
                     target.delete()
-                    throw IOException("size mismatch: $actual != ${manifest.sizeBytes}")
+                    // 大小不符 = 下载不完整，不是"下载失败"：文案分开说，别让用户怀疑网络
+                    throw IncompleteDownload("size mismatch: $actual != ${manifest.sizeBytes}")
                 }
                 diagnostics.event("update.downloaded", mapOf("bytes" to actual))
                 set(UpdateState.ReadyToInstall(target.absolutePath, manifest.versionName))
@@ -190,6 +192,9 @@ class UpdateManager(
         object Unavailable : Fetch
     }
 
+    /** 下载完成但大小与清单不符：区分于网络失败的文案。 */
+    private class IncompleteDownload(message: String) : IOException(message)
+
     companion object {
         private const val APK_NAME = "hongguotv-update.apk"
         private const val KEY_LAST_CHECK = "update.lastCheckAt"
@@ -199,5 +204,6 @@ class UpdateManager(
         const val REASON_NONE = "尚无可用版本"
         const val REASON_NETWORK = "检查失败，请稍后再试"
         const val REASON_DOWNLOAD = "下载失败，请重试"
+        const val REASON_INCOMPLETE = "下载不完整，请重试"
     }
 }
