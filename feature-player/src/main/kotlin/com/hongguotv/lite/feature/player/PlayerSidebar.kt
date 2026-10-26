@@ -12,6 +12,7 @@ import android.widget.TextView
 import com.hongguotv.core.usecase.EpisodeJump
 import com.hongguotv.core.usecase.EpisodePages
 import com.hongguotv.lite.uikit.focus.FocusKey
+import com.hongguotv.lite.uikit.focus.FocusSection
 import com.hongguotv.lite.uikit.focus.FocusSections
 import com.hongguotv.lite.uikit.page.SideStrips
 import com.hongguotv.lite.uikit.token.Tokens
@@ -442,49 +443,38 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
     fun focusBinding(preferred: FocusKey? = null): FocusBinding? {
         val model = this.model ?: return null
         val views = LinkedHashMap<FocusKey, View>()
-        val bodyKeys = mutableListOf<FocusKey>()
+        val slots: List<FocusKey?>
         var columns = JUMP_COLUMNS
 
         if (mode == Mode.EPISODES) {
             columns = pagination.columns + 1
             // 长条不仅要在焦点段里，还要有 View 才能被按键选中（2026-10-24 验收的 bug 根因）
             strips.bindInto(views)
-            // 选集格 + 右列设置拼成**一张 11 列的表**：每行末尾挂当行的设置项，
-            // 左右键从选集格直接滑进设置、滑回来，上下键逐行走（mockup 画面6 的双列布局）
+            val episodeKeys = cellIndexes.mapIndexed { position, cellIndex ->
+                episodeKey(cellIndex).also { views[it] = cells[position] }
+            }
             val settingKeys = settingRows.mapIndexed { index, row ->
-                val key = settingKey(index)
-                views[key] = row
-                key
+                settingKey(index).also { views[it] = row }
             }
-            val rows = maxOf(cellIndexes.size / pagination.columns, settingKeys.size).coerceAtLeast(1)
-            for (row in 0 until rows) {
-                for (position in 0 until pagination.columns) {
-                    val index = row * pagination.columns + position
-                    if (index >= cellIndexes.size) break
-                    val key = episodeKey(cellIndexes[index])
-                    views[key] = cells[index]
-                    bodyKeys += key
-                }
-                settingKeys.getOrNull(row)?.let { bodyKeys += it }
-            }
+            // 每行 10 个集数格 + 行末设置项拼成 11 列；末页不足 50 集时补空槽，
+            // 设置项才留在第 11 列（视觉上右侧那一条），程序性落焦与方向键都不会左移
+            slots = DrawerFocus.slots(episodeKeys, settingKeys, pagination.columns)
         } else {
-            keypad.forEachIndexed { index, key ->
-                val focusKey = FocusKey("$PREFIX:key:$index")
-                views[focusKey] = key
-                bodyKeys += focusKey
+            slots = keypad.mapIndexed { index, key ->
+                FocusKey("$PREFIX:key:$index").also { views[it] = key }
             }
         }
 
         val flanked = mode == Mode.EPISODES
         val plan = FocusSections.plan(
-            listOf(FocusSections.section(bodyKeys, columns, flanked = flanked)),
+            listOf(FocusSection(slots, columns, flanked = flanked)),
             leftFlank = if (flanked) strips.leftSection() else null,
             rightFlank = if (flanked) strips.rightSection() else null,
         ) ?: return null
 
         val fallback = when (mode) {
-            Mode.EPISODES -> episodeKey(model.current).takeIf { views.containsKey(it) } ?: bodyKeys.firstOrNull()
-            Mode.JUMP -> bodyKeys.firstOrNull()
+            Mode.EPISODES -> episodeKey(model.current).takeIf { views.containsKey(it) } ?: slots.firstNotNullOfOrNull { it }
+            Mode.JUMP -> slots.firstNotNullOfOrNull { it }
         } ?: return null
         return FocusBinding(plan, views, preferred ?: fallback)
     }

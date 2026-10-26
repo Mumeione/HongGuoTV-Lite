@@ -94,6 +94,21 @@ class CatalogTextTest {
     }
 
     @Test
+    fun searchBandUsesTheSameBadgeAsTheCard() {
+        // 聚合态：卡片写「第N季 · 全 N 集」，信息栏不能再写"全 N 集"（同一部剧两种说法）
+        val s9 = Series(id = "9", title = "剧第九季", season = 9, episodeCount = 120)
+        assertEquals(
+            listOf("第九季 · 全 120 集", "已收藏", "古装 / 逆袭"),
+            CatalogText.searchSegments(s9, aggregated = true, favorite = true, tags = "古装 · 逆袭"),
+        )
+        // 模糊词的网页结果维持"全 N 集"
+        assertEquals(
+            listOf("全 120 集"),
+            CatalogText.searchSegments(s9, aggregated = false, favorite = false, tags = ""),
+        )
+    }
+
+    @Test
     fun searchRangeSaysPageAndTotal() {
         assertEquals("第 1 / 20 页 · 共 200 条", CatalogText.searchRange(page = 1, totalPages = 20, totalCount = 200))
         assertEquals("第 3 / 20 页 · 共 200 条", CatalogText.searchRange(page = 3, totalPages = 20, totalCount = 200))

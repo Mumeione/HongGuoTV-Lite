@@ -48,6 +48,25 @@ class SeasonKeysTest {
         )
     }
 
+    /**
+     * 篇名季（分宗篇、折桂篇）的标题不带季号，自己算出的键是篇名；
+     * 系列基名要从季线里**标题自带季号**的那一季反推。
+     * 整条线都是篇名季时没有证据，返回 null——不按标题前缀猜。
+     */
+    @Test
+    fun canonicalKeyDerivesTheSeriesBaseFromTheNumberedSeason() {
+        val line = listOf(
+            Series("1", "魏家测试书分宗篇", season = 1),
+            Series("2", "魏家测试书第二季：折桂篇", season = 2),
+        )
+        assertEquals("魏家测试书", SeasonKeys.canonicalKey(line))
+        assertEquals(
+            "整条线都是篇名季：没有可反推的基名",
+            null,
+            SeasonKeys.canonicalKey(listOf(Series("1", "魏家测试书分宗篇", season = 1))),
+        )
+    }
+
     @Test
     fun seriesIdsOnlyAcceptDigits() {
         assertEquals(true, SeriesIds.ID.matches("7421"))

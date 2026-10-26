@@ -28,25 +28,50 @@ data class FocusRect(
 enum class FocusDirection { LEFT, RIGHT, UP, DOWN }
 
 /**
- * 视觉方向绑定的**显式出口**：声明"这些 key 按左固定落到哪"。
+ * 视觉方向绑定的**显式出口**：声明"这些 key 按某个方向固定落到哪"。
  *
- * 详情页动作列左边是封面与简介（不可聚焦），按矩形算出来的最近项却是侧栏——
- * 用户按左会觉得「怎么跑出这一页了」。页面因此声明：动作列按左回页头返回。
+ * 两种已知用法：
+ * - 详情两页动作列按左：左边是封面与简介（不可聚焦），按矩形算出来的最近项却是侧栏；
+ * - 季线页季卡按上 / 「排序」按下：按上会落到排序键或右侧动作列，取决于列位置。
  *
- * 出口只在目标确实在屏上时生效；目标不在（返回键被收起、加载失败）仍按几何算，
+ * 出口只在目标确实在屏上时生效；目标不在（返回键被收起、季线还没到）仍按几何算，
  * 不会把光标扔到不存在的视图上。
  */
-class FocusExits private constructor(private val leftTargets: Map<FocusKey, FocusKey>) {
+class FocusExits private constructor(
+    private val targets: Map<FocusDirection, Map<FocusKey, FocusKey>>,
+) {
 
-    /** 按左的固定落点；没声明返回 null（按几何算）。 */
-    fun left(key: FocusKey): FocusKey? = leftTargets[key]
+    /** [key] 在该方向上的固定落点；没声明返回 null（按几何算）。 */
+    fun target(key: FocusKey, direction: FocusDirection): FocusKey? =
+        targets[direction]?.get(key)
+
+    /** 按左的固定落点；没声明返回 null。 */
+    fun left(key: FocusKey): FocusKey? = target(key, FocusDirection.LEFT)
+
+    /** 合并两份声明（同方向同 key 以后者为准），用于"左出口 + 上下出口"共存。 */
+    operator fun plus(other: FocusExits): FocusExits {
+        val merged = HashMap<FocusDirection, Map<FocusKey, FocusKey>>(targets)
+        other.targets.forEach { (direction, rows) -> merged[direction] = merged[direction].orEmpty() + rows }
+        return FocusExits(merged)
+    }
 
     companion object {
         val NONE = FocusExits(emptyMap())
 
         /** [keys] 按左一律回 [target]（详情两页动作列 → 页头返回）。 */
         fun left(target: FocusKey, keys: List<FocusKey>): FocusExits =
-            FocusExits(keys.associateWith { target })
+            build(FocusDirection.LEFT, target, keys)
+
+        /** [keys] 按上一律回 [target]（季卡 → 「排序」）。 */
+        fun up(target: FocusKey, keys: List<FocusKey>): FocusExits =
+            build(FocusDirection.UP, target, keys)
+
+        /** [keys] 按下一律回 [target]（「排序」→ 第一张季卡）。 */
+        fun down(target: FocusKey, keys: List<FocusKey>): FocusExits =
+            build(FocusDirection.DOWN, target, keys)
+
+        private fun build(direction: FocusDirection, target: FocusKey, keys: List<FocusKey>): FocusExits =
+            if (keys.isEmpty()) NONE else FocusExits(mapOf(direction to keys.associateWith { target }))
     }
 }
 
@@ -69,9 +94,7 @@ object VisualFocus {
         direction: FocusDirection,
         exits: FocusExits = FocusExits.NONE,
     ): FocusKey? {
-        if (direction == FocusDirection.LEFT) {
-            exits.left(self.key)?.takeIf { target -> candidates.any { it.key == target } }?.let { return it }
-        }
+        exits.target(self.key, direction)?.takeIf { target -> candidates.any { it.key == target } }?.let { return it }
         val scored = candidates.asSequence()
             .filter { it.key != self.key }
             .mapNotNull { other ->

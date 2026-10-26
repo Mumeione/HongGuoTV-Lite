@@ -154,6 +154,47 @@ class VisualFocusTest {
         assertEquals("nav:1", VisualFocus.neighbor(play, all, FocusDirection.LEFT, exits)?.value)
     }
 
+    /**
+     * 季线页的真实形状：排序在季卡上方偏左，动作列在右上。
+     * 右侧季卡按上会按几何落到动作列；页面声明后固定回「排序」，「排序」按下固定回第一张季卡。
+     */
+    @Test
+    fun `season cards go fixedly up to the sort control and sort goes down to the first card`() {
+        val sort = rect("series:sort", 100, 430, 200, 470)
+        val play = rect("series:play", 780, 120, 1010, 160)
+        val pick = rect("series:pick", 780, 168, 1010, 208)
+        val favorite = rect("series:favorite", 780, 216, 1010, 256)
+        val cards = (1..5).map { i -> rect("season:$i", 300 + (i - 1) * 100, 500, 390 + (i - 1) * 100, 626) }
+        val all = listOf(sort, play, pick, favorite) + cards
+        val exits = FocusExits.up(FocusKey("series:sort"), cards.map { it.key }) +
+            FocusExits.down(FocusKey("season:1"), listOf(FocusKey("series:sort")))
+
+        // 没有出口时：靠右的季卡按上按几何落到动作列（"取决于列位置"就是这条）
+        assertEquals("series:favorite", move(cards.last(), all, FocusDirection.UP))
+        cards.forEach { card ->
+            assertEquals(
+                "${card.key.value} 按上固定到「排序」",
+                "series:sort",
+                VisualFocus.neighbor(card, all, FocusDirection.UP, exits)?.value,
+            )
+        }
+        assertEquals(
+            "「排序」按下固定回第一张季卡",
+            "season:1",
+            VisualFocus.neighbor(sort, all, FocusDirection.DOWN, exits)?.value,
+        )
+    }
+
+    @Test
+    fun `an up exit whose target is gone falls back to geometry`() {
+        val card = rect("season:2", 400, 500, 490, 626)
+        val play = rect("series:play", 780, 120, 1010, 160)
+        val all = listOf(card, play)
+        val exits = FocusExits.up(FocusKey("series:sort"), listOf(card.key))
+
+        assertEquals("排序键不在屏上（季线还没到）：仍按几何", "series:play", VisualFocus.neighbor(card, all, FocusDirection.UP, exits)?.value)
+    }
+
     /** 出口只改动作列：侧栏仍可从页头或内容最左缘进入（A 口径）。 */
     @Test
     fun `the rail is still reachable from the page header and the content edge`() {

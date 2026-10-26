@@ -76,6 +76,10 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         // 一帧内的中间态（焦点路过某张卡）不更新内容
         focus.onSettled = { key -> onCardSettled(key) }
 
+        // 信息栏从第一帧起就预留 46dp：焦点进出卡片区时内容区高度不变，
+        // 「继续看」的封面不会因为视口差 46dp 被重新夹一次（首屏卡片跳动）。
+        scaffold.reserveBand()
+
         val body = scaffold.body()
 
         // 标题行：「搜索」28 + 说明 13，底对齐读作一行（mockup .b-title）
@@ -404,6 +408,8 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
     }
 
     private fun toggleSort() {
+        // 非聚合的网页结果没有可排的方向：开关此时是隐藏的，这里只是兜住程序性调用
+        if (!model.aggregated) return
         val ascending = !settings().seasonSortAsc
         scope.launch { host.settings.update { it.copy(seasonSortAsc = ascending) } }
         sortChip.label(SettingRows.sortLabel(ascending))
@@ -461,11 +467,13 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         val favorite = favoriteOf(series)
         scaffold.band().show(
             title = series.title,
-            segments = CatalogText.bandSegments(
+            segments = CatalogText.searchSegments(
+                series = series,
+                // 聚合态与卡片同一口径：角标带「第N季」，不再退成"全 N 集"
+                aggregated = model.aggregated,
                 favorite = favorite != null,
                 // 搜索卡片的分类偶尔缺（网页结果不带 category_schema），收藏行那份通常更全
                 tags = CatalogText.historyTags(series.tags, favorite?.series?.tags.orEmpty()),
-                badge = CatalogText.searchBadge(series, aggregated = false),
             ),
             keys = listOf("OK" to "打开"),
         )
@@ -493,6 +501,8 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         val current = settings()
         syncFilterChips(current.filter)
         sortChip.label(SettingRows.sortLabel(current.seasonSortAsc))
+        // 正序/倒序只对聚合季线有意义：模糊词的网页结果整键隐藏，不摆一个按了没反应的开关
+        sortChip.visibility = if (model.aggregated) View.VISIBLE else View.GONE
 
         val error = model.error
         val showContinue = model.keyword.isBlank() && error == null && continueEntries.isNotEmpty()
@@ -532,7 +542,8 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         } else {
             pager.hide()
         }
-        // 信息栏伴着卡片出现：焦点落到卡片上时由落定回调显示；没有卡片可说时整条收起，不占 46dp
+        // 信息栏伴着卡片出现：焦点落到卡片上时由落定回调显示；没有卡片可说时收起。
+        // 本页预留了槽位高度（reserveBand），收起也不释放空间——内容区高度保持稳定。
         if (!showContinue && !showResult) scaffold.hideBand()
 
         // 视口还没量到时不夹（保持比例）；量到之后由布局回调再走一遍 render
@@ -579,19 +590,30 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
     override fun startFocus(): List<FocusKey> =
         listOfNotNull(rendered?.keys?.firstOrNull() ?: continueRendered?.keys?.firstOrNull(), FocusKey("search:input"))
 
+    /**
+     * 输入行的可聚焦项。排序键只在聚合态出现：非聚合时它整键隐藏，
+     * 焦点段与 views 都不能再包含它（否则程序性落焦会指向一个看不见的视图）。
+     */
+    private fun inputKeys(): List<FocusKey> = buildList {
+        add(FocusKey("search:input"))
+        add(FocusKey("search:go"))
+        if (sortChip.visibility == View.VISIBLE) add(FocusKey("search:sort"))
+    }
+
     private fun applyFocus() {
         val views = LinkedHashMap<FocusKey, View>()
         views.putAll(navViews())
         filterChips.forEachIndexed { index, chip -> views[FocusKey("filter:$index")] = chip }
         views[FocusKey("search:input")] = input
         views[FocusKey("search:go")] = searchButton
-        views[FocusKey("search:sort")] = sortChip
+        if (sortChip.visibility == View.VISIBLE) views[FocusKey("search:sort")] = sortChip
         suggestChips.forEachIndexed { index, chip -> views[FocusKey("suggest:$index")] = chip }
         if (retry.visibility == View.VISIBLE) views[FocusKey("search:retry")] = retry
         // 翻页行：禁用的那一侧占空槽（第一页没有「上一页」，但「下一页」仍在第二列）
         val pagerSection = pager.focusSection(views, KEY_PREV, KEY_NEXT)
         continueRendered?.views?.let { views.putAll(it) }
         rendered?.views?.let { views.putAll(it) }
+        val inputKeys = inputKeys()
 
         val sections = listOf(
             // 片库这一行只有半屏宽：按列号比例映射会落到「搜索」按钮上，显式指到输入框
@@ -600,10 +622,9 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
                 filterChips.size,
                 down = FocusKey("search:input"),
             ),
-            FocusSections.section(
-                listOf(FocusKey("search:input"), FocusKey("search:go"), FocusKey("search:sort")),
-                3,
-            ),
+            // 输入行：排序键只在聚合态出现，列数跟着可见项走；
+            // 按上一律回片库的「全部」——按列号映射会落到「短剧」。
+            FocusSections.section(inputKeys, inputKeys.size, up = FocusKey("filter:0")),
             FocusSections.section(FocusSections.keys("suggest", suggestChips.size), suggestChips.size),
             if (retry.visibility == View.VISIBLE) FocusSections.section(listOf(FocusKey("search:retry")), 1) else null,
             continueRendered?.let { FocusSections.section(it.keys, it.columns) },

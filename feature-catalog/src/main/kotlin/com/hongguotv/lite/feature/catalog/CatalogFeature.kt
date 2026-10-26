@@ -142,7 +142,7 @@ internal class SearchModel {
     var items: List<Series> = emptyList()
         private set
 
-    /** 是否处于季线聚合态（卡片角标与空态文案的分支条件）。 */
+    /** 是否处于季线聚合态（卡片角标、排序开关与空态文案的分支条件）。 */
     val aggregated: Boolean get() = seasons.isNotEmpty()
 
     /** 服务端口径下是否还有下一页可拉。聚合态季线已全在内存，不再拉杂项。 */

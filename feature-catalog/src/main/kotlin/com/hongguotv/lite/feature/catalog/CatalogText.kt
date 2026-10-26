@@ -50,7 +50,8 @@ internal object CatalogText {
      *
      * 维护者口径："信息栏只写信息和收藏状态、更新情况，不写观看记录"——
      * 我的状态（看到第几集）在卡片状态条与详情页说，信息栏不重复。
-     * [badge] 用 [searchBadge] 的非聚合口径（集数/未上线），片名里已带季号时不再重复。
+     * [badge] 由调用方按 [searchBadge] 给（搜索页直接用 [searchSegments]），
+     * 片名里已带季号时不再重复。
      */
     fun bandSegments(favorite: Boolean, tags: String, badge: String = ""): List<String> =
         listOfNotNull(
@@ -58,6 +59,13 @@ internal object CatalogText {
             "已收藏".takeIf { favorite },
             TvText.tags(tags).takeIf { it.isNotBlank() },
         )
+
+    /**
+     * 搜索页信息栏：角标必须与同屏卡片用同一个 [searchBadge] 口径——
+     * 聚合态卡片写「第九季 · 全 N 集」，信息栏若退回"全 N 集"就是同一部剧两种说法。
+     */
+    fun searchSegments(series: Series, aggregated: Boolean, favorite: Boolean, tags: String): List<String> =
+        bandSegments(favorite = favorite, tags = tags, badge = searchBadge(series, aggregated))
 
     /**
      * 历史页信息栏的分类来源：历史记录的 `tags` 经常是空串

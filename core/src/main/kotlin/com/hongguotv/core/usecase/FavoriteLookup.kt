@@ -31,9 +31,15 @@ object FavoriteLookup {
         val key = SeasonKeys.seasonKey(series.title)
         entries.firstOrNull { it.seriesKey == key && albumAllowsKeyMatch(it.series, series) }?.let { return it }
         // 键对不上：看这一季的 id 在不在某个收藏系列的季线里
-        return entries.firstOrNull { entry ->
+        entries.firstOrNull { entry ->
             lineOf(entry.seriesKey)?.seasons?.any { it.id == series.id } == true
+        }?.let { return it }
+        // 季线缓存可能已被 LRU 淘汰：专辑 id 是"同一系列"的硬证据。
+        // 篇名季的标题算不出基名键，没有这条就会把已收藏显示成未收藏。
+        if (series.albumId.isNotBlank()) {
+            return entries.firstOrNull { it.series.albumId == series.albumId }
         }
+        return null
     }
 
     /**

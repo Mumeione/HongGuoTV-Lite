@@ -45,6 +45,9 @@ class PrefsLibrary(
     /** 季线缓存：base → 季列表（存储序 = 写入序）。LRU：最近写入的在最后。 */
     private var seasonLines: LinkedHashMap<String, List<Series>>
 
+    /** 一条已缓存的季线：它挂在哪个键下、季列表是什么。 */
+    private data class CachedLine(val key: String, val seasons: List<Series>)
+
     /** 检查更新结果：季 id → 观察记录。只保留收藏系列的 id（见 [trackedIds]）。 */
     private var updateRows: LinkedHashMap<String, FavoriteUpdateRow>
 
@@ -75,6 +78,8 @@ class PrefsLibrary(
         watchedIds = (values[KEY_WATCHED] as? Set<*>)?.filterIsInstance<String>()?.toSet().orEmpty()
         settings = loadSettings(values)
         if (!values.containsKey(KEY_FAVORITE_SERIES)) migrateLegacyFavorites(values)
+        // 旧收藏行按季线里的 id 证据换到系列基名（篇名季的标题算不出基名）
+        if (migrateCanonicalFavoriteKeys()) persist(KEY_FAVORITE_SERIES, KEY_SEASON_GROUPS)
         corruptPartitions = corrupt.toList()
     }
 
@@ -230,20 +235,70 @@ class PrefsLibrary(
 
     /** 收藏/取消收藏一个系列（base = 去季号后的剧名）。返回 true 表示已收藏。 */
     override suspend fun toggle(series: Series): Boolean {
-        val base = SeasonKeys.seasonKey(series.title)
-        if (base.isBlank()) return false
+        val titleKey = SeasonKeys.seasonKey(series.title)
+        if (titleKey.isBlank()) return false
+        var lineMoved = false
         val added = synchronized(lock) {
-            if (favoriteRows.containsKey(base)) {
-                favoriteRows.remove(base)
+            val cached = cachedLineOf(series)
+            // 有季线证据就用线里的基名：篇名季的标题算不出系列基名，
+            // 收藏行不能挂在篇名上（收藏页会把篇名当系列名显示）。
+            val key = cached?.let { SeasonKeys.canonicalKey(it.seasons) } ?: titleKey
+            // 已收藏的判定：规范键、标题键，或同一季线里的旧行都算——否则取消收藏会留下孤儿
+            val existing = favoriteRows.keys.firstOrNull { stored ->
+                stored == key || stored == titleKey ||
+                    seasonLines[stored]?.any { it.id == series.id } == true
+            }
+            if (existing != null) {
+                favoriteRows.remove(existing)
                 false
             } else {
-                favoriteRows[base] = series.copy(title = base) to clock()
+                favoriteRows[key] = series.copy(title = key) to clock()
+                // 季线跟着换到规范键：否则系列页按主键读不到线，会重新请求一次
+                if (cached != null) {
+                    rekeyLine(cached, key)
+                    lineMoved = cached.key != key
+                }
                 true
             }
         }
         persist(KEY_FAVORITE_SERIES)
+        if (lineMoved) persist(KEY_SEASON_GROUPS)
         pruneUpdates()
         return added
+    }
+
+    /**
+     * 包含这一季 id 的季线缓存；没有返回 null。
+     *
+     * 只看内存，不发请求；季线本身已按同 IP 作品过滤，所以"id 在这条线里"是可靠证据。
+     */
+    private fun cachedLineOf(series: Series): CachedLine? =
+        seasonLines.entries.firstOrNull { (_, seasons) -> seasons.any { it.id == series.id } }
+            ?.let { CachedLine(it.key, it.value) }
+
+    /** 把季线换挂到 [key] 下；同键已有缓存时保留既有那份（内容等价）。 */
+    private fun rekeyLine(line: CachedLine, key: String) {
+        if (line.key == key) return
+        seasonLines.remove(line.key)
+        if (!seasonLines.containsKey(key)) seasonLines[key] = line.seasons
+    }
+
+    /**
+     * 把 [ids] 对应的收藏行搬到 [canonical] 键上：行里存的 title 换成基名，
+     * 同键已有收藏时保留既有那条（两者指向同一个系列）。
+     *
+     * @return 是否真的搬过（搬过才需要写收藏分区）
+     */
+    private fun moveRowsInto(canonical: String, ids: Set<String>): Boolean {
+        val moving = favoriteRows.filter { (stored, value) -> stored != canonical && value.first.id in ids }
+        if (moving.isEmpty()) return false
+        moving.forEach { (stored, value) ->
+            favoriteRows.remove(stored)
+            if (!favoriteRows.containsKey(canonical)) {
+                favoriteRows[canonical] = value.first.copy(title = canonical) to value.second
+            }
+        }
+        return true
     }
 
     override fun seasonLine(seriesKey: String): SeasonLine? = synchronized(lock) {
@@ -270,12 +325,24 @@ class PrefsLibrary(
         // 只存 id/title/cover/badge/season/分类（简介最占空间，剥掉；分类是收藏详情页
         // 「分类」行的唯一来源，保留——短字符串，五个季也才几百字节）。
         val clean = line.seasons.map { it.copy(intro = "") }
+        var favoritesChanged = false
         synchronized(lock) {
+            val ids = line.seasons.mapTo(HashSet(line.seasons.size)) { it.id }
+            val canonical = SeasonKeys.canonicalKey(line.seasons)
+            // 只有规范键确实被收藏行使用时才换键：收藏行挂在篇名键上（收藏早于季线到手）
+            // 时就地把行与线一起归到基名；没人收藏的篇名季线仍按调用方给的键缓存，
+            // 详情页下次按标题键能直接命中，不会为同一条线重复请求。
+            val inUse = canonical != null &&
+                (favoriteRows.containsKey(canonical) ||
+                    favoriteRows.any { (stored, value) -> stored != canonical && value.first.id in ids })
+            val key = if (inUse) canonical!! else seriesKey
+            if (inUse) favoritesChanged = moveRowsInto(key, ids)
             seasonLines.remove(seriesKey)
-            seasonLines[seriesKey] = clean
+            if (key != seriesKey) seasonLines.remove(key)
+            seasonLines[key] = clean
             while (seasonLines.size > SEASON_LINE_LIMIT) seasonLines.remove(seasonLines.keys.first())
         }
-        persist(KEY_SEASON_GROUPS)
+        if (favoritesChanged) persist(KEY_SEASON_GROUPS, KEY_FAVORITE_SERIES) else persist(KEY_SEASON_GROUPS)
         pruneUpdates()
     }
 
@@ -395,6 +462,31 @@ class PrefsLibrary(
         persist(KEY_FAVORITE_SERIES)
         // 旧版口径：迁移完立即同步检查结果——旧的无主 update 行不该活过这次迁移
         pruneUpdates()
+    }
+
+    /**
+     * 旧收藏行迁移：从篇名季收藏的行，键与 title 都是篇名。
+     *
+     * 只认季线里的 id 证据（线本身已按同 IP 过滤），有线就把行与线一起换到基名键；
+     * 没有线就原样留着，**不按标题前缀猜**——那会把同 IP 作品误并组。
+     */
+    private fun migrateCanonicalFavoriteKeys(): Boolean {
+        var changed = false
+        seasonLines.entries.toList().forEach { (storedKey, seasons) ->
+            val canonical = SeasonKeys.canonicalKey(seasons) ?: return@forEach
+            val ids = seasons.mapTo(HashSet(seasons.size)) { it.id }
+            // 行不在线里、规范键也没人用：这条线只是给未收藏的详情页做缓存，不换键
+            val inUse = favoriteRows.containsKey(canonical) ||
+                favoriteRows.any { (key, value) -> key != canonical && value.first.id in ids }
+            if (!inUse) return@forEach
+            changed = moveRowsInto(canonical, ids) || changed
+            if (storedKey != canonical) {
+                if (!seasonLines.containsKey(canonical)) seasonLines[canonical] = seasons
+                seasonLines.remove(storedKey)
+                changed = true
+            }
+        }
+        return changed
     }
 
     // ---------- 磁盘编解码 ----------

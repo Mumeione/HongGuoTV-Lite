@@ -15,9 +15,10 @@ object FocusSections {
         keys: List<FocusKey>,
         columns: Int = keys.size,
         down: FocusKey? = null,
+        up: FocusKey? = null,
         flanked: Boolean = false,
     ): FocusSection? =
-        if (keys.isEmpty()) null else FocusSection(keys, columns.coerceAtLeast(1), down = down, flanked = flanked)
+        if (keys.isEmpty()) null else FocusSection(keys, columns.coerceAtLeast(1), down = down, up = up, flanked = flanked)
 
     /**
      * 带空槽的一段：禁用的按钮**保留位置**、不参与聚焦（季线页第一页的「上一组」）。

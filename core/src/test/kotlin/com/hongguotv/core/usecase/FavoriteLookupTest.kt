@@ -134,4 +134,17 @@ class FavoriteLookupTest {
         val season = Series("3", "魏家测试书第三季", season = 3, albumId = "album-1")
         assertEquals("魏家测试书", FavoriteLookup.entry(season, favorites) { lines[it] }?.seriesKey)
     }
+
+    /**
+     * 季线缓存被 LRU 淘汰后，篇名季的标题键与收藏行的基名键对不上。
+     * 专辑 id 是"同一系列"的硬证据：没有它，已收藏会显示成未收藏，再按一次还会多一条收藏。
+     */
+    @Test
+    fun `falls back to the album id when the season line cache is gone`() {
+        val favorites = listOf(entry("魏家测试书", "1", "魏家测试书", albumId = "album-1"))
+        val season = Series("1", "魏家测试书分宗篇", albumId = "album-1")
+        assertEquals("魏家测试书", FavoriteLookup.entry(season, favorites) { null }?.seriesKey)
+        // 专辑不同的同 IP 作品仍然不能认领
+        assertNull(FavoriteLookup.entry(season, favorites.map { it.copy(series = it.series.copy(albumId = "album-2")) }) { null })
+    }
 }

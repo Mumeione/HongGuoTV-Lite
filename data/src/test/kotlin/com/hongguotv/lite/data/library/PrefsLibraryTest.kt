@@ -323,6 +323,91 @@ class PrefsLibraryTest {
         assertFalse(lib.isFavorite("凡人测试书"))
     }
 
+    /** 篇名季（分宗篇）的标题算不出系列基名：季线缓存在手时按线里的 id 归到基名。 */
+    private fun namedSeasonLine(): SeasonLine = SeasonLine(
+        listOf(
+            Series("1", "凡人测试书分宗篇", season = 1),
+            Series("2", "凡人测试书第二季", season = 2),
+        ),
+    )
+
+    @Test
+    fun favoritingANamedSeasonUsesTheSeriesBaseFromTheLine() = runTest {
+        val lib = PrefsLibrary(store("favoriteSeries" to "{}"))
+        // 详情页先取到季线（键是篇名自己）：这时还没有收藏行
+        lib.rememberSeasonLine("凡人测试书分宗篇", namedSeasonLine())
+        assertTrue(lib.toggle(Series("1", "凡人测试书分宗篇", season = 1)))
+
+        val entry = lib.all().single()
+        assertEquals("凡人测试书", entry.seriesKey)
+        assertEquals("收藏页显示系列基名，不是篇名", "凡人测试书", entry.series.title)
+        assertNotNull("季线跟着换到基名键，系列页按主键能直接读到", lib.seasonLine("凡人测试书"))
+        assertNull(lib.seasonLine("凡人测试书分宗篇"))
+    }
+
+    /** 收藏早于季线到手：线到达时把行与线一起归位，收藏页不会一直显示篇名。 */
+    @Test
+    fun aLineArrivingAfterTheFavoriteMovesItToTheSeriesBase() = runTest {
+        val lib = PrefsLibrary(store("favoriteSeries" to "{}"))
+        assertTrue(lib.toggle(Series("1", "凡人测试书分宗篇", season = 1)))
+        // 还没有季线证据：先按标题键存着
+        assertEquals("凡人测试书分宗篇", lib.all().single().seriesKey)
+
+        lib.rememberSeasonLine("凡人测试书分宗篇", namedSeasonLine())
+        val entry = lib.all().single()
+        assertEquals("凡人测试书", entry.seriesKey)
+        assertEquals("凡人测试书", entry.series.title)
+        assertNotNull(lib.seasonLine("凡人测试书"))
+        assertNull(lib.seasonLine("凡人测试书分宗篇"))
+    }
+
+    @Test
+    fun unfavoritingAnotherSeasonOfTheSameLineRemovesTheBaseRow() = runTest {
+        val lib = PrefsLibrary(store("favoriteSeries" to "{}"))
+        lib.rememberSeasonLine("凡人测试书分宗篇", namedSeasonLine())
+        lib.toggle(Series("1", "凡人测试书分宗篇", season = 1))
+        assertFalse("同一季线里的第二季也能取消这条收藏", lib.toggle(Series("2", "凡人测试书第二季", season = 2)))
+        assertTrue(lib.all().isEmpty())
+    }
+
+    /** 旧版数据：收藏行与季线都挂在篇名键上，启动时按季线 id 迁移到基名。 */
+    @Test
+    fun legacyNamedSeasonFavoritesMigrateToTheSeriesBaseOnLoad() = runTest {
+        val favorite = JSONObject().put(
+            "凡人测试书分宗篇",
+            JSONObject()
+                .put("series", SeriesCodec.toJson(Series("1", "凡人测试书分宗篇", season = 1)))
+                .put("addedAt", 1_000L),
+        )
+        val s = store(
+            "favoriteSeries" to favorite.toString(),
+            "seasonGroups" to JSONObject().put(
+                "凡人测试书分宗篇",
+                JSONArray(namedSeasonLine().seasons.map { SeriesCodec.toJson(it) }),
+            ).toString(),
+        )
+        val lib = PrefsLibrary(s)
+        val entry = lib.all().single()
+        assertEquals("凡人测试书", entry.seriesKey)
+        assertEquals("凡人测试书", entry.series.title)
+        assertNotNull(lib.seasonLine("凡人测试书"))
+        assertNull(lib.seasonLine("凡人测试书分宗篇"))
+        assertTrue(lib.isFavorite("凡人测试书"))
+        assertFalse(lib.isFavorite("凡人测试书分宗篇"))
+    }
+
+    /** 整条季线都是篇名季：没有基名证据，原样保留（不按标题前缀猜，避免同 IP 误并组）。 */
+    @Test
+    fun aLineWithoutANumberedSeasonDoesNotGuessABaseName() = runTest {
+        val lib = PrefsLibrary(store("favoriteSeries" to "{}"))
+        lib.rememberSeasonLine(
+            "凡人测试书分宗篇",
+            SeasonLine(listOf(Series("1", "凡人测试书分宗篇", season = 1), Series("2", "凡人测试书折桂篇", season = 2))),
+        )
+        lib.toggle(Series("1", "凡人测试书分宗篇", season = 1))
+        assertEquals("凡人测试书分宗篇", lib.all().single().seriesKey)
+    }
+
     @Test
     fun rememberSeasonLineIsLruAndStripped() = runTest {
         val s = store("favoriteSeries" to "{}")

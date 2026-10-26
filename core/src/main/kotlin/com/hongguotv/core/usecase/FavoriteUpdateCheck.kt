@@ -2,6 +2,7 @@ package com.hongguotv.core.usecase
 
 import com.hongguotv.core.model.FavoriteEntry
 import com.hongguotv.core.model.FavoriteStatus
+import com.hongguotv.core.model.SeasonKeys
 import com.hongguotv.core.port.ContentPort
 import com.hongguotv.core.port.FavoritesPort
 import com.hongguotv.core.port.UpstreamError
@@ -144,7 +145,12 @@ object FavoriteUpdateCheck {
         // 未上线季不算"新季"（季线里保留占位，但用户点不进去）
         val latest = line?.seasons?.filter { it.released }?.maxOfOrNull { it.season } ?: 0
         val newSeason = latest > 0 && latest > entry.series.season
-        val newEpisodes = favorites.entry(entry.seriesKey)?.status == FavoriteStatus.NEW_SEASON
+        // 篇名季的收藏行可能在 rememberSeasonLine 里换到了系列基名键：
+        // 状态要按"现在的键"读，否则第一次检查会把新集误报成没有
+        val currentKey = line?.let { SeasonKeys.canonicalKey(it.seasons) }
+            ?.takeIf { favorites.isFavorite(it) }
+            ?: entry.seriesKey
+        val newEpisodes = favorites.entry(currentKey)?.status == FavoriteStatus.NEW_SEASON
         return Finding(newSeason = newSeason, newEpisodes = newEpisodes)
     }
 }

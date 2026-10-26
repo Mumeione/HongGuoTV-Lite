@@ -11,6 +11,7 @@ import com.hongguotv.core.model.SeasonLine
 import com.hongguotv.core.model.Series
 import com.hongguotv.core.port.UpstreamError
 import com.hongguotv.core.usecase.SeasonProgress
+import com.hongguotv.lite.uikit.focus.FocusExits
 import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.focus.FocusSections
 import com.hongguotv.lite.uikit.layout.GridGeometry
@@ -541,6 +542,17 @@ internal class SeasonPage(
         val leftFlank = if (seasonHost.visibility == View.VISIBLE) strips.leftSection() else null
         val rightFlank = if (seasonHost.visibility == View.VISIBLE) strips.rightSection() else null
 
+        val cardKeys = seasonCards.keys.map { FocusKey(seasonKey(it)) }
+        val firstCard = cardKeys.firstOrNull()
+        // 季卡按上固定回「排序」，「排序」按下固定回第一张季卡：不再按矩形距离
+        // 在排序键与右侧动作列之间二选一（用户按上/下的意图都是"上一行"）。
+        // 目标不在屏上时退回几何，不改 FocusExits 的约定。
+        val exits = if (firstCard == null) {
+            ACTION_EXITS
+        } else {
+            ACTION_EXITS + FocusExits.up(KEY_SORT, cardKeys) + FocusExits.down(firstCard, listOf(KEY_SORT))
+        }
+
         submitPlan(
             sections = listOf(
                 FocusSections.section(listOf(KEY_BACK), 1),
@@ -551,11 +563,7 @@ internal class SeasonPage(
                 // 排序在季数旁边（页面上方），与长条互不相干
                 if (seasonHeader.visibility == View.VISIBLE) FocusSections.section(listOf(KEY_SORT), 1) else null,
                 // 季卡被左右长条包夹：行首按左、行尾按右都落到条上（2026-10-24 口径）
-                FocusSections.section(
-                    seasonCards.keys.map { FocusKey(seasonKey(it)) },
-                    SEASON_COLUMNS,
-                    flanked = true,
-                ),
+                FocusSections.section(cardKeys, SEASON_COLUMNS, flanked = true),
             ),
             views = views,
             preferred = wanted,
@@ -563,7 +571,7 @@ internal class SeasonPage(
             ladder = if (series != null) listOf(KEY_PLAY) else emptyList(),
             leftFlank = leftFlank,
             rightFlank = rightFlank,
-            visualExits = ACTION_EXITS,
+            visualExits = exits,
         )
     }
 

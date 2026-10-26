@@ -40,6 +40,18 @@ object SeasonKeys {
 
     /** 收藏/连播共用的系列键：去季号再归一化标点。 */
     fun seasonKey(title: String): String = normalizeTitle(seasonBase(title))
+
+    /**
+     * 一条季线能反推出的系列基名键（canonical key）：取第一条**标题自带季号**的季
+     * （「第N季」/「40季」），去掉季后缀再归一化。
+     *
+     * 篇名季（分宗篇、折桂篇）的标题不带季号，拿它反推只会得到篇名本身；
+     * 整条线都没有带季号的标题时返回 null——没有证据就不猜，避免把同 IP 误并组。
+     */
+    fun canonicalKey(seasons: List<Series>): String? =
+        seasons.firstOrNull { seasonNumber(it.title) > 0 }
+            ?.let { seasonKey(it.title) }
+            ?.takeIf { it.isNotBlank() }
 }
 
 /** 合法剧集 id：纯数字。上游偶尔混入脏行，解析时按此过滤。 */

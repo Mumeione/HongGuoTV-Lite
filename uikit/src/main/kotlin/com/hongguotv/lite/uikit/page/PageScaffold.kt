@@ -158,6 +158,9 @@ class PageScaffold internal constructor(private val ui: UiKit) : FrameLayout(ui.
     private var session: FocusSession? = null
     private var bodyMode = BodyMode.UNSET
 
+    /** 信息带高度是否预留（[reserveBand]）：收起时用 INVISIBLE，内容区高度不跟着变。 */
+    private var bandReserved = false
+
     private enum class BodyMode { UNSET, PLAIN, SCROLL }
 
     init {
@@ -232,24 +235,39 @@ class PageScaffold internal constructor(private val ui: UiKit) : FrameLayout(ui.
      * 永远不再出现（实测：焦点从卡片离开再回到卡片，全页面如此）。
      */
     fun band(): InfoBand {
-        val existing = _band
-        if (existing != null) {
-            bandSlot.visibility = View.VISIBLE
-            return existing
-        }
+        val band = ensureBand()
+        bandSlot.visibility = View.VISIBLE
+        return band
+    }
+
+    /** 建（或复用）信息带视图；显隐由调用方决定。高度取 `Tokens.metrics.infoBandHeight`。 */
+    private fun ensureBand(): InfoBand {
+        _band?.let { return it }
         val band = InfoBand(ui)
         bandSlot.addView(band, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(tokens.metrics.infoBandHeight)))
-        bandSlot.visibility = View.VISIBLE
         _band = band
         return band
     }
 
     /**
-     * 收起信息带（没有可说的内容时空着 46dp 只会把内容区顶矮——mockup 里它
-     * 总是伴着卡片出现，没有卡片就不占位）。
+     * 收起信息带。
+     *
+     * 预留过高度的页面（[reserveBand]）这里只隐藏、不释放高度：焦点进出卡片区时
+     * 内容区高度不变，首屏卡片不会被视口回调反复夹取。没预留的页面仍整条收起——
+     * 没有卡片可说时不占位。
      */
     fun hideBand() {
-        bandSlot.visibility = View.GONE
+        bandSlot.visibility = if (bandReserved) View.INVISIBLE else View.GONE
+    }
+
+    /**
+     * 预留信息带的槽位高度（不显示）。会在"焦点进出卡片区"时出收信息栏的页面，
+     * 在搭树时调用一次：槽位从第一帧起就占住信息栏的高度，内容区高度稳定。
+     */
+    fun reserveBand() {
+        ensureBand()
+        bandReserved = true
+        bandSlot.visibility = View.INVISIBLE
     }
 
     /**

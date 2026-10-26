@@ -304,6 +304,27 @@ class FocusGraphTest {
         assertEquals("中间按钮映射到中间那张卡", key("card2"), graph.neighborsOf(key("go"))!!.down)
     }
 
+    /**
+     * 搜索页的输入行往上，片库行只有半屏宽：按列号比例映射会落到「短剧」。
+     * 页面给输入行声明"往上一律回「全部」"——与 down 同型。
+     */
+    @Test
+    fun `section up override wins over column mapping`() {
+        val plan = FocusPlan(
+            listOf(
+                FocusSection(keys("filter", 3), columns = 3, down = key("input")),
+                FocusSection(listOf(key("input"), key("go"), key("sort")), columns = 3, up = key("filter0")),
+                FocusSection(keys("card", 10), columns = 5),
+            ),
+        )
+        val graph = FocusGraph.of(plan)
+        assertEquals("输入框按上回「全部」", key("filter0"), graph.neighborsOf(key("input"))!!.up)
+        assertEquals("搜索按钮按上回「全部」", key("filter0"), graph.neighborsOf(key("go"))!!.up)
+        assertEquals("排序键按上回「全部」", key("filter0"), graph.neighborsOf(key("sort"))!!.up)
+        // 覆盖只作用于首行：片库行自己仍在页面顶端，按上夹住自己
+        assertEquals(key("filter1"), graph.neighborsOf(key("filter1"))!!.up)
+    }
+
     /** 视觉顺序必须与声明顺序一致：翻组键在左、排序在右时，段里也按这个顺序声明。 */
     @Test
     fun `horizontal order is the declared order`() {

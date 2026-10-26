@@ -79,9 +79,15 @@ class FavoriteUpdateCheckTest {
         /** 检查后重新读到的收藏行；null = 收藏已被删除。 */
         var currentEntry: FavoriteEntry? = null
 
+        /** 非 null 时只有这个键读得到 [currentEntry]（模拟篇名季行换到了基名键）。 */
+        var currentKey: String? = null
+        var favoriteKeys: Set<String> = emptySet()
+
         override fun all(): List<FavoriteEntry> = emptyList()
-        override fun isFavorite(seriesKey: String): Boolean = false
-        override fun entry(seriesKey: String): FavoriteEntry? = currentEntry
+        override fun isFavorite(seriesKey: String): Boolean = seriesKey in favoriteKeys
+        override fun entry(seriesKey: String): FavoriteEntry? =
+            currentEntry?.takeIf { currentKey == null || currentKey == seriesKey }
+
         override suspend fun toggle(series: Series): Boolean = false
         override suspend fun setCurrentSeason(seriesKey: String, series: Series) = Unit
         override fun seasonLine(seriesKey: String): SeasonLine? = null
@@ -217,6 +223,31 @@ class FavoriteUpdateCheckTest {
         assertEquals(0, report.newSeasons)
         assertEquals(1, report.newEpisodes)
         assertEquals(1, report.checked)
+    }
+
+    @Test
+    fun aRekeyedNamedSeasonFavoriteStillReportsNewEpisodes() {
+        // 篇名季的收藏行在 rememberSeasonLine 里换到了系列基名键：状态要按新键读，
+        // 否则第一次检查会把"同季加集"误报成没有
+        val content = FakeContent().apply {
+            details["1"] = detail("1", episodes = 30, season = 2)
+            lines["1"] = SeasonLine(
+                listOf(Series("1", "测试书分宗篇", season = 1), Series("2", "测试书第二季", season = 2)),
+            )
+        }
+        val favorites = FakeFavorites().apply {
+            currentEntry = entry("1", key = "测试书").copy(status = FavoriteStatus.NEW_SEASON)
+            currentKey = "测试书"
+            favoriteKeys = setOf("测试书")
+        }
+        val report = check(
+            listOf(entry("1", title = "测试书分宗篇", season = 2, key = "测试书分宗篇")),
+            content,
+            favorites,
+        )
+
+        assertEquals(1, report.newEpisodes)
+        assertEquals(0, report.newSeasons)
     }
 
     @Test

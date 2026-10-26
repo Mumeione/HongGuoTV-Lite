@@ -50,6 +50,13 @@ data class FocusSection(
      */
     val down: FocusKey? = null,
     /**
+     * 整段"往上"的显式出口（只作用于本段的首行），与 [down] 同型。
+     *
+     * 用在**上方控件与网格列数不一致**的行上：搜索页的输入行往上，片库行只有半屏宽，
+     * 按列号比例映射会落到第二个胶囊上；用户按上想回的是「全部」。
+     */
+    val up: FocusKey? = null,
+    /**
      * 本段的左右两侧有**长条翻组键**侧翼（[FocusPlan.leftFlank]/[rightFlank]）：
      * 行首按左、行尾按右都落到侧翼，不再夹住自己或进导航侧栏。
      * 只有被侧翼包夹的网格段声明它（分集格、季线卡）；动作列这类竖排段保持夹住自己。
@@ -250,7 +257,7 @@ class FocusGraph private constructor(
                         section.nearestInRow(row - 1, column)
                             ?: crossSection(plan, sectionIndex, -1, column, columns, key)
                     } else {
-                        crossSection(plan, sectionIndex, -1, column, columns, key)
+                        section.up ?: crossSection(plan, sectionIndex, -1, column, columns, key)
                     }
                     val down = if (row < section.rows - 1) {
                         section.nearestInRow(row + 1, column)
