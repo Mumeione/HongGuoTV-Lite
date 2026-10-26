@@ -1,5 +1,6 @@
 package com.hongguotv.lite.data.content
 
+import com.hongguotv.core.port.DecoderCapabilities
 import com.hongguotv.core.port.DiagnosticsPort
 import com.hongguotv.core.port.UpstreamError
 import com.hongguotv.core.protocol.DeviceIdentity
@@ -49,12 +50,17 @@ class DiagnosticsPipelineTest {
         override suspend fun text(request: SignedRequest): String = respond(request)
     }
 
-    private fun repository(record: Recording, respond: (SignedRequest) -> String): ContentRepository =
+    private fun repository(
+        record: Recording,
+        decoders: DecoderCapabilities = DecoderCapabilities { true },
+        respond: (SignedRequest) -> String,
+    ): ContentRepository =
         ContentRepository(
             http = FakeTransport(respond),
             devices = FixedDeviceIdentity(
                 DeviceSnapshot(DeviceIdentity("7123456789012345678", "8123456789012345678"), DeviceProfile.DEFAULT),
             ),
+            decoders = decoders,
             diagnostics = record,
         )
 
@@ -119,6 +125,62 @@ class DiagnosticsPipelineTest {
 
         assertTrue(record.stages.any { it.first == DiagnosticsPort.Stage.RESOLVE && !it.second })
         assertFalse(record.stages.any { it.first == DiagnosticsPort.Stage.DECRYPT })
+    }
+
+    /**
+     * 所有档位的编码设备都不支持：退回最低档，并把「编码不受支持」写进诊断。
+     * 真机上"换低清晰度也没用"只能靠这条事件定位。
+     */
+    @Test
+    fun streamReportsWhenNoCodecIsSupported() = runTest {
+        val record = Recording()
+        val repo = repository(record, decoders = DecoderCapabilities { false }) { request ->
+            when {
+                request.url.contains("/novel/player/video_model/") -> videoModelBody()
+                request.url.startsWith("https://example.com/") -> streamBody(
+                    JSONObject()
+                        .put("v0", JSONObject().put("vheight", 1080).put("codec_type", "bytevc1").put("main_url", "https://example.com/high"))
+                        .put("v1", JSONObject().put("vheight", 480).put("codec_type", "bytevc1").put("main_url", "https://example.com/low")),
+                )
+                else -> throw IOException("未预期的请求：${request.url}")
+            }
+        }
+
+        val info = repo.stream("123", 720)
+
+        assertEquals("https://example.com/low", info.url)
+        assertEquals(480, info.height)
+        val event = record.events.single { it.first == "stream.codec_unsupported" }.second
+        assertTrue("事件要带上游给了哪些编码", event["available"].toString().contains("bytevc1"))
+    }
+
+
+    /** 上游新增编码（当前没见过的 `codec_type`）：放行并留一条诊断，不能静默判成"没有可用清晰度"。 */
+    @Test
+    fun streamAllowsUnknownCodecAndReportsIt() = runTest {
+        val record = Recording()
+        val repo = repository(record, decoders = DecoderCapabilities { false }) { request ->
+            when {
+                request.url.contains("/novel/player/video_model/") -> videoModelBody()
+                request.url.startsWith("https://example.com/") -> streamBody(
+                    JSONObject().put(
+                        "v0",
+                        JSONObject().put("vheight", 720).put("codec_type", "av1").put("main_url", "https://example.com/av1"),
+                    ),
+                )
+                else -> throw IOException("未预期的请求：${request.url}")
+            }
+        }
+
+        val info = repo.stream("123", 720)
+
+        assertEquals("https://example.com/av1", info.url)
+        val event = record.events.single { it.first == "stream.codec_unknown" }.second
+        assertTrue("诊断要带原样的 codec_type", event["types"].toString().contains("av1"))
+        assertFalse(
+            "未知编码不能算『编码不受支持』",
+            record.events.any { it.first == "stream.codec_unsupported" },
+        )
     }
 
     // ---------- CONNECT：OkHttpTransport 自己打 ----------
@@ -197,6 +259,10 @@ class DiagnosticsPipelineTest {
         .put("code", 0)
         .put("data", JSONObject()
             .put("video_model", JSONObject().put("fallback_api", "https://example.com/stream")))
+        .toString()
+
+    private fun streamBody(videoList: JSONObject): String = JSONObject()
+        .put("video_info", JSONObject().put("data", JSONObject().put("video_list", videoList)))
         .toString()
 
     /** key_seed 不是合法 base64：能走到 DECRYPT 段，并在那一段失败。 */

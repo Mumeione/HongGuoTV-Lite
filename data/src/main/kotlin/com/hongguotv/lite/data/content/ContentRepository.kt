@@ -11,9 +11,11 @@ import com.hongguotv.core.model.SeriesIds
 import com.hongguotv.core.model.StreamInfo
 import com.hongguotv.core.model.Suggestion
 import com.hongguotv.core.port.ContentPort
+import com.hongguotv.core.port.DecoderCapabilities
 import com.hongguotv.core.port.DiagnosticsPort
 import com.hongguotv.core.port.SilentDiagnostics
 import com.hongguotv.core.port.UpstreamError
+import com.hongguotv.core.port.VideoCodec
 import com.hongguotv.core.protocol.Fields
 import com.hongguotv.core.protocol.FullSuiteSigner
 import com.hongguotv.core.protocol.HttpMethod
@@ -49,6 +51,11 @@ class ContentRepository(
      * 生产由 `AppGraph` 传 [DeviceSession]（注册下发的一对），测试传 [FixedDeviceIdentity]。
      */
     private val devices: DeviceIdentitySource,
+    /**
+     * 设备解码能力。生产由 `AppGraph` 注入 `AndroidDecoderCapabilities`；
+     * 单测与真网探针传 `DecoderCapabilities { true }`（探针只验证协议，不验证本机解码）。
+     */
+    private val decoders: DecoderCapabilities,
     private val diagnostics: DiagnosticsPort = SilentDiagnostics,
 ) : ContentPort {
 
@@ -378,9 +385,16 @@ class ContentRepository(
             val videoList = info.optJSONObject(Fields.Stream.VIDEO_LIST) ?: throw UpstreamError.Shape("video_list")
             Parsers.qualityRows(videoList).also { if (it.isEmpty()) throw UpstreamError.Shape("video_list") }
         }
-        // 首选不超过上限的最高清晰度；没有就退到最低档（"兼容资源"，fellBack 单独成事实）
-        val selected = rows.firstOrNull { it.first <= maxHeight } ?: rows.last()
-        val item = selected.third
+        val unknownCodecs = rows.map { it.codecType }.distinct().filter { Parsers.videoCodec(it) == null }
+        if (unknownCodecs.isNotEmpty()) {
+            diagnostics.event(
+                "stream.codec_unknown",
+                mapOf("types" to unknownCodecs.joinToString(",") { it.ifBlank { "(missing)" } }),
+            )
+        }
+        val pick = pickQuality(rows, maxHeight)
+        val selected = pick.row
+        val item = selected.json
         var url = Parsers.cleanUrl(item.str(Fields.Stream.MAIN_URL))
         val seed = info.str(Fields.Stream.KEY_SEED)
         if (seed.isNotEmpty()) {
@@ -396,11 +410,21 @@ class ContentRepository(
                 runCatching { MediaCrypto.deriveKey(seedValue) }.getOrElse { throw UpstreamError.Decrypt("key") }
             }
         }
+        // 一个支持档都没有：退回整张表的最低档，并把原因留给诊断（播放器能不能解由它最终判定）
+        if (pick.codecUnsupported) {
+            diagnostics.event(
+                "stream.codec_unsupported",
+                mapOf(
+                    "available" to rows.map { it.codecType }.distinct().joinToString(","),
+                    "height" to selected.height,
+                ),
+            )
+        }
         diagnostics.event(
             "stream.selected",
             mapOf(
-                "height" to selected.first,
-                "fellBack" to (selected.first > maxHeight),
+                "height" to selected.height,
+                "fellBack" to pick.overLimit,
                 "encrypted" to (key != null),
                 "qualities" to rows.size,
             ),
@@ -408,10 +432,44 @@ class ContentRepository(
         return StreamInfo(
             url = url,
             key = key,
-            height = selected.first.takeIf { it > 0 },
-            fellBack = selected.first > maxHeight,
+            height = selected.height.takeIf { it > 0 },
+            fellBack = pick.overLimit,
         )
     }
+
+    private data class QualityPick(
+        val row: QualityRow,
+        /** 所有可选档位都超出 [maxHeight]：这是"兼容资源"。 */
+        val overLimit: Boolean,
+        /** 没有任何已知档位的编码被设备支持，只能退回最低档碰运气。 */
+        val codecUnsupported: Boolean,
+    )
+
+    /**
+     * 选档：先过滤设备解不了的已知编码，再取不超过上限的最高档（同高度 AVC 优先）。
+     * 已知编码一档都不可用时才试**未知编码**——上游新增编码默认放行，但不能盖掉已知能解的档；
+     * 连未知档也没有才退回整张表的最低档，并让调用方记"编码不受支持"。
+     */
+    private fun pickQuality(rows: List<QualityRow>, maxHeight: Int): QualityPick {
+        val supported = rows.filter { it.codec?.let(decoders::supports) == true }
+        val unknown = rows.filter { it.codec == null }
+        pickWithin(supported, maxHeight)?.let { return QualityPick(it, overLimit = false, codecUnsupported = false) }
+        pickWithin(unknown, maxHeight)?.let { return QualityPick(it, overLimit = false, codecUnsupported = false) }
+        supported.lastOrNull()?.let { return QualityPick(it, overLimit = true, codecUnsupported = false) }
+        unknown.lastOrNull()?.let { return QualityPick(it, overLimit = true, codecUnsupported = false) }
+        val lowest = rows.last()
+        return QualityPick(lowest, overLimit = lowest.height > maxHeight, codecUnsupported = true)
+    }
+
+    /** 候选里取不超过上限的最高档；同高度 AVC 优先（AVC 的兼容性最好）。 */
+    private fun pickWithin(rows: List<QualityRow>, maxHeight: Int): QualityRow? {
+        val within = rows.filter { it.height <= maxHeight }
+        if (within.isEmpty()) return null
+        val top = within.filter { it.height == within.first().height }
+        return top.firstOrNull { it.codec == VideoCodec.AVC } ?: top.first()
+    }
+
+    private val QualityRow.codec: VideoCodec? get() = Parsers.videoCodec(codecType)
 
     private companion object {
         /** 官网请求最少间隔：补搜多季时限流的实测安全值（旧行为）。 */

@@ -7,6 +7,7 @@ import com.hongguotv.core.model.SeasonLine
 import com.hongguotv.core.model.StreamInfo
 import com.hongguotv.core.model.Suggestion
 import com.hongguotv.core.port.ContentPort
+import com.hongguotv.core.port.DecoderCapabilities
 import com.hongguotv.core.port.DiagnosticsPort
 import com.hongguotv.core.port.MediaStream
 import com.hongguotv.lite.data.content.ContentRepository
@@ -44,7 +45,12 @@ class RealNetworkProbe {
             // 探针的 store 只在内存里：每次跑探针注册一台新设备，不污染真机上的注册结果。
             val devices = DeviceSession(MemoryStore(), transport, diagnostics)
             devices.ensure()
-            val content = ContentRepository(http = transport, devices = devices, diagnostics = diagnostics)
+            val content = ContentRepository(
+                http = transport,
+                devices = devices,
+                decoders = DecoderCapabilities { true },
+                diagnostics = diagnostics,
+            )
             val report = ProbeReport()
 
             // 1) 搜索：官网 /api/search/result（无签名、服务端分页、一页 10 条）

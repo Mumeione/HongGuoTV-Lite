@@ -7,6 +7,7 @@ import com.hongguotv.core.model.SeasonKeys
 import com.hongguotv.core.model.SeasonLine
 import com.hongguotv.core.model.SearchResult
 import com.hongguotv.core.model.Series
+import com.hongguotv.core.port.DecoderCapabilities
 import com.hongguotv.core.port.SilentDiagnostics
 import com.hongguotv.core.usecase.EpisodeFlow
 import com.hongguotv.core.usecase.FavoriteLookup
@@ -52,7 +53,13 @@ class SeasonLineProbe {
             // 与生产同一条路：匿名注册一次，之后所有内容端点都用这一对身份。
             val devices = DeviceSession(MemoryStore(), transport, diagnostics)
             devices.ensure()
-            val content = ContentRepository(http = transport, devices = devices, diagnostics = diagnostics)
+            val content = ContentRepository(
+                http = transport,
+                devices = devices,
+                // 探针只验证协议，不验证本机解码能力
+                decoders = DecoderCapabilities { true },
+                diagnostics = diagnostics,
+            )
 
             val keywords = System.getenv("KEYWORDS")?.split('|')?.filter { it.isNotBlank() }
                 ?: DEFAULT_KEYWORDS

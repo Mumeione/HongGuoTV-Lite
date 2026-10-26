@@ -345,40 +345,50 @@ internal class SeasonPage(
         val gap = ui.dp(tokens.metrics.seasonCardGap)
         // 卡宽 88 是 B 方案的固定口径；7 张 + 两侧 40dp 长条正好放进内容区
         val cardWidth = ui.dp(tokens.metrics.seasonCardWidth)
-
-        // 重建前记住"哪一季正被聚焦"：切正序/倒序之后光标要跟着那一季，别落到页面顶上
-        val focusedId = seasonCards.entries.firstOrNull { it.value.isFocused }?.key
-        seasonRow.removeAllViews()
-        seasonCards.clear()
         // 季卡标题去掉系列名前缀（108dp 宽的卡写全名只会截断）
         val base = entry?.series?.title ?: anchor?.let { SeasonKeys.seasonBase(it.title) }.orEmpty()
         val currentSeasonId = entry?.series?.id
-        slice.forEachIndexed { position, season ->
-            val current = season.id == currentSeasonId
-            val card = ui.poster(cardWidth).apply {
-                // 这一页是详情类页面：封面**不落盘**，只按需取（落盘资格只给收藏/历史，见 S9 规格）
-                bind(
-                    DetailCards.season(
-                        season = season,
-                        base = base,
-                        current = current,
-                        progress = host.progress.progressOf(season.id),
-                        watched = host.progress.isWatched(season.id),
-                    ),
-                )
-                // 当前季只靠封面左上角的「当前」角标表达：mockup 不给季卡加描边，
-                // 白框全留给光标（一页只有一处白色填充/描边在争注意力）
-                onActivated = { openSeason(season) }
+        val ids = slice.map { it.id }
+        fun cardItem(season: Series) = DetailCards.season(
+            season = season,
+            base = base,
+            current = season.id == currentSeasonId,
+            progress = host.progress.progressOf(season.id),
+            watched = host.progress.isWatched(season.id),
+        )
+
+        // 后台季线刷新回来时 ids 与顺序通常没变：就地重绑角标，不重建行。
+        // 重建会把正在聚焦的季卡摘掉，框架会做一次被动落焦（通常是侧栏）。
+        if (seasonCards.keys.toList() == ids) {
+            slice.forEach { season ->
+                seasonCards[season.id]?.apply {
+                    bind(cardItem(season))
+                    onActivated = { openSeason(season) }
+                }
             }
-            seasonRow.addView(
-                card,
-                LinearLayout.LayoutParams(cardWidth, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                    if (position < slice.lastIndex) rightMargin = gap
-                },
-            )
-            seasonCards[season.id] = card
+        } else {
+            // 重建前记住"哪一季正被聚焦"：切正序/倒序之后光标要跟着那一季，别落到页面顶上
+            val focusedId = seasonCards.entries.firstOrNull { it.value.isFocused }?.key
+            seasonRow.removeAllViews()
+            seasonCards.clear()
+            slice.forEachIndexed { position, season ->
+                val card = ui.poster(cardWidth).apply {
+                    // 这一页是详情类页面：封面**不落盘**，只按需取（落盘资格只给收藏/历史）
+                    bind(cardItem(season))
+                    // 当前季只靠封面左上角的「当前」角标表达：mockup 不给季卡加描边，
+                    // 白框全留给光标（一页只有一处白色填充/描边在争注意力）
+                    onActivated = { openSeason(season) }
+                }
+                seasonRow.addView(
+                    card,
+                    LinearLayout.LayoutParams(cardWidth, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        if (position < slice.lastIndex) rightMargin = gap
+                    },
+                )
+                seasonCards[season.id] = card
+            }
+            if (focusedId != null) seasonCards[focusedId]?.requestFocus()
         }
-        if (focusedId != null) seasonCards[focusedId]?.requestFocus()
 
         // 组范围并进季数行：长条只留 ‹ › 两个符号，"当前是哪一段"由文字说
         seasonCountView.text = if (pages > 1) {
@@ -553,6 +563,7 @@ internal class SeasonPage(
             ladder = if (series != null) listOf(KEY_PLAY) else emptyList(),
             leftFlank = leftFlank,
             rightFlank = rightFlank,
+            visualExits = ACTION_EXITS,
         )
     }
 
@@ -582,5 +593,8 @@ internal class SeasonPage(
         val KEY_SORT = FocusKey("series:sort")
         val KEY_PREV = FocusKey("series:prev")
         val KEY_NEXT = FocusKey("series:next")
+
+        /** 动作列左边是封面与简介（不可聚焦）：按左回页头返回，别掉进侧栏。 */
+        val ACTION_EXITS = detailActionExits(KEY_BACK, KEY_PLAY, KEY_PICK, KEY_FAVORITE)
     }
 }

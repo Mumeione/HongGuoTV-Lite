@@ -431,6 +431,7 @@ internal class EpisodePage(
             ladder = if (loaded) listOf(KEY_PLAY) else emptyList(),
             leftFlank = strips.leftSection(),
             rightFlank = strips.rightSection(),
+            visualExits = ACTION_EXITS,
         )
     }
 
@@ -442,6 +443,9 @@ internal class EpisodePage(
         val KEY_FAVORITE = FocusKey("detail:favorite")
         val KEY_PREV = FocusKey("detail:prev")
         val KEY_NEXT = FocusKey("detail:next")
+
+        /** 动作列左边是封面与简介（不可聚焦）：按左回页头返回，别掉进侧栏。 */
+        val ACTION_EXITS = detailActionExits(KEY_BACK, KEY_PLAY, KEY_PICK, KEY_FAVORITE)
 
         fun episodeKey(vid: String): String = "ep:$vid"
     }

@@ -6,6 +6,7 @@ import com.hongguotv.core.port.MediaPort
 import com.hongguotv.core.port.Navigator
 import com.hongguotv.core.protocol.DeviceProfile
 import com.hongguotv.lite.data.artwork.ArtworkLoader
+import com.hongguotv.lite.data.content.AndroidDecoderCapabilities
 import com.hongguotv.lite.data.content.ContentRepository
 import com.hongguotv.lite.data.content.DeviceSession
 import com.hongguotv.lite.data.diagnostics.LogcatDiagnostics
@@ -70,6 +71,8 @@ internal class AppGraph(
     private val content: ContentPort = ContentRepository(
         http = transport,
         devices = devices,
+        // 选清晰度时先避开本机解不了的编码：只支持 AVC 的老盒子不能再被分到 HEVC 码流
+        decoders = AndroidDecoderCapabilities(),
         diagnostics = diagnostics,
     )
 

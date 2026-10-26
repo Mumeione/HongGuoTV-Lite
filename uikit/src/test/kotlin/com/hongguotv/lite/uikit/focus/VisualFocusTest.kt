@@ -126,4 +126,43 @@ class VisualFocusTest {
         val aboveFarRight = rect("above", 900, 20, 1000, 54)
         assertEquals("above", move(self, listOf(self, aboveFarRight), FocusDirection.UP))
     }
+
+    /**
+     * 详情页动作列左边是封面与简介（不可聚焦），几何上最近的是侧栏。
+     * 页面声明了出口：动作列按左 → 页头返回，不再「按左跑出这一页」。
+     */
+    @Test
+    fun `a declared exit wins over the rail on the left`() {
+        val play = rect("play", 780, 128, 1010, 168)
+        val nav = rect("nav:1", 8, 120, 64, 174)
+        val back = rect("back", 24, 24, 120, 58)
+        val all = listOf(play, nav, back)
+        val exits = FocusExits.left(FocusKey("back"), listOf(FocusKey("play")))
+
+        // 没有出口时，几何最近项就是侧栏（这就是"按左跑出这一页"）
+        assertEquals("nav:1", move(play, all, FocusDirection.LEFT))
+        assertEquals("back", VisualFocus.neighbor(play, all, FocusDirection.LEFT, exits)?.value)
+    }
+
+    @Test
+    fun `an exit whose target is not on screen falls back to geometry`() {
+        val play = rect("play", 780, 128, 1010, 168)
+        val nav = rect("nav:1", 8, 120, 64, 174)
+        val all = listOf(play, nav)
+        val exits = FocusExits.left(FocusKey("back"), listOf(FocusKey("play")))
+
+        assertEquals("nav:1", VisualFocus.neighbor(play, all, FocusDirection.LEFT, exits)?.value)
+    }
+
+    /** 出口只改动作列：侧栏仍可从页头或内容最左缘进入（A 口径）。 */
+    @Test
+    fun `the rail is still reachable from the page header and the content edge`() {
+        val back = rect("back", 24, 24, 120, 58)
+        val nav = rect("nav:1", 8, 120, 64, 174)
+        val firstCell = rect("ep:0", 100, 400, 145, 426)
+        val all = listOf(back, nav, firstCell)
+
+        assertEquals("页头按左进侧栏", "nav:1", move(back, all, FocusDirection.LEFT))
+        assertEquals("单页分集格（无长条）按左进侧栏", "nav:1", move(firstCell, all, FocusDirection.LEFT))
+    }
 }

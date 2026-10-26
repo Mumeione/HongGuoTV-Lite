@@ -153,6 +153,24 @@ class SearchModelTest {
         assertEquals(listOf("3", "1"), model.items.map { it.id })
     }
 
+    /**
+     * 完整剧名聚合的提交契约：第 1 页只吸收、不提交窗口；
+     * 季线到手后由页面 `present` 一次成屏，用户不会看到"十张网页结果被整批换掉"。
+     */
+    @Test
+    fun `a matched full title keeps the first page off screen until the season line arrives`() {
+        val model = SearchModel()
+        model.keyword = "测试书"
+        model.absorb(page(listOf(seasonSeries(3), series("9", "别的剧")), total = 2))
+        assertTrue(model.hasSearched)
+        assertTrue("命中锚点", model.anchor() != null)
+        assertTrue("网页结果不能先上屏", model.items.isEmpty())
+
+        model.setSeasonLine(listOf(seasonSeries(1), seasonSeries(3)))
+        model.present(1, ascending = false)
+        assertEquals(listOf("3", "1"), model.items.map { it.id })
+    }
+
     @Test
     fun `ascending puts oldest season first`() {
         val model = SearchModel()

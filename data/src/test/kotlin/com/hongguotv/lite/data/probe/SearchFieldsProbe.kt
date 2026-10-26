@@ -1,6 +1,7 @@
 package com.hongguotv.lite.data.probe
 
 import com.hongguotv.core.model.ContentFilter
+import com.hongguotv.core.port.DecoderCapabilities
 import com.hongguotv.core.port.DiagnosticsPort
 import com.hongguotv.core.protocol.DeviceIdentity
 import com.hongguotv.core.protocol.DeviceProfile
@@ -29,6 +30,7 @@ class SearchFieldsProbe {
                 devices = FixedDeviceIdentity(
                     DeviceSnapshot(DeviceIdentity("700000000000000001", "800000000000000002"), DeviceProfile.DEFAULT),
                 ),
+                decoders = DecoderCapabilities { true },
             )
             val keywords = System.getenv("KEYWORDS")?.split('|')
                 ?: listOf("十八岁的二次回响", "魏家逆子成首辅", "万妖图录传")

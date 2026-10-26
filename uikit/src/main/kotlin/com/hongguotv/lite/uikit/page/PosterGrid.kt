@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import com.hongguotv.core.port.ArtworkSpec
 import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.internal.dp
@@ -27,7 +28,8 @@ data class GridRendered(
  *
  * 复用是焦点稳定的前提：同一页数据刷新（收藏检查完成、进度更新）时，
  * 只要 id 序列与列数没变，就只更新文字与角标、**不动视图树**，光标不会因为"整片重建"丢掉。
- * 只有序列/列数变化（翻页、筛选、换分辨率）才重排，重排后由页面用焦点会话把光标要回来。
+ * 同一批 id 只是换了顺序（正/倒序、聚合季线换页）时保留行容器、就地重排卡片；
+ * 只有集合/列数/卡宽变化（翻页、筛选、换分辨率）才重建，重建后由页面用焦点会话把光标要回来。
  *
  * 卡宽决定封面解码尺寸，所以卡宽变了就整体重建——这是唯一必须重建的情形。
  */
@@ -132,21 +134,14 @@ class PosterGrid internal constructor(
         val rows = GridGeometry.rowsOf(limited.size, columns).size
         val limit = GridGeometry.cardHeightForRows(cardHeightLimit, rows, rowGap)
 
-        val reusable = ids == lastIds && columns == lastColumns && cardWidth == lastCardWidth && cards.isNotEmpty()
-        if (reusable) {
-            limited.forEach { item ->
-                cards[item.id]?.let { card ->
-                    card.heightLimit(limit)
-                    card.persistCover(persistCovers)
-                    card.bind(item)
-                }
-            }
-        } else {
-            rebuild(limited, columns, cardWidth, gap, rowGap, limit)
-            lastIds = ids
-            lastColumns = columns
-            lastCardWidth = cardWidth
+        when (GridUpdate.mode(lastIds, ids, lastColumns, columns, lastCardWidth, cardWidth, cards.isNotEmpty())) {
+            GridUpdate.Mode.UPDATE -> bindCards(limited, limit)
+            GridUpdate.Mode.REORDER -> reorder(limited, columns, cardWidth, gap, rowGap, limit)
+            GridUpdate.Mode.REBUILD -> rebuild(limited, columns, cardWidth, gap, rowGap, limit)
         }
+        lastIds = ids
+        lastColumns = columns
+        lastCardWidth = cardWidth
         applySpotlight()
 
         val views = LinkedHashMap<FocusKey, View>(limited.size)
@@ -206,11 +201,70 @@ class PosterGrid internal constructor(
         cards.forEach { (id, card) -> card.dimmed = id != focusedId }
     }
 
+    /** 序列与布局都没变：只重绑文字与角标，视图树完全不动。 */
+    private fun bindCards(limited: List<CardItem>, limit: Int) {
+        limited.forEach { item -> cards[item.id]?.let { applyCard(it, item, limit) } }
+    }
+
+    /** 卡片内容与尺寸的统一更新点：重绑 / 重排 / 重建三条刷新路径都走这里。 */
+    private fun applyCard(card: PosterCard, item: CardItem, limit: Int) {
+        card.heightLimit(limit)
+        card.persistCover(persistCovers)
+        card.bind(item)
+    }
+
+    /**
+     * 同一批卡片只换顺序：保留行容器，把卡片按新顺序重新挂回去。
+     *
+     * 不走 [rebuild]：它会先 `removeAllViews()`，焦点卡被摘掉的那一瞬间框架会做一次
+     * 被动落焦（通常是侧栏），滚动位置也可能被重新夹取。这里的重排不改变内容高度，
+     * 行容器与行距沿用原样，滚动位置自然保持。
+     */
+    private fun reorder(limited: List<CardItem>, columns: Int, cardWidth: Int, gap: Int, rowGap: Int, limit: Int) {
+        val focusedId = cards.entries.firstOrNull { it.value.isFocused }?.key
+        val rowCounts = GridGeometry.rowsOf(limited.size, columns)
+        val rows = (0 until childCount).mapNotNull { getChildAt(it) as? LinearLayout }
+        if (rows.size != rowCounts.size) {
+            rebuild(limited, columns, cardWidth, gap, rowGap, limit)
+            return
+        }
+        // 卡片先全部脱离旧行，再按新顺序放回去；同一帧内完成，不会出现空帧
+        cards.values.forEach { card -> (card.parent as? ViewGroup)?.removeView(card) }
+        rows.forEach { it.removeAllViews() }
+        var cursor = 0
+        rowCounts.forEachIndexed { rowIndex, count ->
+            val row = rows[rowIndex]
+            repeat(count) { indexInRow ->
+                val item = limited[cursor++]
+                val card = cards[item.id] ?: newCard(cardWidth, limit)
+                applyCard(card, item, limit)
+                row.addView(
+                    card,
+                    LayoutParams(cardWidth, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        if (indexInRow < count - 1) rightMargin = gap
+                    },
+                )
+                cards[item.id] = card
+            }
+            (row.layoutParams as? LayoutParams)?.bottomMargin = if (rowIndex < rowCounts.lastIndex) rowGap else 0
+        }
+        // 重排后回到原来那张卡上；找不到（例如被新数据替换）就交给页面阶梯
+        if (focusedId != null) cards[focusedId]?.requestFocus()
+    }
+
+    /**
+     * 重建整片网格。
+     *
+     * 顺序变化已被 [reorder] 接走，这里只在集合/列数/卡宽变化时发生。
+     * 保留下来的卡片会先记下父滚动容器的位置，重建完再恢复——避免滚动条在中途回到顶部。
+     */
     private fun rebuild(limited: List<CardItem>, columns: Int, cardWidth: Int, gap: Int, rowGap: Int, limit: Int) {
         // 重建会换掉一批 View 实例：先把"哪一张正被聚焦"记下来，建完立刻要回去。
         // 不这么做的话，框架会把焦点交给页面里第一个可聚焦项（顶栏），而那次变化会被
         // 焦点记忆记下来——「切完 tab / 搜索完成后光标跑到顶上」就是这么来的。
         val focusedId = cards.entries.firstOrNull { it.value.isFocused }?.key
+        val scroll = ancestorScroll()
+        val scrollY = scroll?.scrollY
         if (cardWidth != lastCardWidth) cards.clear()
         val keep = limited.mapTo(HashSet(limited.size)) { it.id }
         val iterator = cards.entries.iterator()
@@ -228,8 +282,7 @@ class PosterGrid internal constructor(
             repeat(count) { indexInRow ->
                 val item = limited[cursor++]
                 val card = cards.getOrPut(item.id) { newCard(cardWidth, limit) }
-                card.persistCover(persistCovers)
-                card.bind(item)
+                applyCard(card, item, limit)
                 row.addView(
                     card,
                     LayoutParams(cardWidth, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -246,7 +299,20 @@ class PosterGrid internal constructor(
             )
         }
         // 同一张卡还在就回到它；否则交给页面的焦点阶梯（它会在 render 结束后请求）
+        scroll?.let { view ->
+            if (scrollY != null && view.scrollY != scrollY) view.scrollTo(0, scrollY)
+        }
         if (focusedId != null) cards[focusedId]?.requestFocus()
+    }
+
+    /** 本网格所在的滚动容器（目录页在 ContentPane/scrollBody 里）：重建前后要对齐滚动位置。 */
+    private fun ancestorScroll(): ScrollView? {
+        var view: View? = parent as? View
+        while (view != null) {
+            if (view is ScrollView) return view
+            view = view.parent as? View
+        }
+        return null
     }
 
     private fun newCard(widthPx: Int, limit: Int): PosterCard = PosterCard(

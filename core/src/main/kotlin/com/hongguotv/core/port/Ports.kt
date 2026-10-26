@@ -86,6 +86,19 @@ interface SettingsPort {
     suspend fun update(transform: (Settings) -> Settings)
 }
 
+/** 上游 `codec_type` 归一化后的编码种类。未知编码不在这里：放行与否由实现层决定。 */
+enum class VideoCodec { AVC, HEVC }
+
+/**
+ * 设备的解码能力。取流选档先按它过滤，避免把本机解不了的码流（老盒子上的 HEVC）喂给播放器。
+ *
+ * 实现层不区分软硬解：平台 `MediaCodecList` 列出来就算能解——低配盒子的软解在 720P 以上
+ * 通常不可用，把它做成用户可见的开关只会制造更多支持问题。
+ */
+fun interface DecoderCapabilities {
+    fun supports(codec: VideoCodec): Boolean
+}
+
 /**
  * 媒体端口：把"地址 + 密钥"变成一个可读流。
  * 调用方拿到的是 [MediaStream]，不知道 Range、解密、MP4 索引的存在。

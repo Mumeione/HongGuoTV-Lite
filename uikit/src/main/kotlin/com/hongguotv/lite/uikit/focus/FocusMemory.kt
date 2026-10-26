@@ -25,6 +25,22 @@ class FocusMemory {
 }
 
 /**
+ * 焦点记忆的收录条件：**只有用户主动移动光标的那一步**才写进记忆。
+ *
+ * 旧焦点视图不可用（被移除、收起、禁用）时，框架会自己把焦点交给页面里第一个可聚焦项；
+ * 冷启动的自动落焦同理。这些被动落焦不是用户的选择，记下来会让之后按记忆恢复时
+ * 把光标钉在意外位置（列表重建后落到侧栏就是这么来的）。
+ */
+internal object FocusCapture {
+
+    fun active(
+        oldFocusShown: Boolean,
+        oldFocusAttached: Boolean,
+        oldFocusEnabled: Boolean,
+    ): Boolean = oldFocusShown && oldFocusAttached && oldFocusEnabled
+}
+
+/**
  * 长按节流阀。遥控器在长按方向键时会以 ~50ms 的间隔重复事件，
  * 比人手移动更快，横穿一行会一次跳过好几项。
  *

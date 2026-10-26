@@ -205,7 +205,7 @@ class ParsersTest {
             Triple(480, "h264", "https://a/3"),
             Triple(360, "bvc2", "https://a/4"),
         ))
-        assertEquals(listOf(480), rows.map { it.first })
+        assertEquals(listOf(480), rows.map { it.height })
     }
 
     @Test

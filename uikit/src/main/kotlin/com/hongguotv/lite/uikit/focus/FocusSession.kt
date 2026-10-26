@@ -54,7 +54,6 @@ class FocusSession(
     private var graph: FocusGraph? = null
     private var views: Map<FocusKey, View> = emptyMap()
     private var keyById: Map<Int, FocusKey> = emptyMap()
-    private var lastFocused: FocusKey? = null
 
     /** 视觉绑定的代际：同一帧里连续 bind 时只让最后一次生效（旧视图树已经拆了）。 */
     private var visualGeneration = 0
@@ -81,7 +80,23 @@ class FocusSession(
      * 提交焦点结构并绑定邻居关系。返回图本身，便于调用方查 key 是否存在。
      * @param views key → 视图；只有这里出现的 key 才能被真正聚焦。
      */
-    fun bind(plan: FocusPlan, views: Map<FocusKey, View>, visual: Boolean = false): FocusGraph {
+    fun bind(plan: FocusPlan, views: Map<FocusKey, View>, visual: Boolean = false): FocusGraph =
+        bind(plan, views, visual, FocusExits.NONE)
+
+    /**
+     * 同上，另带视觉绑定的显式出口。
+     *
+     * 单独成重载而不是继续加默认参数：跨模块调用点只认旧的 `bind$default` 描述符，
+     * 加默认参数会改变 JVM 签名，增量构建里没重编的模块会在运行时 `NoSuchMethodError`。
+     *
+     * @param visualExits 只在 [visual] 时生效（详情页动作列按左回页头返回）。
+     */
+    fun bind(
+        plan: FocusPlan,
+        views: Map<FocusKey, View>,
+        visual: Boolean,
+        visualExits: FocusExits,
+    ): FocusGraph {
         val built = FocusGraph.of(plan)
         FocusBinder.bind(built, views)
         graph = built
@@ -90,7 +105,7 @@ class FocusSession(
         // 重建/刷新时视图树没换焦点（光标本来就在原位），也就不会有焦点变化事件：
         // 页面的信息栏要在这里补说一次"现在停在哪"
         settle()
-        if (visual) scheduleVisualBind(views)
+        if (visual) scheduleVisualBind(views, visualExits)
         return built
     }
 
@@ -100,11 +115,11 @@ class FocusSession(
      * 不能同步做：`bind` 往往发生在视图刚 addView、还没 measure/layout 的时候，
      * 量到的矩形是 0；而且这一刻的宽度也不是最终宽度（比如 weight 还没分配）。
      */
-    private fun scheduleVisualBind(bound: Map<FocusKey, View>) {
+    private fun scheduleVisualBind(bound: Map<FocusKey, View>, exits: FocusExits) {
         val anchor = root ?: return
         val generation = ++visualGeneration
         anchor.post {
-            if (generation == visualGeneration) FocusBinder.bindVisual(anchor, bound)
+            if (generation == visualGeneration) FocusBinder.bindVisual(anchor, bound, exits)
         }
         // 首次建页时 post 可能跑在第一次 measure 之前：布局完成后再补一次。
         // 上一轮还没等到布局的监听器先摘掉，否则翻组时每次 bind 都会挂一个。
@@ -113,7 +128,7 @@ class FocusSession(
             override fun onGlobalLayout() {
                 anchor.viewTreeObserver.removeOnGlobalLayoutListener(this)
                 if (pendingLayout === this) pendingLayout = null
-                if (generation == visualGeneration) FocusBinder.bindVisual(anchor, bound)
+                if (generation == visualGeneration) FocusBinder.bindVisual(anchor, bound, exits)
             }
         }
         pendingLayout = listener
@@ -123,24 +138,26 @@ class FocusSession(
     /**
      * 视图树里任意焦点变化都记到本页（由页面的全局焦点监听调用）。
      *
-     * **被动落焦不记**：旧焦点视图已经不可见（被移除、或整块被 `GONE` 收起）时，
+     * **只有用户主动移动才记**：旧焦点视图已经不可用（被移除、收起、禁用、脱离窗口）时，
      * 框架会自己把焦点交给页面里第一个可聚焦项——通常是侧栏。那次变化不是用户选的，
      * 记下来就会变成「任何操作之后光标都停在侧栏」：数据刷新把卡片重建一遍、空态把列表收起来，
      * 记忆就指向侧栏了。
      *
-     * **冷启动的自动聚焦也不记**：窗口挂上时框架会把焦点给树的第一个可聚焦项（侧栏第一项），
-     * 那时 [oldFocus] 为 null，上面的判据拦不住——而这次"记忆"会**压过页面的落焦阶梯**
-     * （记忆在回退链里排在阶梯前面）。侧栏 key 本来就不该进记忆（页面保存光标时会过滤
-     * [NAV_KEY_PREFIX] 开头的项），这里在写入侧再多拦一道。
+     * 「被移除」不能只看 `isShown`：卡片先从行容器里摘掉的那一瞬间 `isShown` 还可能为 true，
+     * 所以同时看父容器与窗口令牌（[FocusCapture]）。
      *
-     * @param oldFocus 变化前的焦点视图。不可见（`isShown == false`）或已脱离窗口时不记。
+     * 被动落焦仍然会走落定回调：信息栏要跟着屏幕上的最终光标走，只是不写进记忆。
+     *
+     * @param oldFocus 变化前的焦点视图。
      */
     fun onFocusChanged(oldFocus: View?, newFocus: View?) {
         val key = newFocus?.let { keyById[it.id] } ?: return
-        if (oldFocus != null && (!oldFocus.isShown || oldFocus.windowToken == null)) return
-        if (oldFocus == null && key.value.startsWith(NAV_KEY_PREFIX)) return
-        lastFocused = key
-        memory.remember(page, key)
+        val userMove = FocusCapture.active(
+            oldFocusShown = oldFocus?.isShown == true,
+            oldFocusAttached = oldFocus?.parent != null && oldFocus.windowToken != null,
+            oldFocusEnabled = oldFocus?.isEnabled == true,
+        )
+        if (userMove) memory.remember(page, key)
         scheduleSettled(key)
     }
 

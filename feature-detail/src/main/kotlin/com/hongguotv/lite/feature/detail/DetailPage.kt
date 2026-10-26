@@ -1,6 +1,7 @@
 package com.hongguotv.lite.feature.detail
 
 import android.view.View
+import com.hongguotv.lite.uikit.focus.FocusExits
 import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.focus.FocusSection
 import com.hongguotv.lite.uikit.focus.FocusSections
@@ -13,6 +14,14 @@ import com.hongguotv.lite.uikit.ui.RailSlot
 import com.hongguotv.lite.uikit.ui.UiKit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+
+/**
+ * 详情两页共用的动作列出口：按左固定回页头返回。
+ *
+ * 动作列左边是封面与简介（不可聚焦），按矩形的最近项是侧栏——不声明出口就会"按左跑出这一页"。
+ */
+internal fun detailActionExits(back: FocusKey, play: FocusKey, pick: FocusKey, favorite: FocusKey): FocusExits =
+    FocusExits.left(back, listOf(play, pick, favorite))
 
 /**
  * 一页的公共骨架：稳定树、左侧栏、页头、焦点会话、页面作用域。
@@ -66,6 +75,9 @@ internal abstract class DetailPage(
      *
      * [ladder] 是页面的落焦阶梯（例如"主操作"）：加载中的二次刷新没有显式目标、也没有记忆，
      * 没有阶梯就会回退到焦点图首项——那是侧栏「搜索」，光标被扔到屏幕左缘（维护者实测过顶栏版）。
+     *
+     * [visualExits] 是视觉方向键的显式出口（动作列按左回页头返回）：视觉绑定的几何落点
+     * 不适合"左边只有不可聚焦的封面"这种布局，由页面指名。
      */
     protected fun submitPlan(
         sections: List<FocusSection?>,
@@ -74,6 +86,7 @@ internal abstract class DetailPage(
         ladder: List<FocusKey> = emptyList(),
         leftFlank: FocusSection? = null,
         rightFlank: FocusSection? = null,
+        visualExits: FocusExits = FocusExits.NONE,
     ) {
         val side = FocusSections.section(rail.keys(), columns = 1)
         val plan = FocusSections.plan(
@@ -89,7 +102,7 @@ internal abstract class DetailPage(
         val allViews = LinkedHashMap(views)
         rail.navItems.forEachIndexed { index, item -> allViews[navKey(index)] = item }
         // 详情两页按视觉位置走方向键：返回在左上、继续播放才在它右边（2026-10-24 口径）
-        focus.bind(plan, allViews, visual = true)
+        focus.bind(plan, allViews, visual = true, visualExits = visualExits)
         // 没有跨页记忆时把阶梯第一项升格成显式目标（回退链里显式 > 记忆）：
         // 冷启动框架的自动聚焦（侧栏第一项）不能压过"进这页该落在哪"
         requestFocus(preferred ?: host.lastFocus[pageKey] ?: ladder.firstOrNull(), ladder)

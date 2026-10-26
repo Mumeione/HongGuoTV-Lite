@@ -27,19 +27,51 @@ data class FocusRect(
 
 enum class FocusDirection { LEFT, RIGHT, UP, DOWN }
 
+/**
+ * 视觉方向绑定的**显式出口**：声明"这些 key 按左固定落到哪"。
+ *
+ * 详情页动作列左边是封面与简介（不可聚焦），按矩形算出来的最近项却是侧栏——
+ * 用户按左会觉得「怎么跑出这一页了」。页面因此声明：动作列按左回页头返回。
+ *
+ * 出口只在目标确实在屏上时生效；目标不在（返回键被收起、加载失败）仍按几何算，
+ * 不会把光标扔到不存在的视图上。
+ */
+class FocusExits private constructor(private val leftTargets: Map<FocusKey, FocusKey>) {
+
+    /** 按左的固定落点；没声明返回 null（按几何算）。 */
+    fun left(key: FocusKey): FocusKey? = leftTargets[key]
+
+    companion object {
+        val NONE = FocusExits(emptyMap())
+
+        /** [keys] 按左一律回 [target]（详情两页动作列 → 页头返回）。 */
+        fun left(target: FocusKey, keys: List<FocusKey>): FocusExits =
+            FocusExits(keys.associateWith { target })
+    }
+}
+
 object VisualFocus {
 
     /**
      * 在该方向上离 [self] 最近的候选；没有就返回 null（调用方夹住自己）。
      *
-     * 两段式：先只在 **45° 视线锥**内挑（左右方向 `|dy| ≤ |dx|`，上下方向 `|dx| ≤ |dy|`），
+     * 页面声明了 [exits] 时先看显式出口：命中且目标在屏上就直接回去。
+     * 其余仍按几何：先只在 **45° 视线锥**内挑（左右方向 `|dy| ≤ |dx|`，上下方向 `|dx| ≤ |dy|`），
      * 锥内有候选就取最近的；锥内没有才退回全方向最近。
      *
      * 为什么要锥：详情页的「‹ 返回」在左上角，斜下方紧挨着第一行集数格——只按距离算，
      * 按右会落到"第二集"；视觉上右边那一列是「继续播放」。锥把"正右方"排在"斜下方"前，
      * 同时保留退化路径（第一行集数格按上，正上方什么都没有，仍要能回到页头）。
      */
-    fun neighbor(self: FocusRect, candidates: List<FocusRect>, direction: FocusDirection): FocusKey? {
+    fun neighbor(
+        self: FocusRect,
+        candidates: List<FocusRect>,
+        direction: FocusDirection,
+        exits: FocusExits = FocusExits.NONE,
+    ): FocusKey? {
+        if (direction == FocusDirection.LEFT) {
+            exits.left(self.key)?.takeIf { target -> candidates.any { it.key == target } }?.let { return it }
+        }
         val scored = candidates.asSequence()
             .filter { it.key != self.key }
             .mapNotNull { other ->

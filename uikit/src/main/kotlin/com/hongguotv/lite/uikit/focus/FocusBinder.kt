@@ -33,10 +33,13 @@ object FocusBinder {
      * 这里只改写物理按键的落点。调用时机必须在布局完成之后（`View.post`），
      * 否则量到的全是 0 尺寸。
      *
+     * [exits] 是页面声明的显式出口（例如详情页动作列按左回页头返回）。出口的目标必须在
+     * 屏上，否则仍按几何算——不把光标指向一个被收起/移除的视图。
+     *
      * 不在 [views] 里、被 `GONE` 收起或已禁用的项不参与：它们本来就不该抢焦点。
      * 某个方向没有候选时显式指向自己——把落点交回系统去猜，就会出现"按一下跳到屏幕另一头"。
      */
-    fun bindVisual(root: View, views: Map<FocusKey, View>) {
+    fun bindVisual(root: View, views: Map<FocusKey, View>, exits: FocusExits = FocusExits.NONE) {
         val origin = IntArray(2)
         root.getLocationInWindow(origin)
         val placed = ArrayList<Placed>(views.size)
@@ -51,7 +54,8 @@ object FocusBinder {
         val rects = placed.map { it.rect }
         placed.forEach { (self, view) ->
             fun idOf(direction: FocusDirection): Int =
-                VisualFocus.neighbor(self, rects, direction)?.let { key -> placed.first { it.rect.key == key }.view.id }
+                VisualFocus.neighbor(self, rects, direction, exits)
+                    ?.let { key -> placed.first { it.rect.key == key }.view.id }
                     ?: view.id
             view.nextFocusLeftId = idOf(FocusDirection.LEFT)
             view.nextFocusRightId = idOf(FocusDirection.RIGHT)

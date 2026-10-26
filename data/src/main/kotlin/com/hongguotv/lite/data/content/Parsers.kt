@@ -6,6 +6,7 @@ import com.hongguotv.core.model.Series
 import com.hongguotv.core.model.SeriesIds
 import com.hongguotv.core.model.Suggestion
 import com.hongguotv.core.port.UpstreamError
+import com.hongguotv.core.port.VideoCodec
 import com.hongguotv.core.protocol.CoverUrls
 import com.hongguotv.core.protocol.Fields
 import org.json.JSONArray
@@ -252,11 +253,18 @@ internal object Parsers {
         ?: mapOf("1920" to 1080, "1280" to 720, "1024" to 576, "854" to 480, "640" to 360)[value]
         ?: value.toIntOrNull() ?: 0
 
+    /** `codec_type` → 编码种类；未知返回 null——上游新增编码时默认放行，不能静默误杀。 */
+    fun videoCodec(codecType: String): VideoCodec? = when (codecType.lowercase()) {
+        "h264" -> VideoCodec.AVC
+        "bytevc1" -> VideoCodec.HEVC
+        else -> null
+    }
+
     /**
      * 清晰度候选：过滤空地址与不兼容编码（ByteVC2 在 Android 的 MP4 提取器里可能只有音轨没有视频轨），
-     * 按质量降序。返回 (质量, key, 条目)。
+     * 按质量降序。
      */
-    fun qualityRows(videoList: JSONObject): List<Triple<Int, String, JSONObject>> =
+    fun qualityRows(videoList: JSONObject): List<QualityRow> =
         videoList.keys().asSequence()
             .mapNotNull { key -> videoList.optJSONObject(key)?.let { key to it } }
             .filter { (_, o) ->
@@ -264,8 +272,8 @@ internal object Parsers {
                     o.str(Fields.Stream.CODEC_TYPE).lowercase() !in Fields.Stream.INCOMPATIBLE_CODECS
             }
             .map { (key, o) ->
-                Triple(
-                    qualityNumber(
+                QualityRow(
+                    height = qualityNumber(
                         o.str(Fields.Stream.QUALITY_DESC).ifEmpty {
                             o.str(Fields.Stream.HEIGHT).ifEmpty {
                                 o.str(Fields.Stream.VHEIGHT).ifEmpty {
@@ -274,13 +282,23 @@ internal object Parsers {
                             }
                         },
                     ),
-                    key,
-                    o,
+                    codecType = o.str(Fields.Stream.CODEC_TYPE),
+                    json = o,
                 )
             }
-            .sortedByDescending { it.first }
+            .sortedByDescending { it.height }
             .toList()
 }
+
+/**
+ * 一档清晰度。`codecType` 保留原样：编码种类由 [Parsers.videoCodec] 派生，
+ * 不认识的值（包括缺失）由选档方放行并留诊断。
+ */
+internal data class QualityRow(
+    val height: Int,
+    val codecType: String,
+    val json: JSONObject,
+)
 
 /** 徽标文案是协议的一部分（"未上线"决定 released 派生），集中在这一处。 */
 internal object SeriesBadge {

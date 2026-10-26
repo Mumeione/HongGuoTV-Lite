@@ -269,23 +269,24 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
                     val result = host.content.search(clean, filter, 1)
                     if (model.keyword != clean) return@launch
                     model.absorb(result)
-                    presentAndRender(1)
-                    // 完整剧名 → 追加拉完整季线（含未上线新季）。失败静默：网页结果已经在屏上。
+                    // 完整剧名：先补季线，季线到手（或确认没有）再**一次性提交窗口**。
+                    // 先提交网页结果再替换成季线，用户会看到"卡一下、少了很多选项"；
+                    // 命中锚点说明这条搜索的目的就是只看这部剧，中间那十张不必上屏。
                     // 只捕 UpstreamError 不用 runCatching：取消必须原样传播。
                     // 单季剧（<2 季）没有"线"可言，保持网页结果。
                     val anchor = model.anchor()
                     if (anchor != null) {
+                        render()
                         val line = try {
                             host.content.seasons(anchor.id, anchor)
                         } catch (error: UpstreamError) {
                             null
                         }
-                        if (line != null && line.seasons.size >= 2 && model.keyword == clean) {
-                            model.setSeasonLine(line.seasons)
-                            model.present(model.page, settings().seasonSortAsc)
-                            render()
-                        }
+                        if (model.keyword != clean) return@launch
+                        if (line != null && line.seasons.size >= 2) model.setSeasonLine(line.seasons)
                     }
+                    model.loading = false
+                    presentAndRender(1)
                 } else {
                     // 翻页：窗口缺数据才补拉（按服务端顺序，去重要求前面的页在场）
                     while (!model.hasWindow(page)) {
@@ -305,8 +306,9 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
                     toast(TvText.error(error))
                 }
             } finally {
-                // 取消时不要回写视图：页面可能已经被切换掉
-                if (isActive) {
+                // 取消时不要回写视图：页面可能已经被切换掉。
+                // 成功路径已在提交前清掉 loading，这里不再多画一帧。
+                if (isActive && model.loading) {
                     model.loading = false
                     render()
                 }
@@ -479,6 +481,14 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
 
     // ---------- 渲染 ----------
 
+    /**
+     * 命中完整剧名、季线还没到手：窗口还空着，先挂稳定占位。
+     *
+     * 这期间不画网页口径的翻页行（季线到手后页数通常会变），否则用户会看到第二次变化。
+     */
+    private fun awaitingSeasonLine(): Boolean =
+        model.loading && model.items.isEmpty() && model.page == 1 && model.anchor() != null
+
     private fun render() {
         val current = settings()
         syncFilterChips(current.filter)
@@ -490,7 +500,12 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         val emptyPage = model.hasSearched && model.page > 1 && model.items.isEmpty()
         val stateText = when {
             // 加载中但手里还有结果（翻页补拉）：旧窗口继续在屏上，不闪"正在搜索…"
-            model.loading -> if (model.items.isEmpty()) "正在搜索…" else null
+            model.loading -> when {
+                model.items.isNotEmpty() -> null
+                // 命中完整剧名后补拉季线：给一句稳定的等待文案，季线到手一次成屏
+                awaitingSeasonLine() -> "正在整理季线…"
+                else -> "正在搜索…"
+            }
             error != null -> TvText.error(error)
             showContinue || showResult -> null
             emptyPage && current.filter != ContentFilter.ALL ->
@@ -504,8 +519,10 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         continueHeader.visibility = if (showContinue) View.VISIBLE else View.GONE
         continueGrid.visibility = if (showContinue) View.VISIBLE else View.GONE
         resultGrid.visibility = if (showResult) View.VISIBLE else View.GONE
-        // 翻页行只要"搜过且多页"就在（页脚）：结果为空的那一页也要留着它，否则用户翻不回去
-        val showPager = error == null && model.hasSearched && (model.pageCount > 1 || model.page > 1)
+        // 翻页行只要"搜过且多页"就在（页脚）：结果为空的那一页也要留着它，否则用户翻不回去。
+        // 等季线的那一帧除外：那时页数是网页口径，季线到手会变，先不画。
+        val showPager = error == null && model.hasSearched && !awaitingSeasonLine() &&
+            (model.pageCount > 1 || model.page > 1)
         if (showPager) {
             pager.show(
                 CatalogText.searchRange(model.page, model.pageCount, model.estimatedTotal),

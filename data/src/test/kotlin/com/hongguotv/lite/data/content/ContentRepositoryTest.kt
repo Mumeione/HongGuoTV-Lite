@@ -2,7 +2,11 @@ package com.hongguotv.lite.data.content
 
 import com.hongguotv.core.model.ContentFilter
 import com.hongguotv.core.model.Series
+import com.hongguotv.core.port.DecoderCapabilities
+import com.hongguotv.core.port.DiagnosticsPort
+import com.hongguotv.core.port.SilentDiagnostics
 import com.hongguotv.core.port.UpstreamError
+import com.hongguotv.core.port.VideoCodec
 import com.hongguotv.core.protocol.DeviceIdentity
 import com.hongguotv.core.protocol.DeviceProfile
 import com.hongguotv.core.protocol.Endpoints
@@ -41,11 +45,17 @@ class ContentRepositoryTest {
 
     private val identity = DeviceIdentity("7123456789012345678", "8123456789012345678")
 
-    private fun repository(respond: (SignedRequest) -> String): ContentRepository {
+    private fun repository(
+        decoders: DecoderCapabilities = DecoderCapabilities { true },
+        diagnostics: DiagnosticsPort = SilentDiagnostics,
+        respond: (SignedRequest) -> String,
+    ): ContentRepository {
         val transport = FakeTransport(respond)
         return ContentRepository(
             http = transport,
             devices = FixedDeviceIdentity(DeviceSnapshot(identity, DeviceProfile.DEFAULT)),
+            decoders = decoders,
+            diagnostics = diagnostics,
         ).also { repo -> this.transport = transport }
     }
 
@@ -523,6 +533,55 @@ class ContentRepositoryTest {
     }
 
     @Test
+    fun streamSkipsCodecsTheDeviceCannotDecode() = runTest {
+        val repo = repository(decoders = DecoderCapabilities { it == VideoCodec.AVC }) { request ->
+            when {
+                request.url.contains("/novel/player/video_model/") -> videoModelResponse()
+                request.url.startsWith("https://example.com/") -> streamInfo(JSONObject()
+                    .put("v0", JSONObject().put("vheight", 1080).put("codec_type", "bytevc1").put("main_url", "https://example.com/hevc"))
+                    .put("v1", JSONObject().put("vheight", 480).put("codec_type", "h264").put("main_url", "https://example.com/avc")))
+                else -> throw IOException("未预期的请求：${request.url}")
+            }
+        }
+        val info = repo.stream("123", 1080)
+        assertEquals("只支持 AVC 的设备要落到 AVC 档", "https://example.com/avc", info.url)
+        assertEquals(480, info.height)
+        assertFalse(info.fellBack)
+    }
+
+    @Test
+    fun streamPrefersAvcAtTheSameHeight() = runTest {
+        val repo = repository { request ->
+            when {
+                request.url.contains("/novel/player/video_model/") -> videoModelResponse()
+                request.url.startsWith("https://example.com/") -> streamInfo(JSONObject()
+                    .put("v0", JSONObject().put("vheight", 720).put("codec_type", "bytevc1").put("main_url", "https://example.com/hevc"))
+                    .put("v1", JSONObject().put("vheight", 720).put("codec_type", "h264").put("main_url", "https://example.com/avc")))
+                else -> throw IOException("未预期的请求：${request.url}")
+            }
+        }
+        val info = repo.stream("123", 1080)
+        assertEquals("同高度要优先 AVC", "https://example.com/avc", info.url)
+    }
+
+    /** 已知能解的档优先于未知编码：只支持 AVC 的设备上，1080 的未知编码不能盖掉 720 AVC。 */
+    @Test
+    fun streamPrefersKnownCodecOverUnknown() = runTest {
+        val repo = repository(decoders = DecoderCapabilities { it == VideoCodec.AVC }) { request ->
+            when {
+                request.url.contains("/novel/player/video_model/") -> videoModelResponse()
+                request.url.startsWith("https://example.com/") -> streamInfo(JSONObject()
+                    .put("v0", JSONObject().put("vheight", 1080).put("codec_type", "av1").put("main_url", "https://example.com/unknown"))
+                    .put("v1", JSONObject().put("vheight", 720).put("codec_type", "h264").put("main_url", "https://example.com/avc")))
+                else -> throw IOException("未预期的请求：${request.url}")
+            }
+        }
+        val info = repo.stream("123", 1080)
+        assertEquals("已知能解的档要优先于未知编码", "https://example.com/avc", info.url)
+        assertEquals(720, info.height)
+    }
+
+    @Test
     fun entirelyIncompatibleSourceFailsWithShape() = runTest {
         val repo = repository { request ->
             when {
@@ -593,7 +652,7 @@ class ContentRepositoryTest {
                 return current
             }
         }
-        val repo = ContentRepository(transport, devices)
+        val repo = ContentRepository(transport, devices, DecoderCapabilities { true })
         val detail = repo.detail("7")
 
         assertEquals("重试后要正常返回", 3, detail.episodes.size)
@@ -616,7 +675,11 @@ class ContentRepositoryTest {
                 return null
             }
         }
-        val repo = ContentRepository(FakeTransport { """{"code":0,"data":{}}""" }, devices)
+        val repo = ContentRepository(
+            FakeTransport { """{"code":0,"data":{}}""" },
+            devices,
+            DecoderCapabilities { true },
+        )
         assertFailsWith<UpstreamError.Shape> { repo.detail("7") }
         assertEquals("结构错误不是风控，不要换设备", 0, renewals)
     }
