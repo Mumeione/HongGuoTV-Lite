@@ -37,7 +37,7 @@ app               壳：Activity、导航、依赖组装
 
 ## 端口
 
-六个业务端口 + 三个支撑端口。业务端口回答「要做什么」，支撑端口回答「怎么做才不散」：
+六个业务端口 + 四个支撑端口。业务端口回答「要做什么」，支撑端口回答「怎么做才不散」：
 
 | 端口 | 接口 | 背后藏着 |
 | --- | --- | --- |
@@ -47,15 +47,17 @@ app               壳：Activity、导航、依赖组装
 | `SettingsPort` | 读 / 原子更新 | 七项偏好的读写路径 |
 | `MediaPort` | `open(vid, maxHeight) → MediaStream` | Range 分段、CENC 索引、逐样本解密 |
 | `Navigator` | `toCatalog / toDetail / toSeries / toPlayer / back` | 页面栈与返回语义 |
-| `ArtworkPort` | `load / prefetch / cancelPage / trim` | 优先级队列、LRU、磁盘缓存、低内存分档 |
+| `ArtworkPort` | `load / prefetch / cancelPage / trim` | 优先级队列、LRU、磁盘缓存（200 文件 / 30MB / 落盘压缩 512px JPEG）、低内存分档 |
 | `DiagnosticsPort` | `stage / event` | 五段探针与日志节点 |
 | `DecoderCapabilities` | `supports(codec)` | 平台 `MediaCodecList` 查询；取流选档先按它过滤，避开本机解不了的编码 |
+| `UpdatePort` | `check / download / autoCheck` | CNB+GitHub 双源清单、版本比较、下载状态机（安装 Intent 在 `app` 层） |
 
 `ContentPort` 只有五个方法，这是刻意的：把「上游长什么样」全部挡在背后，
 调用方只谈业务（搜索、详情、季线、取流）。协议细节见 [PROTOCOL.md](PROTOCOL.md)。
 
-`ArtworkPort`、`DiagnosticsPort` 与 `DecoderCapabilities` 是三个支撑端口：它们不属于业务能力，
-但同样需要接缝，否则封面策略、日志字段与解码能力查询会重新散回每个页面。
+`ArtworkPort`、`DiagnosticsPort`、`DecoderCapabilities` 与 `UpdatePort` 是四个支撑端口：
+它们不属于业务能力，但同样需要接缝，否则封面策略、日志字段、解码能力查询与更新流程
+会重新散回每个页面。
 
 ## 状态归属
 
@@ -104,8 +106,10 @@ LocalError:    Storage / Corrupt(partition)
 ## 本地数据的不变量
 
 - **prefs 文件名 `native-library-v1` 不许改。** 升级安装读旧数据的唯一桥梁，
-  改了等于让老用户的收藏与进度归零。
+  改了等于让老用户的收藏与进度归零。更新检查的节流时间戳单独放 `update-check-v1`（非用户数据）。
 - **三个端口读的是同一份事实**（进度 / 收藏 / 设置分区），不许为了「干净」另开一份存储。
+- **容量上限**（V1.0.0 容量治理）：历史 30 行、收藏 100 行（写入端按 `addedAt` 最旧淘汰）、
+  季线缓存 20 条、封面磁盘 200 文件 / 30MB（落盘重编码为长边 512px JPEG）。
 - 旧版遗留分区 `later` / `hidden` / `favorites` / `searches` **故意不读、不写、不删**；
   唯一例外是旧 `favorites`：迁移时只读一次（`PrefsLibrary` 的旧版迁移），之后同样不动。
   将来哪个端口要接管，先去旧仓库 `LibraryIndex` 查键名结构，并写迁移。

@@ -323,6 +323,20 @@ class PrefsLibraryTest {
         assertFalse(lib.isFavorite("凡人测试书"))
     }
 
+    /** 容量治理（V1.0.0）：收藏写入端上限 100，超限淘汰 addedAt 最旧（全等时按插入序）。 */
+    @Test
+    fun favoritesAreCappedAtOneHundredOnWrite() = runTest {
+        val lib = PrefsLibrary(store(), clock = { 1_000L })
+        (1..101).forEach { index ->
+            assertTrue(lib.toggle(Series(index.toString(), "测试剧${index.toString().padStart(3, '0')}")))
+        }
+        assertEquals(100, lib.all().size)
+        // 第一条被挤掉，第二条与最新一条都在
+        assertFalse(lib.isFavorite("测试剧001"))
+        assertTrue(lib.isFavorite("测试剧002"))
+        assertTrue(lib.isFavorite("测试剧101"))
+    }
+
     /** 篇名季（分宗篇）的标题算不出系列基名：季线缓存在手时按线里的 id 归到基名。 */
     private fun namedSeasonLine(): SeasonLine = SeasonLine(
         listOf(

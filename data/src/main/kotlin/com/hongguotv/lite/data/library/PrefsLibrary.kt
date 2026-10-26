@@ -254,6 +254,7 @@ class PrefsLibrary(
                 false
             } else {
                 favoriteRows[key] = series.copy(title = key) to clock()
+                evictOldestFavoriteLocked()
                 // 季线跟着换到规范键：否则系列页按主键读不到线，会重新请求一次
                 if (cached != null) {
                     rekeyLine(cached, key)
@@ -282,6 +283,17 @@ class PrefsLibrary(
         if (line.key == key) return
         seasonLines.remove(line.key)
         if (!seasonLines.containsKey(key)) seasonLines[key] = line.seasons
+    }
+
+    /**
+     * 收藏条数上限（写入端执行，V1.0.0 容量治理）：超限淘汰 `addedAt` 最旧的一条。
+     * 解码端已有 `take(FAVORITES_LIMIT)`，这里补的是**会话内连续收藏**的那条路。
+     */
+    private fun evictOldestFavoriteLocked() {
+        while (favoriteRows.size > FAVORITES_LIMIT) {
+            val oldest = favoriteRows.entries.minByOrNull { it.value.second } ?: break
+            favoriteRows.remove(oldest.key)
+        }
     }
 
     /**
@@ -459,7 +471,7 @@ class PrefsLibrary(
             val base = SeasonKeys.seasonKey(series.title)
             if (base.isNotBlank()) all[base] = series.copy(title = base) to clock()
         }
-        synchronized(lock) { favoriteRows = all }
+        synchronized(lock) { favoriteRows = LinkedHashMap(all.toList().take(FAVORITES_LIMIT).toMap()) }
         persist(KEY_FAVORITE_SERIES)
         // 旧版口径：迁移完立即同步检查结果——旧的无主 update 行不该活过这次迁移
         pruneUpdates()
@@ -685,7 +697,9 @@ class PrefsLibrary(
         const val SETTING_SEASON_SORT_ASC = "seasonSortAsc"
 
         const val HISTORY_LIMIT = 30
-        const val FAVORITES_LIMIT = 500
+
+        /** 收藏上限（2026-10-26 容量治理：500 → 100）。老电视上 JSON 解析与封面磁盘都按它封顶。 */
+        const val FAVORITES_LIMIT = 100
         const val SEASON_LINE_LIMIT = 20
     }
 }

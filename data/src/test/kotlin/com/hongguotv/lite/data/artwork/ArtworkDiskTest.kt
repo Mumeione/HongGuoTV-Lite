@@ -67,4 +67,51 @@ class ArtworkDiskTest {
         // 最新写的那张必须还在
         assertTrue(disk.has(urls.last()))
     }
+
+    // ---------- 容量治理（V1.0.0）：重编码 + 总字节上限 ----------
+
+    private val bigRaw = ByteArray(100) { it.toByte() }
+
+    @Test
+    fun `reencode 结果更小时存编码结果`() {
+        val encoded = ByteArray(20) { 0x11 }
+        val disk = ArtworkDisk(temp.newFolder("artwork"), reencode = { encoded })
+        disk.put(url, bigRaw)
+        assertArrayEquals(encoded, disk.get(url))
+    }
+
+    @Test
+    fun `reencode 返回 null 或不比原图小时存原图`() {
+        val rawKept = ArtworkDisk(temp.newFolder("artwork-raw1"), reencode = { null })
+        rawKept.put(url, bigRaw)
+        assertArrayEquals(bigRaw, rawKept.get(url))
+
+        val bigger = ByteArray(200) { 0x22 }
+        val rawAgain = ArtworkDisk(temp.newFolder("artwork-raw2"), reencode = { bigger })
+        rawAgain.put(url, bigRaw)
+        assertArrayEquals(bigRaw, rawAgain.get(url))
+    }
+
+    @Test
+    fun `reencode 抛异常时按原图落盘且不炸`() {
+        val disk = ArtworkDisk(temp.newFolder("artwork"), reencode = { error("decode boom") })
+        disk.put(url, bigRaw)
+        assertArrayEquals(bigRaw, disk.get(url))
+    }
+
+    @Test
+    fun `总字节超限时删到上限以内且保留最新`() {
+        val disk = ArtworkDisk(temp.newFolder("artwork"), maxTotalBytes = 100)
+        val urls = (1..5).map { index -> "$url&index=$index" }
+        urls.forEachIndexed { index, value ->
+            disk.put(value, ByteArray(50) { index.toByte() })
+            Thread.sleep(5)
+        }
+        // 5×50=250B > 100B：按 mtime 删最旧，直到总量 ≤ 90B（留 10% 余量）→ 只剩 1 张
+        val remaining = temp.root.listFiles()!!.flatMap { dir -> dir.listFiles()!!.toList() }
+        assertTrue("总量上限没生效：剩 ${remaining.size} 个文件", remaining.size <= 2)
+        assertTrue(disk.has(urls.last()))
+        val total = remaining.sumOf { it.length() }
+        assertTrue("总量没降下来：$total", total <= 100)
+    }
 }

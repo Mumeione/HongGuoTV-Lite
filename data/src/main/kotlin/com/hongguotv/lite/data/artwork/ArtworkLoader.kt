@@ -5,6 +5,8 @@ import android.content.ComponentCallbacks2
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
 import android.os.Handler
 import android.os.Looper
 import android.util.LruCache
@@ -102,7 +104,7 @@ class ArtworkLoader(
         override fun sizeOf(key: Key, value: Bitmap): Int = value.allocationByteCount
     }
 
-    private val disk = ArtworkDisk(File(app.cacheDir, DISK_DIR))
+    private val disk = ArtworkDisk(File(app.cacheDir, DISK_DIR), reencode = ::reencodeForDisk)
 
     private val signal = Object()
     /** 数值小的先做（聚焦项最先）；同优先级按入队先后。顺序由 [Job.compareTo] 定义。 */
@@ -489,8 +491,62 @@ class ArtworkLoader(
 
     private fun onMain(): Boolean = Looper.myLooper() == Looper.getMainLooper()
 
+    /**
+     * 落盘前的重编码（V1.0.0 容量治理）：原图最大可到 4MB，收藏/历史的封面在磁盘上
+     * 没必要保真到那个程度。降到长边 [DISK_LONG_EDGE]px 的 JPEG（质量 [DISK_JPEG_QUALITY]），
+     * 单张从 MB 级变几十 KB。
+     *
+     * 返回 null = 存原图：解码失败（给 [ArtworkDisk] 兜底），或编完不比原图小
+     * （小图再编码只会变大）。线程：磁盘工作线程，不在主线程。
+     */
+    private fun reencodeForDisk(bytes: ByteArray): ByteArray? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        val width = bounds.outWidth
+        val height = bounds.outHeight
+        if (width <= 0 || height <= 0) return null
+        val longEdge = maxOf(width, height)
+        var sample = 1
+        while (longEdge / (sample * 2) >= DISK_LONG_EDGE) sample *= 2
+        val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+            ?: return null
+        val scaled = if (maxOf(decoded.width, decoded.height) > DISK_LONG_EDGE) {
+            val scale = DISK_LONG_EDGE.toFloat() / maxOf(decoded.width, decoded.height)
+            runCatching {
+                Bitmap.createScaledBitmap(
+                    decoded,
+                    (decoded.width * scale).toInt().coerceAtLeast(1),
+                    (decoded.height * scale).toInt().coerceAtLeast(1),
+                    true,
+                )
+            }.getOrElse { decoded }
+        } else {
+            decoded
+        }
+        // JPEG 没有透明通道：垫白底再压，别让带 alpha 的图黑掉
+        val flat = if (scaled.config == Bitmap.Config.ARGB_8888 && scaled.hasAlpha()) {
+            val opaque = Bitmap.createBitmap(scaled.width, scaled.height, Bitmap.Config.ARGB_8888)
+            opaque.eraseColor(Color.WHITE)
+            Canvas(opaque).drawBitmap(scaled, 0f, 0f, null)
+            if (opaque !== scaled) scaled.recycle()
+            opaque
+        } else {
+            scaled
+        }
+        val out = ByteArrayOutputStream()
+        val ok = flat.compress(Bitmap.CompressFormat.JPEG, DISK_JPEG_QUALITY, out)
+        if (flat !== decoded) flat.recycle()
+        if (!ok) return null
+        val encoded = out.toByteArray()
+        return encoded.takeIf { it.size < bytes.size }
+    }
+
     companion object {
         private const val DISK_DIR = "artwork-v1"
+
+        /** 落盘封面的重编码口径：长边 512px、JPEG 质量 80（~30-80KB/张，显示尺寸足够）。 */
+        private const val DISK_LONG_EDGE = 512
+        private const val DISK_JPEG_QUALITY = 80
         private const val MAX_BYTES = 4 * 1024 * 1024
         private const val MAX_PENDING = 32
         private const val CACHE_BYTES = 8 * 1024 * 1024
