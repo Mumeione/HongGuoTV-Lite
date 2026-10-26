@@ -143,7 +143,7 @@ data class FocusPlan(
     val side: FocusSection? = null,
     val sideAnchor: FocusKey? = null,
     /**
-     * 贴着 [sections] 里 `flanked` 段左右两侧的长条翻组键（分集格、季线卡两侧的 ‹ › 长条）。
+     * 贴着 [sections] 里 `flanked` 段左右两侧的长条翻组键（分集格、季线卡两侧的「上一组/下一组」长条）。
      * 各是**单列竖条**：行首按左 / 行尾按右落到条上（按竖直行号映射），条上按右/左回到内容行缘。
      * 与 [side]（导航侧栏）互不干扰：侧栏接没被侧翼声明的段。
      */
@@ -217,7 +217,7 @@ class FocusGraph private constructor(
                 }
             }
 
-            // 侧翼长条（分集格/季线卡两侧的 ‹ › ）：与内容行缘互为出入，按竖直行号映射。
+            // 侧翼长条（分集格/季线卡两侧的「上一组/下一组」）：与内容行缘互为出入，按竖直行号映射。
             // 只允许一段被包夹：出现两段时第二个会静默接错侧翼，直接拒绝。
             require(plan.sections.count { it.flanked } <= 1) {
                 "侧翼长条只能包夹一段：当前声明了 ${plan.sections.count { it.flanked }} 个 flanked 段"

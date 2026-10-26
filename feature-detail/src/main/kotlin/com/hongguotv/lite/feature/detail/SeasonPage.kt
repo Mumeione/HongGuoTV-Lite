@@ -3,6 +3,7 @@ package com.hongguotv.lite.feature.detail
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
+import android.widget.Space
 import android.widget.TextView
 import android.widget.Toast
 import com.hongguotv.core.model.FavoriteEntry
@@ -344,7 +345,9 @@ internal class SeasonPage(
         val slice = ordered.drop(pageIndex * SEASON_COLUMNS).take(SEASON_COLUMNS)
 
         val gap = ui.dp(tokens.metrics.seasonCardGap)
-        // 卡宽 88 是 B 方案的固定口径；7 张 + 两侧 40dp 长条正好放进内容区
+        // 卡宽取令牌。满 7 张时按剩余宽度**等距展开**：首卡左侧、卡与卡之间、末卡右侧
+        // 共用一组弹性空格；与长条之间另有 SideStrips 的固定留白。末页不足 7 张时保持
+        // 原网格口径左对齐、卡间距取令牌值，不把三张卡拉成一片，也不让首卡横向跳位。
         val cardWidth = ui.dp(tokens.metrics.seasonCardWidth)
         // 季卡标题去掉系列名前缀（108dp 宽的卡写全名只会截断）
         val base = entry?.series?.title ?: anchor?.let { SeasonKeys.seasonBase(it.title) }.orEmpty()
@@ -372,6 +375,10 @@ internal class SeasonPage(
             val focusedId = seasonCards.entries.firstOrNull { it.value.isFocused }?.key
             seasonRow.removeAllViews()
             seasonCards.clear()
+            // 只剩满 7 张的页需要展开：8 个等权空格把余量分到两端与卡间。
+            // 末页保持左对齐、卡间距固定，避免首卡位置随翻页横向跳动。
+            val spread = slice.size == SEASON_COLUMNS
+            if (spread) addRowSpring(gap)
             slice.forEachIndexed { position, season ->
                 val card = ui.poster(cardWidth).apply {
                     // 这一页是详情类页面：封面**不落盘**，只按需取（落盘资格只给收藏/历史）
@@ -380,18 +387,18 @@ internal class SeasonPage(
                     // 白框全留给光标（一页只有一处白色填充/描边在争注意力）
                     onActivated = { openSeason(season) }
                 }
-                seasonRow.addView(
-                    card,
-                    LinearLayout.LayoutParams(cardWidth, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                        if (position < slice.lastIndex) rightMargin = gap
-                    },
-                )
+                seasonRow.addView(card, LinearLayout.LayoutParams(cardWidth, ViewGroup.LayoutParams.WRAP_CONTENT))
                 seasonCards[season.id] = card
+                if (spread) {
+                    addRowSpring(gap)
+                } else if (position < slice.lastIndex) {
+                    addRowSpring(gap, weight = 0f)
+                }
             }
             if (focusedId != null) seasonCards[focusedId]?.requestFocus()
         }
 
-        // 组范围并进季数行：长条只留 ‹ › 两个符号，"当前是哪一段"由文字说
+        // 组范围并进季数行：长条只留「上一组/下一组」两枚翻组键，"当前是哪一段"由文字说
         seasonCountView.text = if (pages > 1) {
             DetailText.seasonLineTitle(seasons.seasons.size) + " · " + DetailText.seasonRangeLabel(
                 firstSeason = slice.firstOrNull()?.season ?: 0,
@@ -406,6 +413,14 @@ internal class SeasonPage(
             visible = pages > 1,
             hasPrev = pageIndex > 0,
             hasNext = pageIndex < pages - 1,
+        )
+    }
+
+    /** 季卡行的空格：最小宽度 [minWidthPx]，权重 [weight] 决定是否参与平分剩余宽度。 */
+    private fun addRowSpring(minWidthPx: Int, weight: Float = 1f) {
+        seasonRow.addView(
+            Space(ui.context),
+            LinearLayout.LayoutParams(minWidthPx, 0, weight),
         )
     }
 

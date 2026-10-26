@@ -329,6 +329,12 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
         } else {
             cells.forEachIndexed { position, cell -> cell.isSelected = cellIndexes[position] == model.current }
         }
+        // 范围行与第一集按钮左对齐：分集格被左侧长条让开了一段，范围行也要让开同样的宽。
+        // 单页时整对长条收起，分集格从行首开始，范围行不再缩进。
+        val stripInset = if (pages > 1) ui.dp(tokens.metrics.sideStripWidth + tokens.space.s) else 0
+        if (rangeView.paddingLeft != stripInset) {
+            rangeView.setPadding(stripInset, 0, 0, ui.dp(tokens.space.xs))
+        }
         rangeView.text = PlayerText.range(range, model.total)
         // 单页时整对长条收起，分集格占满（与详情页同一条规则）
         strips.show(visible = pages > 1, hasPrev = page > 0, hasNext = page < pages - 1)

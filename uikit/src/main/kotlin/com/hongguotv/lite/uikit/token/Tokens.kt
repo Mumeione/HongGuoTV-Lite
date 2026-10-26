@@ -192,6 +192,11 @@ data class Metrics(
 
     /** 分集格/季线卡两侧长条翻组键的宽（2026-10-24 取代顶行翻组胶囊）。 */
     val sideStripWidth: Int = 40,
+    /**
+     * 长条翻组键的最小高度：竖排三行汉字（[Type.compact] + 行距）在末页只剩一行分集格时
+     * 也要完整放得下；满行内容更高时仍随内容撑满。
+     */
+    val sideStripMinHeight: Int = 56,
 
     // ---------- 卡片（目录，宽 149） ----------
     val catalogCardWidth: Int = 149,
