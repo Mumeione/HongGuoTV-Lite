@@ -396,6 +396,35 @@ class PrefsLibraryTest {
         assertFalse(lib.isFavorite("凡人测试书分宗篇"))
     }
 
+    /** 脏数据防线（V1.0.0 审计 P1-3）：id 不是纯数字的收藏行整条丢弃，其余行不受影响。 */
+    @Test
+    fun aCorruptFavoriteWithAnInvalidSeriesIdIsDroppedOnLoad() = runTest {
+        val favorite = JSONObject()
+            .put(
+                "正常的剧",
+                JSONObject()
+                    .put("series", SeriesCodec.toJson(Series("7344236246800000000", "正常的剧", season = 1)))
+                    .put("addedAt", 1_000L),
+            )
+            .put(
+                "脏数据的剧",
+                JSONObject()
+                    .put("series", SeriesCodec.toJson(Series("not-a-number", "脏数据的剧", season = 1)))
+                    .put("addedAt", 2_000L),
+            )
+            .put(
+                "空 id 的剧",
+                JSONObject()
+                    .put("series", SeriesCodec.toJson(Series("", "空 id 的剧", season = 1)))
+                    .put("addedAt", 3_000L),
+            )
+        val lib = PrefsLibrary(store("favoriteSeries" to favorite.toString()))
+        assertEquals(listOf("正常的剧"), lib.all().map { it.seriesKey })
+        assertTrue(lib.isFavorite("正常的剧"))
+        assertFalse(lib.isFavorite("脏数据的剧"))
+        assertFalse(lib.isFavorite("空 id 的剧"))
+    }
+
     /** 整条季线都是篇名季：没有基名证据，原样保留（不按标题前缀猜，避免同 IP 误并组）。 */
     @Test
     fun aLineWithoutANumberedSeasonDoesNotGuessABaseName() = runTest {

@@ -22,8 +22,8 @@ import com.hongguotv.core.model.FrameMode
 import com.hongguotv.core.model.PlaybackOptions
 import com.hongguotv.core.model.Progress
 import com.hongguotv.core.model.Settings
-import com.hongguotv.core.port.UpstreamError
 import com.hongguotv.core.usecase.FavoriteLookup
+import com.hongguotv.core.usecase.loadCatching
 import com.hongguotv.core.usecase.SeasonLineBackfill
 import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.focus.FocusSession
@@ -46,7 +46,9 @@ import kotlinx.coroutines.launch
  * 3. **跟着状态画**（[PlaybackSession.onStateChanged]）：侧栏状态行、提示卡、焦点。
  *
  * 三条 S5 学到的纪律在这里落地：读请求挂页面作用域（离开即取消）、写操作挂宿主作用域
- * （页面马上销毁也不会"还没写就被取消"）、只捕 `UpstreamError`（装配错误要炸，不要伪装成加载失败）。
+ * （页面马上销毁也不会"还没写就被取消"）、加载失败一律兜成失败态而不崩进程
+ * （V1.0.0 起加载走 `core.usecase.loadCatching`：脏本地数据会从仓库 `require` 抛
+ * `IllegalArgumentException`，装配错误同样该进失败态而非崩进程）。
  */
 internal class PlayerPage(
     private val host: PlayerFeature,
@@ -214,12 +216,8 @@ internal class PlayerPage(
 
     private fun loadDetail() {
         scope.launch {
-            val loaded = try {
-                host.content.detail(seriesId)
-            } catch (error: UpstreamError) {
-                loadFailure = error
-                null
-            }
+            // 脏历史/收藏里的非法 id 会从仓库 require 抛 IllegalArgumentException：兜成失败态，不崩进程。
+            val loaded = loadCatching({ loadFailure = it }) { host.content.detail(seriesId) }
             if (!isActive) return@launch
             if (loaded == null) {
                 render()
@@ -251,11 +249,8 @@ internal class PlayerPage(
         if (host.favorites.seasonLine(key) != null) return
         // 读请求挂页面作用域：用户离开播放页就不必再为"也许有下一季"发请求
         scope.launch {
-            val line = try {
-                host.content.seasons(data.series.id, data.series)
-            } catch (error: UpstreamError) {
-                null
-            } ?: return@launch
+            // 同 loadDetail：脏数据导致的任何异常都按"缺季线"静默。
+            val line = loadCatching { host.content.seasons(data.series.id, data.series) } ?: return@launch
             if (!isActive) return@launch
             host.favorites.rememberSeasonLine(key, line)
             // 季线里的季凡是有观看记录的都回填完整元数据：跨季连播直接落进来的季

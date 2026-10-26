@@ -1,6 +1,7 @@
 package com.hongguotv.lite
 
 import android.content.Context
+import android.util.Log
 import com.hongguotv.core.port.ContentPort
 import com.hongguotv.core.port.MediaPort
 import com.hongguotv.core.port.Navigator
@@ -18,6 +19,7 @@ import com.hongguotv.lite.feature.catalog.CatalogFeature
 import com.hongguotv.lite.feature.detail.DetailFeature
 import com.hongguotv.lite.feature.player.PlayerFeature
 import com.hongguotv.lite.uikit.ui.UiKit
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -39,19 +41,32 @@ internal class AppGraph(
     navigator: Navigator,
 ) {
 
+    /** 诊断端口：五段探针与关键事件进 logcat（`adb logcat -s HongGuoTV`）。 */
+    private val diagnostics = LogcatDiagnostics()
+
     /**
      * **主线程作用域只有一个**。它比页面活得久：写进度、写设置、跨季跳转都挂在它上面，
      * 所以页面被路由销毁时"还没写就被取消"这件事不会发生（S5 踩过的坑）。
+     *
+     * 兜底 handler（V1.0.0 审计 P1-3）：页面加载都各自兜了异常，这里只防漏网
+     * （脏数据、库缺陷）——记进 logcat，不让一个未处理异常把整个进程带走。
      */
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Main.immediate +
+            CoroutineExceptionHandler { _, error ->
+                // event 只带字段；堆栈另起一行打全，排查脏数据来源时用得上。
+                diagnostics.event(
+                    "scope.unhandled",
+                    mapOf("error" to error.javaClass.simpleName, "message" to (error.message ?: "")),
+                )
+                Log.e(LogcatDiagnostics.TAG, "scope.unhandled", error)
+            },
+    )
 
     // 内容端点与取流共用一个客户端（超时口径 15/30/45s，见 OkHttpTransport），
     // 封面另起一个短超时的：一张封面不该占住搜索或取流的连接。
     private val http: OkHttpClient = OkHttpTransport.defaultClient()
     private val artworkHttp: OkHttpClient = ArtworkLoader.defaultClient()
-
-    /** 诊断端口：五段探针与关键事件进 logcat（`adb logcat -s HongGuoTV`）。 */
-    private val diagnostics = LogcatDiagnostics()
 
     /** 本地库：进度 / 收藏 / 设置三个端口的同一份事实（prefs 文件名 `native-library-v1` 不许改）。 */
     private val store = SharedPreferencesStore(context)

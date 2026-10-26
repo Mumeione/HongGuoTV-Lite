@@ -10,9 +10,9 @@ import com.hongguotv.core.model.Detail
 import com.hongguotv.core.model.FavoriteEntry
 import com.hongguotv.core.model.SeasonKeys
 import com.hongguotv.core.model.Series
-import com.hongguotv.core.port.UpstreamError
 import com.hongguotv.core.usecase.EpisodePages
 import com.hongguotv.core.usecase.FavoriteLookup
+import com.hongguotv.core.usecase.loadCatching
 import com.hongguotv.core.usecase.ResumePoint
 import com.hongguotv.core.usecase.ResumeTarget
 import com.hongguotv.core.usecase.SeasonChain
@@ -131,11 +131,9 @@ internal class EpisodePage(
         detail = null
         render()
         scope.launch {
-            val loaded = try {
+            val loaded = loadCatching({ failure = it }) {
+                // 脏收藏里的非法 id 会从仓库 require 抛 IllegalArgumentException：兜成失败态，不崩进程。
                 host.content.detail(seriesId)
-            } catch (error: UpstreamError) {
-                failure = error
-                null
             }
             if (!isActive) return@launch
             loading = false
@@ -175,11 +173,8 @@ internal class EpisodePage(
     /** 失败静默：缺季线只是少一行说明，不该让整页变成错误态。 */
     private suspend fun collectSeasonLine(series: Series) {
         val key = seriesKeyOf(series)
-        val line = try {
-            host.content.seasons(series.id, series)
-        } catch (error: UpstreamError) {
-            null
-        }
+        // 同上：脏数据导致的任何异常都按"缺季线"静默，不该崩进程。
+        val line = loadCatching { host.content.seasons(series.id, series) }
         if (line == null) return
         host.favorites.rememberSeasonLine(key, line)
         SeasonLineBackfill.run(line, host.progress)

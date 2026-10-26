@@ -1,2 +1,4 @@
-# 保留协议层反射/JSON 相关符号在此按需追加；当前无自定义规则。
-# 搬迁阶段先保持默认，S8 收尾时再按 R8 报告补。
+# 保留崩溃栈行号：R8 默认会剥掉 SourceFile/LineNumberTable，
+# 没有这两项，mapping.txt 反混淆后定位不到行。随包归档 mapping.txt。
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile

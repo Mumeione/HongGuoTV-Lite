@@ -37,24 +37,25 @@ app               壳：Activity、导航、依赖组装
 
 ## 端口
 
-六个业务端口 + 两个支撑端口。业务端口回答「要做什么」，支撑端口回答「怎么做才不散」：
+六个业务端口 + 三个支撑端口。业务端口回答「要做什么」，支撑端口回答「怎么做才不散」：
 
 | 端口 | 接口 | 背后藏着 |
 | --- | --- | --- |
 | `ContentPort` | `search / suggest / detail / seasons / stream` | 端点表、签名、HTTP、字段解析、季线排序、锚点补全、介质过滤、清晰度选择 |
 | `ProgressPort` | 进度 / 历史 / 已看 / 写入 | prefs 键、编解码、写队列、节流 |
 | `FavoritesPort` | 收藏 / 季键 / 季线缓存 / 确认更新 / 当前季 | 系列语义、LRU、检查结果 |
-| `SettingsPort` | 读 / 原子更新 | 六项偏好的读写路径 |
+| `SettingsPort` | 读 / 原子更新 | 七项偏好的读写路径 |
 | `MediaPort` | `open(vid, maxHeight) → MediaStream` | Range 分段、CENC 索引、逐样本解密 |
 | `Navigator` | `toCatalog / toDetail / toSeries / toPlayer / back` | 页面栈与返回语义 |
 | `ArtworkPort` | `load / prefetch / cancelPage / trim` | 优先级队列、LRU、磁盘缓存、低内存分档 |
 | `DiagnosticsPort` | `stage / event` | 五段探针与日志节点 |
+| `DecoderCapabilities` | `supports(codec)` | 平台 `MediaCodecList` 查询；取流选档先按它过滤，避开本机解不了的编码 |
 
 `ContentPort` 只有五个方法，这是刻意的：把「上游长什么样」全部挡在背后，
 调用方只谈业务（搜索、详情、季线、取流）。协议细节见 [PROTOCOL.md](PROTOCOL.md)。
 
-`ArtworkPort` 与 `DiagnosticsPort` 是两个支撑端口：它们不属于业务能力，但同样需要接缝，
-否则封面策略与日志字段会重新散回每个页面。
+`ArtworkPort`、`DiagnosticsPort` 与 `DecoderCapabilities` 是三个支撑端口：它们不属于业务能力，
+但同样需要接缝，否则封面策略、日志字段与解码能力查询会重新散回每个页面。
 
 ## 状态归属
 
@@ -63,9 +64,9 @@ app               壳：Activity、导航、依赖组装
 | 状态 | 所有者 | 形态 |
 | --- | --- | --- |
 | 页面栈与来源 | `app` | 密封类 `Route` + `RouteStack`（规则是纯逻辑，可脱机单测；渲染在 `LiteActivity`） |
-| 目录页 | `feature-catalog` | 不可变 `CatalogState`；**当前 tab 也归它**（`currentTab`），宿主不复制 |
+| 目录页 | `feature-catalog` | feature 字段持有（`CatalogFeature.currentTab`）；**当前 tab 也归它**，宿主不复制 |
 | 播放 | `feature-player` | 密封类 `PlaybackState`（Idle / Preparing / Playing(pausedBy) / Ended / Failed） |
-| 在途请求 | 每个 feature 自己的 `PageLoader` / 页面作用域 | 取消域局部化——打字不会取消搜索 |
+| 在途请求 | 每个 feature 自己的页面作用域 | 取消域局部化——打字不会取消搜索 |
 
 两条硬规则：
 
@@ -91,6 +92,9 @@ LocalError:    Storage / Corrupt(partition)
 ```
 
 - **运行期失败**一律走这两类，UI 只按类型映射文案，不匹配中文字符串。
+- **页面加载兜底不崩进程**（V1.0.0 审计 P1-3 起）：页面作用域里的加载调用一律走
+  `core.usecase.loadCatching`——取消原样抛出，其余 `Exception`（含脏数据从仓库 `require`
+  抛出的 `IllegalArgumentException`）归入失败态或按语义静默，不让它冒出 `launch`。
 - **静态配置错误**（端点表坏了、缺参数）直接抛参数异常，在启动时就炸——包成 `UpstreamError`
   会让人误以为上游变了。
 - **用 `runCatching` 包 suspend 调用会吞掉 `CancellationException`**（取消不是失败）。
@@ -102,9 +106,11 @@ LocalError:    Storage / Corrupt(partition)
 - **prefs 文件名 `native-library-v1` 不许改。** 升级安装读旧数据的唯一桥梁，
   改了等于让老用户的收藏与进度归零。
 - **三个端口读的是同一份事实**（进度 / 收藏 / 设置分区），不许为了「干净」另开一份存储。
-- 旧版遗留分区 `later` / `hidden` / `searches` **故意不读、不写、不删**；将来哪个端口要接管，
-  先去旧仓库 `LibraryIndex` 查键名结构，并写迁移。
-- 坏分区加载时不炸启动，但要在 `PrefsLibrary.corruptPartitions` 留痕，供诊断端口消费。
+- 旧版遗留分区 `later` / `hidden` / `favorites` / `searches` **故意不读、不写、不删**；
+  唯一例外是旧 `favorites`：迁移时只读一次（`PrefsLibrary` 的旧版迁移），之后同样不动。
+  将来哪个端口要接管，先去旧仓库 `LibraryIndex` 查键名结构，并写迁移。
+- 坏分区加载时不炸启动，但要在 `PrefsLibrary.corruptPartitions` 留痕，供诊断端口消费；
+  分区内部的**单条坏行**（如收藏 id 非法）整条丢弃、不留痕——行级脏数据不值得让整页变错误态。
 
 ## 边界与体积纪律
 

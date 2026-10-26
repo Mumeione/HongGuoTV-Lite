@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    base-config 默认禁止明文：内容端点、官网、播放地址实测都是 https。
+    base-config 默认禁止明文：接口、官网、播放地址实测都是 https（写死在代码里）。
     只对**上游可能下发 http 的媒体/CDN 域**开口子——视频 CDN 的 fallback 地址有时是 http，
-    关死会让某些集直接播不了；接口与官网不在这些域里，仍走 https。
+    关死会让某些集直接播不了；接口（fqnovel.com）与官网（hongguoduanju.com）不在白名单里，
+    只走 https。Android 6（API 23）上本配置不生效，行为由 manifest 的
+    usesCleartextTraffic 全局放行，见发布说明的已知问题。
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false" />
     <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">fqnovel.com</domain>
-        <domain includeSubdomains="true">hongguoduanju.com</domain>
         <domain includeSubdomains="true">qznovelvod.com</domain>
         <domain includeSubdomains="true">douyinvod.com</domain>
         <domain includeSubdomains="true">byteicdn.com</domain>

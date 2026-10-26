@@ -10,7 +10,7 @@ import com.hongguotv.core.model.FavoriteEntry
 import com.hongguotv.core.model.SeasonKeys
 import com.hongguotv.core.model.SeasonLine
 import com.hongguotv.core.model.Series
-import com.hongguotv.core.port.UpstreamError
+import com.hongguotv.core.usecase.loadCatching
 import com.hongguotv.core.usecase.SeasonProgress
 import com.hongguotv.lite.uikit.focus.FocusExits
 import com.hongguotv.lite.uikit.focus.FocusKey
@@ -168,11 +168,8 @@ internal class SeasonPage(
         scope.launch {
             // 旧收藏行没有 albumId（这个字段是 2026-10-24 才落盘的）：seasons() 会先问一次详情，
             // 把「分宗篇=第 1 季」按详情季号并入；这里不再重复取详情。
-            val fetched = try {
+            val fetched = loadCatching({ error -> if (line == null) lineFailure = error }) {
                 host.content.seasons(series.id, series)
-            } catch (error: UpstreamError) {
-                if (line == null) lineFailure = error
-                null
             }
             if (!isActive) return@launch
             fetching = false
@@ -306,11 +303,8 @@ internal class SeasonPage(
         if (tagsAttempts >= MAX_TAG_ATTEMPTS) return
         tagsAttempts++
         scope.launch {
-            val detail = try {
-                host.content.detail(series.id)
-            } catch (error: UpstreamError) {
-                null
-            }
+            // 分类补全失败静默（同 fetchLine：脏数据也不该崩进程）
+            val detail = loadCatching { host.content.detail(series.id) }
             if (!isActive) return@launch
             if (detail == null || detail.series.tags.isBlank()) return@launch
             // 只补"当前收藏的那一季"：别把用户选的季换成别的季

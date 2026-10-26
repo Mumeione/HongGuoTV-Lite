@@ -10,6 +10,7 @@ import com.hongguotv.core.model.Progress
 import com.hongguotv.core.model.SeasonKeys
 import com.hongguotv.core.model.SeasonLine
 import com.hongguotv.core.model.Series
+import com.hongguotv.core.model.SeriesIds
 import com.hongguotv.core.model.Settings
 import com.hongguotv.core.port.FavoritesPort
 import com.hongguotv.core.port.ProgressPort
@@ -547,6 +548,9 @@ class PrefsLibrary(
             runCatching {
                 val entry = obj.getJSONObject(base)
                 val series = SeriesCodec.fromJson(entry.getJSONObject("series"))
+                // 脏数据防线：id 不合法的行整条丢弃。这种 id 进到内容仓库会在
+                // require(SeriesIds.ID.matches) 上炸出去（V1.0.0 审计 P1-3）。
+                if (!SeriesIds.ID.matches(series.id)) return@runCatching
                 result[base] = series.copy(title = base) to entry.optLong("addedAt")
             }
         }
