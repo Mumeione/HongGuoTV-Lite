@@ -94,7 +94,8 @@ internal abstract class CatalogPage(
      */
     open fun onMenuKey(): Boolean = false
 
-    fun release() {
+    /** 子页需要摘对外回调（如更新监听）时覆写；覆写方必须调 super。 */
+    open fun release() {
         jobs.cancel()
     }
 

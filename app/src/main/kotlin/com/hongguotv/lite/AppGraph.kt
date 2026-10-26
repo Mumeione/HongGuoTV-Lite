@@ -1,7 +1,11 @@
 package com.hongguotv.lite
 
 import android.content.Context
+import android.content.Intent
+import android.os.Build
 import android.util.Log
+import android.widget.Toast
+import androidx.core.content.FileProvider
 import com.hongguotv.core.port.ContentPort
 import com.hongguotv.core.port.MediaPort
 import com.hongguotv.core.port.Navigator
@@ -15,6 +19,8 @@ import com.hongguotv.lite.data.http.OkHttpTransport
 import com.hongguotv.lite.data.library.PrefsLibrary
 import com.hongguotv.lite.data.library.SharedPreferencesStore
 import com.hongguotv.lite.data.media.StreamTransport
+import com.hongguotv.lite.data.update.OkHttpApkDownloader
+import com.hongguotv.lite.data.update.UpdateManager
 import com.hongguotv.lite.feature.catalog.CatalogFeature
 import com.hongguotv.lite.feature.detail.DetailFeature
 import com.hongguotv.lite.feature.player.PlayerFeature
@@ -26,6 +32,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
+import java.io.File
 
 /**
  * 依赖组装：**全工程唯一知道"哪个端口由谁实现"的地方**。
@@ -37,7 +44,7 @@ import okhttp3.OkHttpClient
  * 一次建好、随 Activity 一起销毁，比懒加载的判空分支干净。
  */
 internal class AppGraph(
-    context: Context,
+    private val context: Context,
     navigator: Navigator,
 ) {
 
@@ -75,6 +82,20 @@ internal class AppGraph(
     private val transport = OkHttpTransport(http, diagnostics)
 
     /**
+     * 更新检查（CNB 主源 + GitHub 备源）。清单请求共用内容客户端；
+     * 节流时间戳单独放一个 prefs 文件，不混进 `native-library-v1`（那边是用户数据）。
+     */
+    val updates: UpdateManager = UpdateManager(
+        downloadDir = File(context.cacheDir, "update"),
+        http = transport,
+        downloader = OkHttpApkDownloader(http),
+        diagnostics = diagnostics,
+        store = SharedPreferencesStore(context, "update-check-v1"),
+        versionCode = BuildConfig.VERSION_CODE,
+        versionName = BuildConfig.VERSION_NAME,
+    )
+
+    /**
      * 设备注册：**一台设备只注册一次**（2026-10-24 维护者口径）。
      *
      * 本地没有注册结果时启动就发一次匿名 `device_register`，之后一直用这一对身份；
@@ -94,6 +115,8 @@ internal class AppGraph(
     init {
         // 注册是后台动作：失败不炸启动，内容端点要用时会由 withDevice 再 ensure 一次
         scope.launch { runCatching { devices.ensure() } }
+        // 启动静默检查更新（UpdateManager 内部 24h 节流；失败静默，不炸启动）
+        scope.launch { runCatching { updates.autoCheck() } }
     }
 
     /**
@@ -121,6 +144,8 @@ internal class AppGraph(
         favorites = library,
         settings = library,
         navigator = navigator,
+        updates = updates,
+        onInstallApk = ::installApk,
         scope = scope,
         versionName = BuildConfig.VERSION_NAME,
         initialTab = library.current().startupTab,
@@ -147,10 +172,39 @@ internal class AppGraph(
         scope = scope,
     )
 
-    /** 收摊：取消作用域、停封面线程池、把排队中的本地写入落盘。 */
+    /** 收摊：取消作用域、停封面线程池与更新下载、把排队中的本地写入落盘。 */
     fun close() {
         scope.cancel()
+        updates.shutdown()
         artwork.close()
         library.flush()
+    }
+
+    /**
+     * 拉起系统安装器（设置页「检查更新」→ 下载完 → 安装）。
+     *
+     * FileProvider 是唯一合规通道：targetSdk 24+ 禁止 file:// URI 跨应用共享。
+     * Android 8+（API 26）起安装未知来源应用要用户逐应用授权——没有授权时不发
+     * Intent（发了系统也会静默拒绝），给一句可操作的提示。
+     */
+    private fun installApk(apkPath: String) {
+        val file = File(apkPath)
+        if (!file.isFile) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !context.packageManager.canRequestPackageInstalls()
+        ) {
+            Toast.makeText(
+                context,
+                "请在系统设置中允许本应用「安装未知应用」后重试",
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.update", file)
+        val intent = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, "application/vnd.android.package-archive")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { context.startActivity(intent) }
+            .onFailure { Toast.makeText(context, "无法启动安装器", Toast.LENGTH_SHORT).show() }
     }
 }

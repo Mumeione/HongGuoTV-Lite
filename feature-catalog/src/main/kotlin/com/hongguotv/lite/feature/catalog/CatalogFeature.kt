@@ -11,6 +11,7 @@ import com.hongguotv.core.port.FavoritesPort
 import com.hongguotv.core.port.Navigator
 import com.hongguotv.core.port.ProgressPort
 import com.hongguotv.core.port.SettingsPort
+import com.hongguotv.core.port.UpdatePort
 import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.ui.UiKit
 import kotlinx.coroutines.CoroutineScope
@@ -30,6 +31,10 @@ class CatalogFeature(
     val favorites: FavoritesPort,
     val settings: SettingsPort,
     val navigator: Navigator,
+    /** 更新检查端口（设置页的「检查更新」行）；安装动作经 [onInstallApk] 回到 app 层。 */
+    val updates: UpdatePort,
+    /** 拉起系统安装器：app 层负责 FileProvider 与 Intent，feature 只交出 apk 路径。 */
+    val onInstallApk: (String) -> Unit = {},
     /** 主线程作用域，由 `app` 提供（`Dispatchers.Main`）。feature 不自建全局作用域。 */
     val scope: CoroutineScope,
     /** 设置页脚显示的版本号；空串则不显示版本。 */

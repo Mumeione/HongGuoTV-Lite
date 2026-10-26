@@ -6,6 +6,7 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.Toast
 import com.hongguotv.core.model.Settings
+import com.hongguotv.core.model.UpdateState
 import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.focus.FocusSections
 import com.hongguotv.lite.uikit.focus.navKey
@@ -16,7 +17,8 @@ import kotlinx.coroutines.launch
 /**
  * 设置页。
  *
- * 左栏播放偏好、右栏片库与数据，各四行；焦点是一个两列的网格（左右横移、上下逐行）。
+ * 左栏播放偏好四行；右栏片库与数据五行（含「检查更新」）。焦点是一个两列的网格
+ * （左右横移、上下逐行，最后一行只有右列）。
  * 每一项按下即切到下一档（循环），不弹选择框——档位最多 6 个，循环比弹窗少一次按键。
  *
  * 这里改的是 `SettingsPort` 的同一份事实：搜索页的筛选与排序开关读的也是它。
@@ -31,6 +33,7 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
     private lateinit var sortRow: SettingRow
     private lateinit var clearRow: SettingRow
     private lateinit var startupRow: SettingRow
+    private lateinit var updateRow: SettingRow
 
     private val confirm = TwoStepConfirm()
 
@@ -40,7 +43,7 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
         header.titleSize(tokens.type.display)
         header.leadNote("偏好自动保存，下一部剧继续使用")
 
-        // 不滚动：这一页固定两栏 4 行，用会撑满高度的 body 才能把页脚压在页底
+        // 不滚动：这一页固定两栏（左 4 右 5）行，用会撑满高度的 body 才能把页脚压在页底
         // （mockup：`.setbody{flex:1}` 居中两栏、`.setfoot` 贴底）
         val body = scaffold.body()
         body.addView(spacer(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
@@ -63,6 +66,10 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
         sortRow = setting(right, "搜索结果顺序") { toggleSort() }
         clearRow = setting(right, "清空观看记录") { requestClear() }
         startupRow = setting(right, "启动页面") { cycleStartup() }
+        updateRow = setting(right, "检查更新") { onUpdateTap() }
+        // 启动时的静默检查可能已经把状态推到 Available：这行一建好就跟上。
+        // 离开页面时在 release() 里摘除，别让管理器通知一个已销毁的页面。
+        host.updates.onChange { onUpdatedRemotely() }
         // 焦点移开就撤销确认：手滑"按过一次"不该一直挂着
         clearRow.onFocused = { focused ->
             if (!focused) {
@@ -115,6 +122,7 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
         // 第二次按才换成「再按一次确认」——比把警告塞进主标签更贴近表格的读法
         clearRow.value(if (confirm.isArmed(KEY_CLEAR)) "再按一次确认" else "不可恢复")
         startupRow.value(SettingRows.tabLabel(current.startupTab))
+        updateRow.value(SettingRows.updateLabel(host.updates.state()))
     }
 
     // ---------- 交互 ----------
@@ -177,6 +185,29 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
         }
     }
 
+    // ---------- 检查更新 ----------
+
+    /**
+     * 「检查更新」的点击行为按当前状态分派：
+     * 没查过/失败/已最新 → 检查；有新版 → 开始下载；下载完 → 拉起安装器；
+     * 检查与下载进行中 → 忽略（防抖）。状态变化统一走 [syncLabels] 刷新值列。
+     */
+    private fun onUpdateTap() {
+        when (val state = host.updates.state()) {
+            is UpdateState.Idle, is UpdateState.Failed, is UpdateState.UpToDate ->
+                scope.launch { host.updates.check() }
+            is UpdateState.Available -> host.updates.download()
+            is UpdateState.ReadyToInstall -> host.onInstallApk(state.apkPath)
+            is UpdateState.Checking, is UpdateState.Downloading -> Unit
+        }
+        syncLabels()
+    }
+
+    /** 管理器的状态回调（已在主线程）：只刷值列，不动焦点。 */
+    private fun onUpdatedRemotely() {
+        scope.launch { syncLabels() }
+    }
+
     // ---------- 焦点：两列网格 ----------
 
     /** 首焦：第一项设置 → 当前导航项。进设置页就是要改东西，不该先按几下往下走。 */
@@ -209,5 +240,11 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
 
     private companion object {
         const val KEY_CLEAR = "clear-history"
+    }
+
+    override fun release() {
+        // 先摘监听再取消作用域：管理器持有的回调不该指向一个已销毁的页面
+        host.updates.onChange(null)
+        super.release()
     }
 }

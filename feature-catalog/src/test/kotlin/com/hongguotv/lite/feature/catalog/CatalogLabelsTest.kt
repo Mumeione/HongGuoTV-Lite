@@ -7,6 +7,8 @@ import com.hongguotv.core.model.FrameMode
 import com.hongguotv.core.model.HistoryEntry
 import com.hongguotv.core.model.Progress
 import com.hongguotv.core.model.Series
+import com.hongguotv.core.model.UpdateManifest
+import com.hongguotv.core.model.UpdateState
 import com.hongguotv.core.usecase.FavoriteCheckReport
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -213,5 +215,18 @@ class CatalogLabelsTest {
         assertEquals("倒序", SettingRows.sortLabel(ascending = false))
         assertEquals("正序", SettingRows.sortLabel(ascending = true))
         assertEquals("历史", SettingRows.tabLabel(2))
+    }
+
+    @Test
+    fun updateLabelCoversEveryState() {
+        val manifest = UpdateManifest(2, "1.1.0", "https://x/a.apk")
+        assertEquals("点击检查", SettingRows.updateLabel(UpdateState.Idle))
+        assertEquals("正在检查…", SettingRows.updateLabel(UpdateState.Checking))
+        assertEquals("已是最新", SettingRows.updateLabel(UpdateState.UpToDate))
+        assertEquals("新版本 1.1.0 · 按确认更新", SettingRows.updateLabel(UpdateState.Available(manifest)))
+        assertEquals("下载中 45%", SettingRows.updateLabel(UpdateState.Downloading(45)))
+        assertEquals("下载中…", SettingRows.updateLabel(UpdateState.Downloading(-1)))
+        assertEquals("按确认安装 1.1.0", SettingRows.updateLabel(UpdateState.ReadyToInstall("/cache/a.apk", "1.1.0")))
+        assertEquals("尚无可用版本", SettingRows.updateLabel(UpdateState.Failed("尚无可用版本")))
     }
 }

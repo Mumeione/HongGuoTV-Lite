@@ -12,6 +12,7 @@ import com.hongguotv.core.model.Series
 import com.hongguotv.core.model.Settings
 import com.hongguotv.core.model.StreamInfo
 import com.hongguotv.core.model.Suggestion
+import com.hongguotv.core.model.UpdateState
 
 /**
  * 端口 = 接缝。三个 feature 只认识这些接口，实现由 app 注入。
@@ -167,6 +168,35 @@ interface DiagnosticsPort {
 }
 
 /**
+ * 更新端口：双源（CNB 主 / GitHub 备）检查与应用内下载。
+ *
+ * [check] 是挂调用方作用域的suspend：页面离开即取消，无副作用残留；
+ * [download] 刻意**不是** suspend——下载必须活过页面切换（用户下载完可能已经翻回播放页），
+ * 实现自备作用域，宿主收摊时负责停掉它。
+ * 安装动作不在端口里：拉起安装器是 Android 组件行为（FileProvider/Intent），由 `app` 层
+ * 拿 [UpdateState.ReadyToInstall] 的 apk 路径自己做。
+ */
+interface UpdatePort {
+    val versionCode: Int
+    val versionName: String
+
+    /** 当前状态快照（设置页渲染用）。状态变化经 [onChange] 通知。 */
+    fun state(): UpdateState
+
+    /** 状态变化回调，单监听者（设置页）；传 null 摘除。回调线程由实现决定，消费方自行切主线程。 */
+    fun onChange(listener: (() -> Unit)?)
+
+    /** 手动检查（绕过 24h 节流）。结束时状态落在 UpToDate / Available / Failed。 */
+    suspend fun check()
+
+    /** 下载 [UpdateState.Available] 里的版本。非 Available 态调用是空操作。 */
+    fun download()
+
+    /** 启动时的一次静默检查：24 小时节流；失败回落 [UpdateState.Idle]，不打扰用户。 */
+    fun autoCheck()
+}
+
+/**
  * 不记任何东西。测试与"组装层还没接诊断"的场合用它，避免每个构造点写判空分支。
  *
  * 注意：**不要在 [DiagnosticsPort] 里给默认空实现**——那会让"忘了接诊断"变成静默通过；
@@ -178,8 +208,7 @@ object SilentDiagnostics : DiagnosticsPort {
 }
 
 /** 失败分类：UI 只按类型映射文案，不再匹配中文字符串。 */
-sealed class UpstreamError(message: String, cause: Throwable? = null) : Exception(message, cause) {
-    class Network(cause: Throwable) : UpstreamError("network", cause)
+sealed class UpstreamError(message: String, cause: Throwable? = null) : Exception(message, cause) {    class Network(cause: Throwable) : UpstreamError("network", cause)
     class HttpStatus(val code: Int) : UpstreamError("http $code")
     /** 200 空体：风控的强特征，必须单独成类，绝不能归成"这部剧没有剧集"。 */
     class EmptyBody : UpstreamError("empty body")

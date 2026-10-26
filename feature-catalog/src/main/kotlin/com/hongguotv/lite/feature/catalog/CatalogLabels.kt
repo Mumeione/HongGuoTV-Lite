@@ -6,6 +6,7 @@ import com.hongguotv.core.model.FavoriteStatus
 import com.hongguotv.core.model.FrameMode
 import com.hongguotv.core.model.PlaybackOptions
 import com.hongguotv.core.model.nextAfter
+import com.hongguotv.core.model.UpdateState
 import com.hongguotv.core.usecase.FavoriteCheckReport
 import com.hongguotv.lite.uikit.text.TvText
 
@@ -106,4 +107,15 @@ internal object SettingRows {
     fun tabLabel(index: Int): String = CatalogTab.of(index).label
 
     fun sortLabel(ascending: Boolean): String = if (ascending) "正序" else "倒序"
+
+    /** 「检查更新」行的值文案：状态 → 一句话（点击行为按同一状态分派，见 SettingsPage）。 */
+    fun updateLabel(state: UpdateState): String = when (state) {
+        is UpdateState.Idle -> "点击检查"
+        is UpdateState.Checking -> "正在检查…"
+        is UpdateState.UpToDate -> "已是最新"
+        is UpdateState.Available -> "新版本 ${state.manifest.versionName} · 按确认更新"
+        is UpdateState.Downloading -> if (state.percent < 0) "下载中…" else "下载中 ${state.percent}%"
+        is UpdateState.ReadyToInstall -> "按确认安装 ${state.versionName}"
+        is UpdateState.Failed -> state.reason
+    }
 }
