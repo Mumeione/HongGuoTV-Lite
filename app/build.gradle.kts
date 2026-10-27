@@ -11,6 +11,15 @@ val signingProperties = Properties().apply {
 }
 fun signingValue(env: String, key: String): String? = System.getenv(env) ?: signingProperties.getProperty(key)
 
+// 分发合规：GPLv3 分发目标代码时要求随附许可证文本。根目录那一份是唯一来源
+// （不在 src 下再放副本，两份必然漂移），构建期拷进 APK 的 assets。
+val legalAssetsDir = layout.buildDirectory.dir("generated/legalAssets")
+val copyLegalDocs = tasks.register<Copy>("copyLegalDocs") {
+    from(rootProject.file("LICENSE"))
+    from(rootProject.file("NOTICE.md"))
+    into(legalAssetsDir)
+}
+
 android {
     namespace = "com.hongguotv.lite"
     compileSdk = 36
@@ -55,7 +64,14 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     packaging { resources.excludes += setOf("META-INF/versions/**", "META-INF/*.kotlin_module") }
+
+    sourceSets["main"].assets.srcDir(legalAssetsDir)
 }
+
+// 资源合并任务不保证经 preBuild，显式挂上，避免增量构建时 assets 里少两份文件。
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }
+    .configureEach { dependsOn(copyLegalDocs) }
+tasks.named("preBuild") { dependsOn(copyLegalDocs) }
 
 dependencies {
     // 顶层是唯一知道"谁实现谁"的地方：所有端口实现在这里组装。

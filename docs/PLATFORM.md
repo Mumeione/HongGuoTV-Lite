@@ -13,7 +13,7 @@
 | `compileSdk` | 36 | 只用 36 的 API 编译，运行期受 minSdk 约束 |
 | JVM target | 17 | D8 负责脱糖语言特性（lambda、默认方法、try-with-resources） |
 
-**迁移状态**：A0 已完成。所有模块 `minSdk = 23`；编解码换成自带实现（`Base64Codec`）；
+**现状**：所有模块 `minSdk = 23`；编解码换成自带实现（`Base64Codec`）；
 两层守卫就位（Android 侧 Lint `NewApi`，core 侧 `verifyJvmApiLevel` 字节码扫描，挂在 `test` 前面）。
 之后的任何新代码都由守卫在构建期拦截，不再靠自觉。
 

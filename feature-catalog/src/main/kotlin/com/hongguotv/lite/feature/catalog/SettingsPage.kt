@@ -120,7 +120,9 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
     private fun footerNote(): String = buildString {
         append("红果TV-Lite")
         if (host.versionName.isNotBlank()) append(" · ").append(host.versionName)
-        append(" · 非官方客户端 · GPL-3.0")
+        append(" · 非官方客户端 · GPL-3.0-only")
+        // 许可证与源码地址不能只躺在仓库里：APK 单独流出时，这一行是用户唯一能看到的入口
+        append("\n许可与源码：github.com/Mumeione/HongGuoTV-Lite")
     }
 
     private fun syncLabels() {

@@ -120,29 +120,5 @@ LocalError:    Storage / Corrupt(partition)
 
 - 明确不做：Compose、Leanback、重写媒体解密层、SQLite、多端同步、下载、榜单、推荐流。
 - 不引入大型 UI 库；新增依赖必须同时更新 `NOTICE.md`。
-- **阶段内不构建 release 包**；验证只用 `:app:assembleDebug`。
-  release 由维护者在发布前构建，体积验收口径与检查表见 [STATUS.md](STATUS.md)。
-
-## 阶段记录（历史）
-
-> 计数是**当时**的数字，保留为历史；当前测试数只在 [STATUS.md](STATUS.md) 维护。
-
-| 阶段 | 内容 | 状态 |
-| --- | --- | --- |
-| S0 | 模块骨架、依赖规则、端口接口 | 完成 |
-| S1 | 协议层：签名、解密、CENC、端点表、字段表 | 完成 |
-| A0 | 平台基线：API 23、编解码替换、两层守卫 | 完成 |
-| S2 | `data`：ContentPort / 本地存储实现 | 完成 |
-| S3 | `uikit`：令牌、控件、焦点图、页面骨架 | 完成 |
-| S4 | `feature-catalog`：搜索 / 收藏 / 历史 / 设置 | 完成 |
-| S5 | `feature-detail`：详情 / 收藏系列（季线）/ 跨季入口 | 完成 |
-| S6 | `feature-player`：播放会话、按键表、侧栏；`MediaPort` 实现 | 完成 |
-| S7 | `app` 收口：导航栈、依赖组装、生命周期；`ArtworkPort` 实现 | 完成 |
-| S8 | 探针、CI、manifest 收尾 | 完成 |
-| S9 | 界面与交互收尾：焦点/选中语义、落焦阶梯、空态与首屏 | 完成 |
-| S10 | 搜索与播放接口重建（官网 React SPA 改版后的新入口） | 完成 |
-| S11 | 收藏页收紧、视觉方向焦点、抽屉设置分层、设备一次性注册 | 完成 |
-| S12 | 季线只认服务端季号、历史元数据、45° 视锥、hero 与信息栏 | 完成 |
-| S13 | 搜索聚合锚点季、收藏归组按专辑证据、详情集数 | 完成 |
-| S14 | 片尾预取：最后 10 秒预取下一集并无缝换流 | 完成 |
-| S15 | 审计修复：MP4 box 链、历史坏行、锚点证据复用、翻页封面预热 | 完成 |
+- 日常验证只用 `./gradlew verify`（全模块单测 + 六模块 lint + `:app:assembleDebug`）；
+  release 包只在发版时构建，版本号由 `HONGGUOTV_VERSION_NAME` / `HONGGUOTV_VERSION_CODE` 显式传入。

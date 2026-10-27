@@ -45,7 +45,7 @@
 
 ## 构建与验证
 
-需要 JDK 17 与 Android SDK 36（含 build-tools 36.0.0）。目前仅在 Windows 环境完成验证。
+需要 JDK 17 与 Android SDK 36（含 build-tools 35.0.0，AGP 8.11 默认使用的版本）。目前仅在 Windows 环境完成验证。
 
 ```sh
 # JAVA_HOME 指向 JDK 17，local.properties 中的 sdk.dir 指向 Android SDK
@@ -58,7 +58,19 @@
 ./gradlew verify --console=plain
 ```
 
-真实网络探针默认跳过，设置 `HGTV_PROBE=1` 后可单独运行。正式签名需要 `keystore.properties`（不入库），也可通过 `HONGGUOTV_KEYSTORE`、`HONGGUOTV_STORE_PASSWORD`、`HONGGUOTV_KEY_ALIAS`、`HONGGUOTV_KEY_PASSWORD` 环境变量提供。
+真实网络探针会真的请求上游接口，默认跳过；需要时单独运行（其余单测不在这一条命令里）：
+
+```sh
+# bash / macOS
+HGTV_PROBE=1 ./gradlew :data:testDebugUnitTest --tests "com.hongguotv.lite.data.probe.*" --rerun-tasks
+```
+
+```powershell
+# Windows PowerShell
+$env:HGTV_PROBE = "1"; ./gradlew :data:testDebugUnitTest --tests "com.hongguotv.lite.data.probe.*" --rerun-tasks
+```
+
+正式签名需要 `keystore.properties`（不入库），也可通过 `HONGGUOTV_KEYSTORE`、`HONGGUOTV_STORE_PASSWORD`、`HONGGUOTV_KEY_ALIAS`、`HONGGUOTV_KEY_PASSWORD` 环境变量提供。
 
 ## 代码结构
 
@@ -70,9 +82,11 @@ app                壳：Activity、导航、依赖组装
 ├── feature-detail    详情 / 收藏系列
 ├── feature-player    播放页 / 抽屉 / 播放会话
 ├── uikit             设计令牌 / 控件 / 焦点图 / 页面骨架
-└── data              网络 / 存储 / 取流 / 封面 / 日志的实现
-    └── core          纯 JVM：模型 / 接口 / 协议 / 用例
+├── data              网络 / 存储 / 取流 / 封面 / 日志的实现
+└── core              纯 JVM：模型 / 接口 / 协议 / 用例
 ```
+
+`uikit` 与 `data` 都依赖 `core`（`uikit` 以 `api` 方式导出，因此 `feature-*` 可以直接使用 `core` 的模型）；`core` 不依赖任何本工程模块。
 
 上述结构由三条规则保证，均由构建系统校验，而非依赖开发者自觉：
 
