@@ -26,6 +26,7 @@ class SharedPreferencesStore(context: Context, name: String = PREFS_NAME) : KeyV
                 null -> editor.remove(key)
                 is String -> editor.putString(key, value)
                 is Int -> editor.putInt(key, value)
+                is Long -> editor.putLong(key, value)
                 is Float -> editor.putFloat(key, value)
                 is Boolean -> editor.putBoolean(key, value)
                 is Set<*> -> editor.putStringSet(key, value.filterIsInstance<String>().toSet())
