@@ -1,5 +1,6 @@
 package com.hongguotv.lite.feature.catalog
 
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -119,6 +120,12 @@ class CatalogFeature(
      * 返回是否被消费（消费了宿主就不再回退路由）。
      */
     fun onBack(): Boolean = page?.onBack() ?: false
+
+    /**
+     * 目录页的按键（历史页管理态锁光标用）。由宿主在焦点系统**之前**转发；
+     * 返回是否被消费（消费了宿主就不再走焦点系统默认）。
+     */
+    fun onKeyEvent(event: KeyEvent): Boolean = page?.onKeyEvent(event) ?: false
 }
 
 /**

@@ -213,6 +213,15 @@ class LiteActivity : Activity(), Navigator {
         ) {
             return true
         }
+        // 目录页再接一次普通按键（历史页管理态锁光标：四向换卡、确认删除），
+        // 同样只在按下时转发，且必须在焦点系统之前——方向键会先把光标扔走
+        if (painted is Route.Catalog &&
+            event.action == KeyEvent.ACTION_DOWN &&
+            event.repeatCount == 0 &&
+            graph.catalog.onKeyEvent(event)
+        ) {
+            return true
+        }
         return super.dispatchKeyEvent(event)
     }
 

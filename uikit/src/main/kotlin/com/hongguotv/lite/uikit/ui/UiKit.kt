@@ -26,6 +26,7 @@ object Icons {
     val HISTORY = R.drawable.ic_nav_history
     val SETTINGS = R.drawable.ic_nav_settings
     val SORT = R.drawable.ic_sort
+    val DELETE = R.drawable.ic_delete
     val BRAND = R.drawable.ic_brand
 }
 

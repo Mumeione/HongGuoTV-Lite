@@ -62,6 +62,19 @@ class PosterGrid internal constructor(
      */
     var spotlight: Boolean = false
 
+    /** 当前聚光覆盖目标（[highlight] 写入）；null = 按"谁持焦谁亮"判定。 */
+    private var highlightId: String? = null
+
+    /**
+     * 把聚光钉在 [id] 这张卡上，**不看 View 焦点**：管理态（历史页删除垃圾桶）光标
+     * 锁在卡片外的控件上，"谁持焦谁亮"的判定会让全部卡一起压暗、换卡时亮暗也不跟。
+     * null = 取消覆盖，回到焦点判定。
+     */
+    fun highlight(id: String?) {
+        highlightId = id
+        applySpotlight()
+    }
+
     /**
      * 整张卡的高度上限（像素，0 = 不限制）。首屏只放得下一行卡的页面（搜索结果）给这个值，
      * 卡片据此夹短封面，保证标题与角标也在屏内。
@@ -197,8 +210,9 @@ class PosterGrid internal constructor(
             cards.values.forEach { it.dimmed = false }
             return
         }
-        val focusedId = cards.entries.firstOrNull { it.value.isFocused }?.key
-        cards.forEach { (id, card) -> card.dimmed = id != focusedId }
+        // 聚光覆盖优先（管理态钉住垃圾桶所在的那张卡），没有覆盖才看 View 焦点
+        val litId = highlightId ?: cards.entries.firstOrNull { it.value.isFocused }?.key
+        cards.forEach { (id, card) -> card.dimmed = id != litId }
     }
 
     /** 序列与布局都没变：只重绑文字与角标，视图树完全不动。 */

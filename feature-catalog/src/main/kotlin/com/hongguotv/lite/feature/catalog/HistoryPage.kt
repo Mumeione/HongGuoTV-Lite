@@ -1,10 +1,12 @@
 package com.hongguotv.lite.feature.catalog
 
-import android.text.TextUtils
+import android.graphics.drawable.GradientDrawable
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.TextView
 import android.widget.Toast
 import com.hongguotv.core.model.HistoryEntry
 import com.hongguotv.core.usecase.FavoriteLookup
@@ -14,8 +16,8 @@ import com.hongguotv.lite.uikit.focus.navKey
 import com.hongguotv.lite.uikit.page.ContentPane
 import com.hongguotv.lite.uikit.page.GridRendered
 import com.hongguotv.lite.uikit.page.PosterGrid
-import com.hongguotv.lite.uikit.page.TwoStepConfirm
-import com.hongguotv.lite.uikit.ui.TvButton
+import com.hongguotv.lite.uikit.ui.CardItem
+import com.hongguotv.lite.uikit.ui.Icons
 import kotlinx.coroutines.launch
 
 /**
@@ -25,29 +27,27 @@ import kotlinx.coroutines.launch
  * 状态条只写「第九季 第20集」——详情（收藏状态、分类）在底部信息栏里，
  * **不写观看位置**（我的状态在卡片上已经有了）。
  *
- * 管理入口是 **MENU 键**（顶部不再有"管理记录"按钮；一键全清只在设置里）：
- * 开启后对**当前聚焦的那条**执行 继续播放 / 标记已看（恢复未看）/ 删除。
- * 删除要两步确认——焦点移开即撤销。退出靠 MENU 或返回键（返回=关菜单，不是离开页面）；
- * 动作条左右都夹住自己（左右不进导航侧栏，上下仍与网格互通）。
+ * 管理入口是 **MENU 键**：进入后聚焦卡右上角浮出删除垃圾桶，光标锁在垃圾桶上，
+ * 四向按网格几何换卡（越界夹住）、确认直接删除（单条删除没有两步确认；一键全清
+ * 在设置页，不在这里）。提示与退出都走**同一条信息栏**——管理不是另一种 UI，
+ * 只是信息栏换了一句说明。退出靠 MENU 或返回键，回到被管理的那张卡。
  */
 internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.HISTORY) {
 
     private lateinit var pane: ContentPane
     private lateinit var grid: PosterGrid
-    private lateinit var footer: LinearLayout
-    private lateinit var footerLabel: TextView
-    private lateinit var resumeButton: TvButton
-    private lateinit var watchedButton: TvButton
-    private lateinit var deleteButton: TvButton
+
+    /** 管理层：网格与垃圾桶同层，垃圾桶随滚动自然跟随卡片。 */
+    private lateinit var gridLayer: FrameLayout
+    private lateinit var deleteBadge: ImageView
 
     private var entries: List<HistoryEntry> = emptyList()
     private var rendered: GridRendered? = null
     private var managing: Boolean = false
     private var targetId: String? = null
-    private val confirm = TwoStepConfirm()
 
     override fun onBuild() {
-        // 信息栏只在"焦点落定且落在卡片上"时出现：离开卡片区（输入框、侧栏、管理动作条）就收起，
+        // 信息栏只在"焦点落定且落在卡片上"时出现：离开卡片区（侧栏、垃圾桶）就收起，
         // 中间态不更新内容（回调机制见 FocusSession.onSettled）
         focus.onSettled = { key -> onCardSettled(key) }
 
@@ -57,7 +57,7 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
 
         val body = scaffold.body()
         pane = ui.contentPane()
-        body.addView(pane, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        body.addView(pane, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         pane.empty.show("播放过的剧集会自动保存在这里")
 
         grid = ui.grid(GRID_SECTION).apply {
@@ -66,35 +66,49 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
             // 不再单独缩成 120dp 六列——三种内容列表的卡片大小统一。
             spotlight = true
             onCardFocused = { item -> onCardFocused(item.id) }
-            onCardActivated = { item -> host.navigator.toDetail(item.id, resumeRecording = true) }
+            onCardActivated = { item -> openHistory(item) }
         }
+        // 网格包一层管理层：垃圾桶叠加在卡片内部（右上角），与网格同层、随滚动自然跟随
+        gridLayer = FrameLayout(ui.context)
+        gridLayer.addView(grid, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ))
+        deleteBadge = buildDeleteBadge()
+        gridLayer.addView(deleteBadge, FrameLayout.LayoutParams(ui.dp(BADGE_SIZE), ui.dp(BADGE_SIZE)))
         // 标题到卡片 22dp（mockup 画面4 `.b-histcards{margin-top:22px}`）
-        pane.content.addView(grid, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = ui.dp(tokens.metrics.gridHeaderGap)
-        })
-
-        footer = scaffold.footer()
-        footer.visibility = View.GONE
-        footerLabel = ui.text("", tokens.type.caption, tokens.colors.muted).apply {
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.END
-        }
-        footer.addView(footerLabel, ui.params(width = 0, weight = 1f))
-        resumeButton = ui.button("继续播放") { target()?.let { host.navigator.toDetail(it.series.id, resumeRecording = true) } }
-        watchedButton = ui.button("标记已看") { toggleWatched() }
-        deleteButton = ui.button("删除记录") { deleteRecord() }
-        // 焦点一离开就撤销确认：否则挪到"继续播放"再回来，一次按键就把记录删了
-        deleteButton.onFocused = { focused ->
-            if (!focused) {
-                confirm.disarm()
-                updateFooter()
-            }
-        }
-        footer.addView(resumeButton, ui.params(rightGap = tokens.space.s))
-        footer.addView(watchedButton, ui.params(rightGap = tokens.space.s))
-        footer.addView(deleteButton)
+        pane.content.addView(
+            gridLayer,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = ui.dp(tokens.metrics.gridHeaderGap)
+            },
+        )
 
         reload()
+    }
+
+    /**
+     * 垃圾桶：一个可聚焦的图标钮，管理态叠在聚焦卡右上角。
+     * 视觉遵守唯一的那条规则——焦点 = 白底深字（icon 深色），非焦点 = 深底白 icon。
+     */
+    private fun buildDeleteBadge(): ImageView = ImageView(ui.context).apply {
+        setImageResource(Icons.DELETE)
+        isFocusable = true
+        isClickable = true
+        visibility = View.GONE
+        setOnClickListener { deleteCurrent() }
+        onFocusChangeListener = View.OnFocusChangeListener { view, focused ->
+            styleBadge(view as ImageView, focused)
+        }
+        styleBadge(this, false)
+    }
+
+    private fun styleBadge(view: ImageView, focused: Boolean) {
+        view.background = GradientDrawable().apply {
+            setColor(if (focused) tokens.colors.text else tokens.colors.surface)
+            cornerRadius = ui.dp(tokens.metrics.keyCapRadius).toFloat()
+        }
+        view.setColorFilter(if (focused) tokens.colors.background else tokens.colors.text)
     }
 
     // ---------- 数据 ----------
@@ -112,45 +126,49 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
         if (isEmpty) {
             pane.showEmpty("播放过的剧集会自动保存在这里")
             scaffold.hideBand()
+            // 没有可管理的记录，管理态随之结束
             managing = false
-            footer.visibility = View.GONE
+            deleteBadge.visibility = View.GONE
+            grid.highlight(null)
         } else {
             pane.showContent()
-            // 管理态与信息栏互斥：两条底栏会把第二行卡片压掉一半
-            if (managing) scaffold.hideBand()
+            if (managing) {
+                // 删除后目标已换成相邻卡，聚光跟着垃圾桶走（否则全屏一起压暗）
+                grid.highlight(targetId)
+                deleteBadge.visibility = View.VISIBLE
+                deleteBadge.post { positionBadge() }
+            }
         }
-        updateFooter()
         applyFocus()
-    }
-
-    private fun updateFooter() {
-        val entry = target()
-        footerLabel.text = if (entry == null) "在网格里选中一条记录" else "管理：《${entry.series.title}》"
-        watchedButton.label(if (entry != null && host.progress.isWatched(entry.series.id)) "恢复未看" else "标记已看")
-        deleteButton.label(if (entry != null && confirm.isArmed(entry.series.id)) "再按一次确认删除" else "删除记录")
     }
 
     // ---------- 交互 ----------
 
     private fun onCardFocused(seriesId: String) {
-        if (targetId != seriesId) {
-            confirm.disarm()
-            targetId = seriesId
-        }
-        if (managing) updateFooter()
+        targetId = seriesId
+    }
+
+    /** 管理态的确认键语义归垃圾桶（删除当前卡），不再跳详情。 */
+    private fun openHistory(item: CardItem) {
+        if (managing) return
+        host.navigator.toDetail(item.id, resumeRecording = true)
     }
 
     /**
-     * 焦点落定后的信息栏：落在本页网格的卡片上才显示（片名 + 收藏状态 + 分类），
-     * 落到别处（侧栏、输入区、管理动作条）整条收起——避免「离开卡片区信息栏残留」。
+     * 焦点落定后的信息栏：落在网格的卡片上显示（片名 + 收藏状态 + 分类）；
+     * 管理态统一换成管理提示——垃圾桶持焦，这条信息栏就是管理的"动作条"。
      */
     private fun onCardSettled(key: FocusKey) {
-        val entry = grid.cardIdOf(key)?.let { id -> entries.firstOrNull { it.series.id == id } }
-        if (managing || entry == null) {
-            scaffold.hideBand()
+        if (managing) {
+            showManageBand()
             return
         }
-        showBand(entry)
+        val entry = grid.cardIdOf(key)?.let { id -> entries.firstOrNull { it.series.id == id } }
+        if (entry == null) {
+            scaffold.hideBand()
+        } else {
+            showBand(entry)
+        }
     }
 
     /** 信息栏只写"这部剧"：片名 + 收藏状态 + 分类。观看位置在卡片状态条上，不重复。 */
@@ -173,7 +191,17 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
         )
     }
 
-    /** MENU 键 = 管理入口（B 方案口径，宿主从 `LiteActivity` 转发过来）。 */
+    /** 管理态的信息栏：与普通信息栏同一个组件、同一套视觉，只换说明。 */
+    private fun showManageBand() {
+        val entry = target() ?: return
+        scaffold.band().show(
+            title = "管理：《${entry.series.title}》",
+            segments = emptyList(),
+            keys = listOf("OK" to "删除这条", "MENU/返回" to "退出"),
+        )
+    }
+
+    /** MENU 键 = 管理开关（宿主从 `LiteActivity` 转发过来）。 */
     override fun onMenuKey(): Boolean {
         if (entries.isEmpty()) return false
         setManaging(!managing)
@@ -187,47 +215,92 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
         return true
     }
 
+    /**
+     * 管理态吃掉全部方向键与确认：光标锁在垃圾桶上，四向按**网格几何**换卡
+     * （左右同行相邻、上下同列跨行，越界夹住），确认直接删除。
+     * 不拦截的话焦点系统会把光标扔进网格，"点垃圾桶删除"就落空了。
+     */
+    override fun onKeyEvent(event: KeyEvent): Boolean {
+        if (!managing || event.action != KeyEvent.ACTION_DOWN) return false
+        val index = entries.indexOfFirst { it.series.id == targetId }
+        if (index < 0) return false
+        val columns = rendered?.columns ?: 1
+        val column = index % columns
+        val next = when (event.keyCode) {
+            KeyEvent.KEYCODE_DPAD_LEFT -> if (column > 0) index - 1 else index
+            KeyEvent.KEYCODE_DPAD_RIGHT -> if (column < columns - 1 && index + 1 < entries.size) index + 1 else index
+            KeyEvent.KEYCODE_DPAD_UP -> (index - columns).coerceAtLeast(0)
+            KeyEvent.KEYCODE_DPAD_DOWN -> (index + columns).coerceAtMost(entries.lastIndex)
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                deleteCurrent()
+                return true
+            }
+            else -> return false
+        }
+        moveTarget(entries[next].series.id)
+        return true
+    }
+
     private fun setManaging(value: Boolean) {
         if (managing == value) return
         managing = value
-        confirm.disarm()
-        if (value && targetId == null) targetId = entries.firstOrNull()?.series?.id
-        if (!value) {
-            // 退出管理态回到刚才管理的那张卡：动作条段消失后，留在记忆里的动作条 key
-            // 会失效走阶梯（第一张卡），被管理的目标才是用户想回去的位置
+        if (value) {
+            if (targetId == null || entries.none { it.series.id == targetId }) {
+                targetId = entries.firstOrNull()?.series?.id
+            }
+            deleteBadge.visibility = View.VISIBLE
+            deleteBadge.post { positionBadge() }
+            // 光标锁在垃圾桶上、没有任何卡持焦：聚光目标显式钉到垃圾桶所在的那张卡
+            grid.highlight(targetId)
+            preferredOnRender = FocusKey(KEY_BADGE)
+        } else {
+            // 回到被管理的那张卡：垃圾桶段消失后，留在记忆里的垃圾桶 key 会失效走阶梯
             targetId?.let { id -> preferredOnRender = grid.keyOf(id) }
+            deleteBadge.visibility = View.GONE
+            grid.highlight(null)
         }
-        footer.visibility = if (value) View.VISIBLE else View.GONE
-        // 管理态与信息栏互斥：动作条自己带说明，不再让两条底栏摞在一起
-        if (value) scaffold.hideBand()
-        updateFooter()
         applyFocus()
     }
 
-    private fun toggleWatched() {
+    /** 换卡：垃圾桶挪到新目标卡上，聚光与信息栏一起跟过去（焦点不动，落定回调不会触发）。 */
+    private fun moveTarget(id: String) {
+        targetId = id
+        grid.highlight(id)
+        deleteBadge.post { positionBadge() }
+        showManageBand()
+    }
+
+    private fun deleteCurrent() {
         val entry = target() ?: return
-        val next = !host.progress.isWatched(entry.series.id)
+        val index = entries.indexOfFirst { it.series.id == entry.series.id }
         scope.launch {
-            host.progress.setWatched(entry.series.id, next)
+            host.progress.removeHistory(entry.series.id)
+            // 保持管理态、目标跳到相邻卡（右边优先，末尾退一张）：连续清理不用反复进出
+            targetId = (entries.getOrNull(index + 1) ?: entries.getOrNull(index - 1))?.series?.id
             reload()
+            Toast.makeText(ui.context, "已删除《${entry.series.title}》", Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun deleteRecord() {
-        val entry = target() ?: return
-        if (!confirm.press(entry.series.id)) {
-            updateFooter()
-            return
+    // ---------- 垃圾桶定位 ----------
+
+    /**
+     * 把垃圾桶摆到目标卡的右上角。坐标从卡片沿父链累加到管理层：
+     * 与网格同一层，滚动时自然跟随，不需要监听滚动事件。
+     */
+    private fun positionBadge() {
+        if (!managing) return
+        val card = targetId?.let { id -> rendered?.views?.get(grid.keyOf(id)) } ?: return
+        var x = 0
+        var y = 0
+        var view: View = card
+        while (view !== gridLayer) {
+            x += view.left
+            y += view.top
+            view = view.parent as? View ?: return
         }
-        scope.launch {
-            host.progress.removeHistory(entry.series.id)
-            targetId = null
-            // 删掉目标后退出管理态：留一个"选中的记录"已经不存在的动作条只会让人困惑
-            managing = false
-            footer.visibility = View.GONE
-            reload()
-            Toast.makeText(ui.context, "已删除《${entry.series.title}》的记录", Toast.LENGTH_SHORT).show()
-        }
+        deleteBadge.translationX = (x + card.width - ui.dp(BADGE_SIZE) - ui.dp(BADGE_INSET)).toFloat()
+        deleteBadge.translationY = (y + ui.dp(BADGE_INSET)).toFloat()
     }
 
     // ---------- 焦点 ----------
@@ -240,29 +313,13 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
         val views = LinkedHashMap<FocusKey, View>()
         views.putAll(navViews())
         rendered?.views?.let { views.putAll(it) }
-        if (managing) {
-            views[FocusKey("history:resume")] = resumeButton
-            views[FocusKey("history:watched")] = watchedButton
-            views[FocusKey("history:delete")] = deleteButton
-        }
+        if (managing) views[FocusKey(KEY_BADGE)] = deleteBadge
 
+        // 管理态光标锁在垃圾桶上：四向与确认都被 [onKeyEvent] 拦截，网格段留在图里
+        // 只是为了退出管理态后 applyFocus 的结构完整
         val sections = listOf(
             rendered?.let { FocusSections.section(it.keys, it.columns) },
-            if (managing) {
-                // flanked 不配侧翼 = 左右都夹住自己：动作条按左不进导航侧栏
-                //（上下仍与网格互通——从卡片按下够动作条、按上回网格）
-                FocusSections.section(
-                    listOf(
-                        FocusKey("history:resume"),
-                        FocusKey("history:watched"),
-                        FocusKey("history:delete"),
-                    ),
-                    3,
-                    flanked = true,
-                )
-            } else {
-                null
-            },
+            if (managing) FocusSections.section(listOf(FocusKey(KEY_BADGE)), 1) else null,
         )
         applyPlan(sections, views)
     }
@@ -270,5 +327,12 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
     private companion object {
         /** 本页网格的焦点段名（`PosterGrid.keyOf` 的前缀）：落定回调靠它认出"落在了卡片上"。 */
         const val GRID_SECTION = "history"
+
+        /** 管理垃圾桶的焦点 key。 */
+        const val KEY_BADGE = "history:delete"
+
+        /** 垃圾桶边长与到卡片边缘的内距（dp）。 */
+        const val BADGE_SIZE = 34
+        const val BADGE_INSET = 6
     }
 }

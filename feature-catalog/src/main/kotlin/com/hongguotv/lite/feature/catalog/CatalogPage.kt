@@ -1,5 +1,6 @@
 package com.hongguotv.lite.feature.catalog
 
+import android.view.KeyEvent
 import android.view.View
 import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.focus.FocusSection
@@ -100,6 +101,13 @@ internal abstract class CatalogPage(
      * 默认不接：返回键对目录页保持"栈底退出/回搜索页"的既有行为。
      */
     open fun onBack(): Boolean = false
+
+    /**
+     * 目录页的按键（确认/方向）。页面没接就返回 false，宿主走焦点系统默认行为。
+     * 用于"光标锁定、按键由页面自己解释"的模式（历史页管理态）——这类按键
+     * 必须在焦点系统之前被消费，否则方向键会先把光标扔走。
+     */
+    open fun onKeyEvent(event: KeyEvent): Boolean = false
 
     /** 子页需要摘对外回调（如更新监听）时覆写；覆写方必须调 super。 */
     open fun release() {
