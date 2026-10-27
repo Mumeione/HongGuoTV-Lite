@@ -6,6 +6,7 @@ import com.hongguotv.core.port.UpstreamError
 import com.hongguotv.core.protocol.SignedRequest
 import com.hongguotv.lite.data.http.HttpTransport
 import com.hongguotv.lite.data.library.KeyValueStore
+import com.hongguotv.lite.data.library.ValidatingMemoryStore
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -32,23 +33,6 @@ class UpdateManagerTest {
             if (body == null) throw UpstreamError.HttpStatus(404)
             if (body.startsWith("!")) throw UpstreamError.Network(java.io.IOException(body.drop(1)))
             return body
-        }
-    }
-
-    /**
-     * 类型白名单与 [com.hongguotv.lite.data.library.SharedPreferencesStore] 对齐：
-     * 假体不校验的话，业务代码存了 prefs 存不了的类型，单测照样全绿（4b229b8 的教训）。
-     */
-    private class InMemoryStore : KeyValueStore {
-        val data = LinkedHashMap<String, Any?>()
-        override fun all(): Map<String, Any?> = data.toMap()
-        override fun commit(values: Map<String, Any?>) = values.forEach { (k, v) ->
-            when (v) {
-                null -> data.remove(k)
-                is String, is Int, is Long, is Float, is Boolean -> data[k] = v
-                is Set<*> -> data[k] = v.filterIsInstance<String>().toSet()
-                else -> throw IllegalArgumentException("不支持的本地存储类型：${v::class.java.name}")
-            }
         }
     }
 
@@ -180,7 +164,7 @@ class UpdateManagerTest {
 
     @Test
     fun autoCheckIsThrottledAndSilentlyDropsFailures() = runBlocking {
-        val store = InMemoryStore()
+        val store = ValidatingMemoryStore()
         val transport = FakeTransport(respond = { null })   // 两源都空
         // 时钟必须大于 24h 节流窗，否则首查就被节流掉
         val updates = manager(transport, store = store, now = 100_000_000L)

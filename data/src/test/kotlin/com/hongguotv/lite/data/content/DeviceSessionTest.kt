@@ -8,6 +8,7 @@ import com.hongguotv.core.protocol.SignedRequest
 import com.hongguotv.lite.data.http.HttpResponse
 import com.hongguotv.lite.data.http.HttpTransport
 import com.hongguotv.lite.data.library.KeyValueStore
+import com.hongguotv.lite.data.library.ValidatingMemoryStore
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -27,22 +28,6 @@ import kotlin.test.assertFailsWith
  * 这些断言挡的是旧实现的行为——每次启动随机换一对 id，等于每开机一次就多一台设备。
  */
 class DeviceSessionTest {
-
-    /** 类型白名单与 SharedPreferencesStore 对齐：假体不校验，存错类型单测也发现不了。 */
-    private class MemoryStore(initial: Map<String, Any?> = emptyMap()) : KeyValueStore {
-        private val values = LinkedHashMap<String, Any?>(initial)
-        override fun all(): Map<String, Any?> = LinkedHashMap(values)
-        override fun commit(batch: Map<String, Any?>) {
-            batch.forEach { (key, value) ->
-                when (value) {
-                    null -> values.remove(key)
-                    is String, is Int, is Long, is Float, is Boolean -> values[key] = value
-                    is Set<*> -> values[key] = value.filterIsInstance<String>().toSet()
-                    else -> throw IllegalArgumentException("不支持的本地存储类型：${value::class.java.name}")
-                }
-            }
-        }
-    }
 
     private class RegisterTransport(
         /** 第 [calls] 次注册的响应；默认每次下发一对新 id（真实服务端就是这样）。 */
@@ -74,7 +59,7 @@ class DeviceSessionTest {
 
     @Test
     fun `first ensure registers once and writes the identity to disk`() = runTest {
-        val store = MemoryStore()
+        val store = ValidatingMemoryStore()
         val transport = RegisterTransport()
         val devices = session(store, transport)
 
@@ -93,7 +78,7 @@ class DeviceSessionTest {
 
     @Test
     fun `a restarted app reads the stored identity instead of registering again`() = runTest {
-        val store = MemoryStore()
+        val store = ValidatingMemoryStore()
         session(store, RegisterTransport()).ensure()
 
         val nextTransport = RegisterTransport()
@@ -106,7 +91,7 @@ class DeviceSessionTest {
     @Test
     fun `concurrent ensure collapses into one registration`() = runTest {
         val transport = RegisterTransport(latencyMs = 50)
-        val devices = session(MemoryStore(), transport)
+        val devices = session(ValidatingMemoryStore(), transport)
         coroutineScope {
             List(8) { async { devices.ensure() } }.awaitAll()
         }
@@ -117,7 +102,7 @@ class DeviceSessionTest {
     fun `a second renew is refused inside the cooldown window`() = runTest {
         var now = 1_000_000L
         val transport = RegisterTransport()
-        val devices = session(MemoryStore(), transport) { now }
+        val devices = session(ValidatingMemoryStore(), transport) { now }
         devices.ensure()
         assertEquals(1, transport.calls)
 
@@ -136,7 +121,7 @@ class DeviceSessionTest {
     fun `renew after the cooldown rotates to the next tablet`() = runTest {
         var now = 1_000_000L
         val transport = RegisterTransport()
-        val devices = session(MemoryStore(), transport) { now }
+        val devices = session(ValidatingMemoryStore(), transport) { now }
         val first = devices.ensure()
 
         now += DeviceSession.RENEW_COOLDOWN_MS + 1
@@ -155,7 +140,7 @@ class DeviceSessionTest {
     @Test
     fun `a rejected registration does not clobber an existing identity`() = runTest {
         var now = 1_000_000L
-        val store = MemoryStore()
+        val store = ValidatingMemoryStore()
         val good = RegisterTransport()
         val devices = session(store, good) { now }
         val first = devices.ensure()
@@ -171,7 +156,7 @@ class DeviceSessionTest {
 
     @Test
     fun `a rejected first registration surfaces a device error`() = runTest {
-        val devices = session(MemoryStore(), RegisterTransport(bodyFor = { """{"device_id":0,"install_id":0}""" }))
+        val devices = session(ValidatingMemoryStore(), RegisterTransport(bodyFor = { """{"device_id":0,"install_id":0}""" }))
         assertFailsWith<UpstreamError.Device> { devices.ensure() }
         assertNull(devices.snapshot())
     }
@@ -180,7 +165,7 @@ class DeviceSessionTest {
     fun `a failed registration backs off for a minute`() = runTest {
         var now = 1_000_000L
         val transport = RegisterTransport(bodyFor = { """{"device_id":0,"install_id":0}""" })
-        val devices = session(MemoryStore(), transport) { now }
+        val devices = session(ValidatingMemoryStore(), transport) { now }
         assertFailsWith<UpstreamError.Device> { devices.ensure() }
         assertEquals(1, transport.calls)
 
@@ -197,7 +182,7 @@ class DeviceSessionTest {
 
     @Test
     fun `corrupted stored registration falls back to registering again`() = runTest {
-        val store = MemoryStore(mapOf(DeviceSession.KEY_REGISTRATION to "{not-json"))
+        val store = ValidatingMemoryStore(mapOf(DeviceSession.KEY_REGISTRATION to "{not-json"))
         val transport = RegisterTransport()
         val devices = session(store, transport)
         assertNull("坏数据不能当身份用", devices.snapshot())
@@ -208,7 +193,7 @@ class DeviceSessionTest {
     @Test
     fun `registration request is an unsigned octet stream to the documented endpoint`() = runTest {
         val transport = RegisterTransport()
-        session(MemoryStore(), transport).ensure()
+        session(ValidatingMemoryStore(), transport).ensure()
         val request = transport.requests.single()
         assertEquals(HttpMethod.POST, request.method)
         assertTrue(request.url, request.url.startsWith("https://log5-applog-lf.fqnovel.com/service/2/device_register/"))
@@ -225,7 +210,7 @@ class DeviceSessionTest {
 
     @Test
     fun `stored json is the only source of truth across instances`() = runTest {
-        val store = MemoryStore()
+        val store = ValidatingMemoryStore()
         session(store, RegisterTransport()).ensure()
         val raw = JSONObject(store.all()[DeviceSession.KEY_REGISTRATION] as String)
         assertEquals("4175314086266699", raw.getString("device_id"))
@@ -237,7 +222,7 @@ class DeviceSessionTest {
 
     @Test
     fun `identity shape is validated when loading`() = runTest {
-        val store = MemoryStore(
+        val store = ValidatingMemoryStore(
             mapOf(
                 DeviceSession.KEY_REGISTRATION to JSONObject()
                     .put("device_id", "not-a-number")

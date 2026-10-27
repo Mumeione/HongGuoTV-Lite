@@ -16,8 +16,8 @@ import com.hongguotv.core.usecase.SeasonProgress
 import com.hongguotv.lite.data.content.ContentRepository
 import com.hongguotv.lite.data.content.DeviceSession
 import com.hongguotv.lite.data.http.OkHttpTransport
-import com.hongguotv.lite.data.library.KeyValueStore
 import com.hongguotv.lite.data.library.PrefsLibrary
+import com.hongguotv.lite.data.library.ValidatingMemoryStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -51,7 +51,7 @@ class SeasonLineProbe {
             val diagnostics = SilentDiagnostics
             val transport = OkHttpTransport(diagnostics = diagnostics)
             // 与生产同一条路：匿名注册一次，之后所有内容端点都用这一对身份。
-            val devices = DeviceSession(MemoryStore(), transport, diagnostics)
+            val devices = DeviceSession(ValidatingMemoryStore(), transport, diagnostics)
             devices.ensure()
             val content = ContentRepository(
                 http = transport,
@@ -229,7 +229,7 @@ class SeasonLineProbe {
         ).distinctBy { it.first.id }
 
         targets.forEach { (favorite, label) ->
-            val lib = PrefsLibrary(MemoryStore())
+            val lib = PrefsLibrary(ValidatingMemoryStore())
             lib.toggle(favorite)
             val key = SeasonKeys.seasonKey(favorite.title)
             lib.rememberSeasonLine(key, line)
@@ -262,7 +262,7 @@ class SeasonLineProbe {
             completed = false,
             updatedAt = 1L,
         )
-        val lib = PrefsLibrary(MemoryStore())
+        val lib = PrefsLibrary(ValidatingMemoryStore())
         lib.toggle(detail.series)
         val favKey = SeasonKeys.seasonKey(detail.series.title)
         lib.rememberSeasonLine(favKey, line)
@@ -329,22 +329,6 @@ class SeasonLineProbe {
         } catch (error: Throwable) {
             println("[$label] FAIL ${error::class.java.simpleName}: ${error.message}")
             null
-        }
-    }
-
-    /** 探针用的内存键值库：注册与本地库都不落盘。类型白名单与生产实现对齐。 */
-    private class MemoryStore : KeyValueStore {
-        private val stored = LinkedHashMap<String, Any?>()
-        override fun all(): Map<String, Any?> = LinkedHashMap(stored)
-        override fun commit(values: Map<String, Any?>) {
-            values.forEach { (key, value) ->
-                when (value) {
-                    null -> stored.remove(key)
-                    is String, is Int, is Long, is Float, is Boolean -> stored[key] = value
-                    is Set<*> -> stored[key] = value.filterIsInstance<String>().toSet()
-                    else -> throw IllegalArgumentException("不支持的本地存储类型：${value::class.java.name}")
-                }
-            }
         }
     }
 

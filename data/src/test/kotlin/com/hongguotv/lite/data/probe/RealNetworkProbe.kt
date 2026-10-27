@@ -13,7 +13,7 @@ import com.hongguotv.core.port.MediaStream
 import com.hongguotv.lite.data.content.ContentRepository
 import com.hongguotv.lite.data.content.DeviceSession
 import com.hongguotv.lite.data.http.OkHttpTransport
-import com.hongguotv.lite.data.library.KeyValueStore
+import com.hongguotv.lite.data.library.ValidatingMemoryStore
 import com.hongguotv.lite.data.media.HttpRangeReader
 import com.hongguotv.lite.data.media.StreamTransport
 import kotlinx.coroutines.runBlocking
@@ -43,7 +43,7 @@ class RealNetworkProbe {
             val transport = OkHttpTransport(diagnostics = diagnostics)
             // 与生产同一条路：先匿名注册一次（内置那对已被拉黑），之后所有请求都用这一对身份。
             // 探针的 store 只在内存里：每次跑探针注册一台新设备，不污染真机上的注册结果。
-            val devices = DeviceSession(MemoryStore(), transport, diagnostics)
+            val devices = DeviceSession(ValidatingMemoryStore(), transport, diagnostics)
             devices.ensure()
             val content = ContentRepository(
                 http = transport,
@@ -124,22 +124,6 @@ class RealNetworkProbe {
             report.line("  count=${suggestions?.size}")
 
             report.print()
-        }
-    }
-
-    /** 探针用的内存键值库：注册结果不落盘，跑一次算一次。类型白名单与生产实现对齐。 */
-    private class MemoryStore : KeyValueStore {
-        private val values = LinkedHashMap<String, Any?>()
-        override fun all(): Map<String, Any?> = LinkedHashMap(values)
-        override fun commit(batch: Map<String, Any?>) {
-            batch.forEach { (key, value) ->
-                when (value) {
-                    null -> values.remove(key)
-                    is String, is Int, is Long, is Float, is Boolean -> values[key] = value
-                    is Set<*> -> values[key] = value.filterIsInstance<String>().toSet()
-                    else -> throw IllegalArgumentException("不支持的本地存储类型：${value::class.java.name}")
-                }
-            }
         }
     }
 
