@@ -239,7 +239,10 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
      * 「检查更新」往下按一下就够到，不需要抢占首焦。
      */
     override fun startFocus(): List<FocusKey> =
-        listOfNotNull(rendered?.keys?.firstOrNull(), navKey(CatalogTab.FAVORITES.ordinal))
+        listOfNotNull(firstCard(), navKey(CatalogTab.FAVORITES.ordinal))
+
+    /** 第一张收藏卡（空收藏为 null）：首焦阶梯与侧栏按右入口共用同一个落点。 */
+    private fun firstCard(): FocusKey? = rendered?.keys?.firstOrNull()
 
     private fun applyFocus() {
         val views = LinkedHashMap<FocusKey, View>()
@@ -251,7 +254,9 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
             FocusSections.section(listOf(FocusKey("favorites:check")), 1),
             rendered?.let { FocusSections.section(it.keys, it.columns) },
         )
-        applyPlan(sections, views)
+        // 侧栏按右直接进第一张收藏卡（「检查更新」只从下方按上可达）；
+        // 空收藏没有卡片，sideEntry 为 null 退回默认落按钮本身（页内唯一内容项）。
+        applyPlan(sections, views, sideEntry = firstCard())
     }
 
     private companion object {

@@ -35,6 +35,9 @@ object FocusSections {
      * [side] 是左侧栏，[sideAnchor] 是"内容往左回侧栏时落在哪一项"（通常是当前 tab）。
      * 目录页的内容只有一行卡，不给锚点就会落到侧栏中段——用户按左键想回自己的 tab，
      * 却被带去了别的页面（模拟器实测）。
+     *
+     * [sideEntry] 是"侧栏按右进内容时落在哪一项"，与 [sideAnchor] 对称的另一半（机制见
+     * [FocusPlan.sideEntry]）。
      */
     fun plan(
         sections: List<FocusSection?>,
@@ -42,9 +45,10 @@ object FocusSections {
         sideAnchor: FocusKey? = null,
         leftFlank: FocusSection? = null,
         rightFlank: FocusSection? = null,
+        sideEntry: FocusKey? = null,
     ): FocusPlan? {
         val present = sections.filterNotNull()
         if (present.isEmpty()) return null
-        return FocusPlan(present, side, sideAnchor, leftFlank, rightFlank)
+        return FocusPlan(present, side, sideAnchor, leftFlank, rightFlank, sideEntry)
     }
 }

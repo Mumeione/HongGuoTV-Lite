@@ -16,7 +16,6 @@ import com.hongguotv.lite.uikit.page.GridRendered
 import com.hongguotv.lite.uikit.page.PosterGrid
 import com.hongguotv.lite.uikit.page.TwoStepConfirm
 import com.hongguotv.lite.uikit.ui.TvButton
-import com.hongguotv.lite.uikit.ui.TvLink
 import kotlinx.coroutines.launch
 
 /**
@@ -28,7 +27,8 @@ import kotlinx.coroutines.launch
  *
  * 管理入口是 **MENU 键**（顶部不再有"管理记录"按钮；一键全清只在设置里）：
  * 开启后对**当前聚焦的那条**执行 继续播放 / 标记已看（恢复未看）/ 删除。
- * 删除要两步确认——焦点移开即撤销。
+ * 删除要两步确认——焦点移开即撤销。退出靠 MENU 或返回键（返回=关菜单，不是离开页面）；
+ * 动作条左右都夹住自己（左右不进导航侧栏，上下仍与网格互通）。
  */
 internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.HISTORY) {
 
@@ -39,7 +39,6 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
     private lateinit var resumeButton: TvButton
     private lateinit var watchedButton: TvButton
     private lateinit var deleteButton: TvButton
-    private lateinit var doneButton: TvLink
 
     private var entries: List<HistoryEntry> = emptyList()
     private var rendered: GridRendered? = null
@@ -91,11 +90,9 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
                 updateFooter()
             }
         }
-        doneButton = ui.link("完成") { setManaging(false) }
         footer.addView(resumeButton, ui.params(rightGap = tokens.space.s))
         footer.addView(watchedButton, ui.params(rightGap = tokens.space.s))
-        footer.addView(deleteButton, ui.params(rightGap = tokens.space.s))
-        footer.addView(doneButton)
+        footer.addView(deleteButton)
 
         reload()
     }
@@ -183,11 +180,23 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
         return true
     }
 
+    /** 管理态的返回键 = 关闭菜单回到历史页（不是退出应用/回搜索页）。 */
+    override fun onBack(): Boolean {
+        if (!managing) return false
+        setManaging(false)
+        return true
+    }
+
     private fun setManaging(value: Boolean) {
         if (managing == value) return
         managing = value
         confirm.disarm()
         if (value && targetId == null) targetId = entries.firstOrNull()?.series?.id
+        if (!value) {
+            // 退出管理态回到刚才管理的那张卡：动作条段消失后，留在记忆里的动作条 key
+            // 会失效走阶梯（第一张卡），被管理的目标才是用户想回去的位置
+            targetId?.let { id -> preferredOnRender = grid.keyOf(id) }
+        }
         footer.visibility = if (value) View.VISIBLE else View.GONE
         // 管理态与信息栏互斥：动作条自己带说明，不再让两条底栏摞在一起
         if (value) scaffold.hideBand()
@@ -235,20 +244,21 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
             views[FocusKey("history:resume")] = resumeButton
             views[FocusKey("history:watched")] = watchedButton
             views[FocusKey("history:delete")] = deleteButton
-            views[FocusKey("history:done")] = doneButton
         }
 
         val sections = listOf(
             rendered?.let { FocusSections.section(it.keys, it.columns) },
             if (managing) {
+                // flanked 不配侧翼 = 左右都夹住自己：动作条按左不进导航侧栏
+                //（上下仍与网格互通——从卡片按下够动作条、按上回网格）
                 FocusSections.section(
                     listOf(
                         FocusKey("history:resume"),
                         FocusKey("history:watched"),
                         FocusKey("history:delete"),
-                        FocusKey("history:done"),
                     ),
-                    4,
+                    3,
+                    flanked = true,
                 )
             } else {
                 null

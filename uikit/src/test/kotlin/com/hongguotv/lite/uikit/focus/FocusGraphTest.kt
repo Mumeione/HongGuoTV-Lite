@@ -257,6 +257,46 @@ class FocusGraphTest {
     }
 
     @Test
+    fun `side entry overrides the vertical mapping for every rail item`() {
+        // 收藏/设置页的样子：第一段是页头按钮，侧栏按右要越过它落进内容。
+        val plan = FocusPlan(
+            listOf(
+                FocusSection(keys("check", 1), columns = 1),
+                FocusSection(keys("card", 4), columns = 2),
+            ),
+            side = FocusSection(keys("nav", 2), columns = 1),
+            sideAnchor = key("nav0"),
+            sideEntry = key("card0"),
+        )
+        val graph = FocusGraph.of(plan)
+        assertEquals("侧栏任一项按右都落页面指名的入口", key("card0"), graph.neighborsOf(key("nav0"))!!.right)
+        assertEquals(key("card0"), graph.neighborsOf(key("nav1"))!!.right)
+        // 页头按钮的合法路径保留：内容首行按上仍然到它（"从下方按上可达"）
+        assertEquals(key("check0"), graph.neighborsOf(key("card0"))!!.up)
+        // 内容往左回侧栏的锚点不受 sideEntry 影响
+        assertEquals(key("nav0"), graph.neighborsOf(key("card0"))!!.left)
+    }
+
+    @Test
+    fun `side entry pointing outside the graph falls back to the vertical mapping`() {
+        val plan = FocusPlan(
+            listOf(FocusSection(keys("card", 6), columns = 3)),
+            side = FocusSection(keys("nav", 4), columns = 1),
+            sideEntry = key("gone"),
+        )
+        val graph = FocusGraph.of(plan)
+        assertEquals(key("card0"), graph.neighborsOf(key("nav0"))!!.right)
+        assertEquals(key("card3"), graph.neighborsOf(key("nav3"))!!.right)
+    }
+
+    @Test
+    fun `rail keeps vertical mapping when no side entry is declared`() {
+        val graph = FocusGraph.of(railPlan())
+        assertEquals(key("card0"), graph.neighborsOf(key("nav0"))!!.right)
+        assertEquals(key("card3"), graph.neighborsOf(key("nav3"))!!.right)
+    }
+
+    @Test
     fun `rail order comes first for focus fallback`() {
         val graph = FocusGraph.of(railPlan())
         assertEquals("侧栏是页面的第一段（空页兜底落在导航上）", "nav0", graph.order.first().value)

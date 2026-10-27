@@ -97,6 +97,8 @@ class LiteActivity : Activity(), Navigator {
     }
 
     override fun back() {
+        // 目录页的页内返回（历史页管理态 = 关闭菜单回到历史页）先于路由栈回退
+        if (painted is Route.Catalog && graph.catalog.onBack()) return
         when (stack.back()) {
             NavResult.MOVED -> render(stack.top)
             NavResult.EXIT -> leaveApp()

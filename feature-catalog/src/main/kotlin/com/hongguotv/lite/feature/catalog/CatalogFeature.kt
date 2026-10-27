@@ -85,6 +85,19 @@ class CatalogFeature(
         created.build(lastFocus[next])
     }
 
+    /**
+     * 从侧栏**点击**切页：光标按目标页声明的入口落，不恢复上次的记忆。
+     *
+     * 点击导航项是明确的导航意图（"我要去搜索"→ 光标在搜索框），上次的光标位置
+     * 不该把它拽回卡片区；「从详情返回还停在那张卡」的走的是 [release] 存、
+     * [show] 读的这一路，不受影响。点当前 tab 是空操作（[show] 自己会拦）。
+     */
+    fun showFromRail(index: Int) {
+        val next = CatalogTab.of(index)
+        if (next != tab) lastFocus.remove(next)
+        show(next)
+    }
+
     /** 离开目录（进详情/播放或宿主销毁）：取消在途请求与收藏更新检查。 */
     fun release() {
         val current = page ?: return
@@ -100,6 +113,12 @@ class CatalogFeature(
      * 返回是否被消费（消费了宿主就不再走系统默认）。
      */
     fun onMenuKey(): Boolean = page?.onMenuKey() ?: false
+
+    /**
+     * 目录页的返回键：页面先接（历史页管理态 = 关闭菜单），没人接才交给路由栈。
+     * 返回是否被消费（消费了宿主就不再回退路由）。
+     */
+    fun onBack(): Boolean = page?.onBack() ?: false
 }
 
 /**

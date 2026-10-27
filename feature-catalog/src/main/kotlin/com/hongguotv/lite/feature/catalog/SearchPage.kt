@@ -584,11 +584,12 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
     }
 
     /**
-     * 首焦：第一张结果卡 → 搜索框。
-     * 搜索完成、切回本页、页面重建都按这条走，不再落回侧栏。
+     * 首焦：搜索框。
+     * 进搜索页（冷启动、侧栏点击）光标都从输入框开始——「继续看」是背景墙不是入口，
+     * 排在阶梯前面会让每次进来都先撞上它。搜索完成后由 `preferredOnRender` 显式落到
+     * 第一张结果卡，从详情返回走跨页记忆，都不经过这条阶梯。
      */
-    override fun startFocus(): List<FocusKey> =
-        listOfNotNull(rendered?.keys?.firstOrNull() ?: continueRendered?.keys?.firstOrNull(), FocusKey("search:input"))
+    override fun startFocus(): List<FocusKey> = listOf(FocusKey("search:input"))
 
     /**
      * 输入行的可聚焦项。排序键只在聚合态出现：非聚合时它整键隐藏，
@@ -632,7 +633,7 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
             // 翻页行与卡片同层（内容底部）：声明顺序 = 视觉顺序，网格之后声明
             pagerSection,
         )
-        applyPlan(sections, views)
+        applyPlan(sections, views, sideEntry = FocusKey("search:input"))
     }
 
     // ---------- 平台小工具 ----------

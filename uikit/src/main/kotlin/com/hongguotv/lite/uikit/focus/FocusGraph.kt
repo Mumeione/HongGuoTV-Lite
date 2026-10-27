@@ -149,6 +149,14 @@ data class FocusPlan(
      */
     val leftFlank: FocusSection? = null,
     val rightFlank: FocusSection? = null,
+    /**
+     * 侧栏按右进内容时的**显式落点**（页面指名），默认 null = 按"竖直位置映射进第一段"。
+     *
+     * 默认映射会落进 [sections] 的**第一段**，但第一段未必是用户想去的：收藏/设置页的第一段
+     * 是页头的「检查更新」按钮，侧栏按右应该越过它落进内容（第一张卡 / 第一个设置行）；
+     * 搜索页则是落到输入框而不是片库行。key 不在图里（该段被收起）时自动回退默认映射。
+     */
+    val sideEntry: FocusKey? = null,
 ) {
     init { require(sections.isNotEmpty()) { "焦点图至少需要一段" } }
 }
@@ -281,6 +289,15 @@ class FocusGraph private constructor(
                         "焦点 key 重复：${key.value}。同一个 key 不能出现在两个位置，否则焦点会指向两处"
                     }
                     map[key] = Neighbors(left = left, right = right, up = up, down = down)
+                }
+            }
+
+            // 侧栏按右的显式入口：页面指名的落点优先于"竖直位置映射进第一段"。
+            // 放在所有段建完之后做——此时才能校验 key 真的在图里（段是动态收起的）；
+            // key 无效时保持默认映射，不能把光标扔到图外。
+            plan.sideEntry?.takeIf { map.containsKey(it) }?.let { entry ->
+                plan.side?.keys?.forEach { sideKey ->
+                    map[sideKey] = map.getValue(sideKey).copy(right = entry)
                 }
             }
             return FocusGraph(map, order)

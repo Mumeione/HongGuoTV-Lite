@@ -54,8 +54,9 @@ internal abstract class CatalogPage(
     fun build(preferred: FocusKey?) {
         preferredOnBuild = preferred
         // 导航项的标签与图标由 uikit 的 RailSlot 提供，页面只决定"选中谁、点了去哪"
+        //（点击 = 导航意图、清目标页记忆，见 [CatalogFeature.showFromRail]）。
         rail = scaffold.showRail(
-            RailNav.standardItems { index -> host.show(CatalogTab.of(index)) },
+            RailNav.standardItems { index -> host.showFromRail(index) },
             tab.ordinal,
         )
         onBuild()
@@ -94,6 +95,12 @@ internal abstract class CatalogPage(
      */
     open fun onMenuKey(): Boolean = false
 
+    /**
+     * 目录页的返回键，宿主在路由栈回退**之前**先问。返回 true = 已消费。
+     * 默认不接：返回键对目录页保持"栈底退出/回搜索页"的既有行为。
+     */
+    open fun onBack(): Boolean = false
+
     /** 子页需要摘对外回调（如更新监听）时覆写；覆写方必须调 super。 */
     open fun release() {
         jobs.cancel()
@@ -107,10 +114,20 @@ internal abstract class CatalogPage(
         FocusSections.section(rail.keys(), columns = 1)
 
     /** 提交焦点结构。空的段（没有联想、没有结果、页脚没开）由 [FocusSections] 丢弃。 */
-    protected fun applyPlan(sections: List<FocusSection?>, views: Map<FocusKey, View>) {
+    protected fun applyPlan(
+        sections: List<FocusSection?>,
+        views: Map<FocusKey, View>,
+        sideEntry: FocusKey? = null,
+    ) {
         // 内容往左回侧栏时落在**本页的 tab** 上：内容通常只有一行卡，按竖直位置映射
-        // 会落到侧栏中段（实测：搜索页按左键落在「收藏」上，再按确认就换了页）
-        val plan = FocusSections.plan(sections, side = navSection(), sideAnchor = navKey(tab.ordinal)) ?: return
+        // 会落到侧栏中段（实测：搜索页按左键落在「收藏」上，再按确认就换了页）。
+        // [sideEntry] 是对称的另一半：侧栏按右进内容的落点（机制见 FocusPlan.sideEntry）。
+        val plan = FocusSections.plan(
+            sections,
+            side = navSection(),
+            sideAnchor = navKey(tab.ordinal),
+            sideEntry = sideEntry,
+        ) ?: return
         focus.bind(plan, views)
         val wanted = preferredOnBuild ?: preferredOnRender
         preferredOnRender = null

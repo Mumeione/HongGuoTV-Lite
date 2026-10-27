@@ -246,12 +246,13 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
         }
 
         // 侧栏由 `applyPlan` 统一当"侧段"加进去，这里只提交内容段——
-        // 再放一次 navSection() 会让同一批 nav key 出现在两处，焦点图直接拒绝
+        // 再放一次 navSection() 会让同一批 nav key 出现在两处，焦点图直接拒绝。
+        // 侧栏按右直接进「默认清晰度」行；页头「检查更新」只从下方（设置行按上）可达
         val sections = listOf(
             FocusSections.section(listOf(FocusKey("settings:update")), 1),
             FocusSections.section(keys, 2),
         )
-        applyPlan(sections, views)
+        applyPlan(sections, views, sideEntry = FocusKey("setting:L0"))
     }
 
     private companion object {
