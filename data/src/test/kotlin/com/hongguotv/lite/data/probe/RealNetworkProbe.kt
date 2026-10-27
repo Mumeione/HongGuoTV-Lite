@@ -127,12 +127,19 @@ class RealNetworkProbe {
         }
     }
 
-    /** 探针用的内存键值库：注册结果不落盘，跑一次算一次。 */
+    /** 探针用的内存键值库：注册结果不落盘，跑一次算一次。类型白名单与生产实现对齐。 */
     private class MemoryStore : KeyValueStore {
         private val values = LinkedHashMap<String, Any?>()
         override fun all(): Map<String, Any?> = LinkedHashMap(values)
         override fun commit(batch: Map<String, Any?>) {
-            batch.forEach { (key, value) -> if (value == null) values.remove(key) else values[key] = value }
+            batch.forEach { (key, value) ->
+                when (value) {
+                    null -> values.remove(key)
+                    is String, is Int, is Long, is Float, is Boolean -> values[key] = value
+                    is Set<*> -> values[key] = value.filterIsInstance<String>().toSet()
+                    else -> throw IllegalArgumentException("不支持的本地存储类型：${value::class.java.name}")
+                }
+            }
         }
     }
 

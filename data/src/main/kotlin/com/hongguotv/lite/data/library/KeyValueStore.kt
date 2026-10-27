@@ -9,7 +9,13 @@ import android.content.Context
 interface KeyValueStore {
     fun all(): Map<String, Any?>
 
-    /** null = 删除该键。同一次 commit 里的键要么全部生效要么全部不生效。 */
+    /**
+     * null = 删除该键。同一次 commit 里的键要么全部生效要么全部不生效。
+     *
+     * 写盘失败（磁盘满 / IO 错误）抛 [IllegalStateException]，不静默：调用方要么接得住
+     * 并留痕（PrefsLibrary 的 `lastWriteFailure`），要么确认"丢了无害"后自己包 runCatching
+     * （节流时间戳、设备注册落盘）。不接也不包的话，失败会沿调用链向上炸——这是有意的。
+     */
     fun commit(values: Map<String, Any?>)
 }
 
@@ -35,8 +41,14 @@ class SharedPreferencesStore(context: Context, name: String = PREFS_NAME) : KeyV
                 else -> throw IllegalArgumentException("不支持的本地存储类型：${value::class.java.name}")
             }
         }
-        // 写盘走单线程写队列（见 PrefsLibrary），这里同步 commit 换取落盘确定性
-        editor.commit()
+        // 写盘走单线程写队列（见 PrefsLibrary），这里同步 commit 换取落盘确定性。
+        // commit 返回 false = 磁盘满 / IO 错误（SharedPreferences 不抛异常，只回 false）：
+        // 吞掉它，进度与收藏就成了"内存有、盘上无"，重启后静默消失。
+        // 抛出去由调用方各自兜底：PrefsLibrary 留痕 lastWriteFailure；
+        // UpdateManager 的节流时间戳与 DeviceSession 的注册落盘包 runCatching（丢了无害）。
+        if (!editor.commit()) {
+            throw IllegalStateException("本地写盘失败：commit 返回 false（磁盘满或 IO 错误）")
+        }
     }
 
     companion object {

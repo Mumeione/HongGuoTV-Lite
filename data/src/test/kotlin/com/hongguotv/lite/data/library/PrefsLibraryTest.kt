@@ -20,13 +20,21 @@ import org.junit.Test
 /** 本地库：旧版 prefs 的可读性（迁移）、三个端口的行为、写路径。 */
 class PrefsLibraryTest {
 
+    /** 类型白名单与 SharedPreferencesStore 对齐：假体不校验，存错类型单测也发现不了。 */
     private class InMemoryStore(initial: Map<String, Any?> = emptyMap()) : KeyValueStore {
         val data = LinkedHashMap<String, Any?>(initial)
         var commits = 0
             private set
         override fun all(): Map<String, Any?> = data.toMap()
         override fun commit(values: Map<String, Any?>) {
-            values.forEach { (key, value) -> if (value == null) data.remove(key) else data[key] = value }
+            values.forEach { (key, value) ->
+                when (value) {
+                    null -> data.remove(key)
+                    is String, is Int, is Long, is Float, is Boolean -> data[key] = value
+                    is Set<*> -> data[key] = value.filterIsInstance<String>().toSet()
+                    else -> throw IllegalArgumentException("不支持的本地存储类型：${value::class.java.name}")
+                }
+            }
             commits++
         }
     }

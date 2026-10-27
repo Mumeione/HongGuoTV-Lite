@@ -199,8 +199,15 @@ class DeviceSession(
     private suspend fun persist(snapshot: DeviceSnapshot) {
         current = snapshot
         val encoded = encode(snapshot)
-        // 注册一次才写一次，但不要在 Main 上落盘：SharedPreferences.commit 是同步磁盘写
-        withContext(Dispatchers.IO) { store.commit(mapOf(KEY_REGISTRATION to encoded)) }
+        // 注册一次才写一次，但不要在 Main 上落盘：SharedPreferences.commit 是同步磁盘写。
+        // 落盘失败不反悔内存态（current 已是新身份）：磁盘满时本次会话照常用新身份、
+        // 重启后重新注册；抛出去反而会把一次成功的注册变成内容请求失败。
+        withContext(Dispatchers.IO) {
+            runCatching { store.commit(mapOf(KEY_REGISTRATION to encoded)) }
+                .onFailure {
+                    diagnostics.event("device.persist", mapOf("error" to it.javaClass.simpleName))
+                }
+        }
     }
 
     private fun load(): DeviceSnapshot? {

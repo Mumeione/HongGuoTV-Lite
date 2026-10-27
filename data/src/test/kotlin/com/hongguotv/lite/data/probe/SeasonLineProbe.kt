@@ -332,12 +332,19 @@ class SeasonLineProbe {
         }
     }
 
-    /** 探针用的内存键值库：注册与本地库都不落盘。 */
+    /** 探针用的内存键值库：注册与本地库都不落盘。类型白名单与生产实现对齐。 */
     private class MemoryStore : KeyValueStore {
         private val stored = LinkedHashMap<String, Any?>()
         override fun all(): Map<String, Any?> = LinkedHashMap(stored)
         override fun commit(values: Map<String, Any?>) {
-            values.forEach { (key, value) -> if (value == null) stored.remove(key) else stored[key] = value }
+            values.forEach { (key, value) ->
+                when (value) {
+                    null -> stored.remove(key)
+                    is String, is Int, is Long, is Float, is Boolean -> stored[key] = value
+                    is Set<*> -> stored[key] = value.filterIsInstance<String>().toSet()
+                    else -> throw IllegalArgumentException("不支持的本地存储类型：${value::class.java.name}")
+                }
+            }
         }
     }
 

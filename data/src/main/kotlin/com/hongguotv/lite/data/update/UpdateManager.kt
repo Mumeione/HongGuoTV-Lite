@@ -70,6 +70,23 @@ class UpdateManager(
     private val ioScope = CoroutineScope(SupervisorJob() + ioDispatcher)
     private var downloadJob: Job? = null
 
+    init {
+        // 冷启动清理上一进程留下的下载产物（安装完的安装包不该一直占着 cacheDir）。
+        // 为什么冷启动清理就等于"装完之后清"：Android 更新同包名应用时系统会杀掉运行中的
+        // 进程，装成功 = 本进程已死，回来的是新进程；装取消才回得来（进程活着，包留着可重试）。
+        // 上一进程的 ReadyToInstall 状态与 FileProvider 授权都随进程失效，那个包谁也装不成了。
+        // 只删两个已知文件名（正式包 + 下载残片），目录里将来若有别的产物不误伤；
+        // 有下载在跑就不动手——清理协程与手动下载理论上可并发，不靠"清理先完成"的时序。
+        // 块内无挂起点，不会吃掉取消，所以用 runCatching 而不是 runCatchingIo。
+        ioScope.launch {
+            if (downloadJob?.isActive == true) return@launch
+            val removed = runCatching {
+                listOf(APK_NAME, "$APK_NAME.part").count { File(downloadDir, it).delete() }
+            }.getOrDefault(0)
+            if (removed > 0) diagnostics.event("update.cleanup", mapOf("files" to removed))
+        }
+    }
+
     override fun state(): UpdateState = synchronized(lock) { current }
 
     override fun onChange(listener: (() -> Unit)?) {
@@ -97,7 +114,9 @@ class UpdateManager(
                 Fetch.Unavailable -> if (silent) UpdateState.Idle else UpdateState.Failed(UpdateFailure.NETWORK)
             }
             set(state)
-            store?.commit(mapOf(KEY_LAST_CHECK to clock()))
+            // 节流时间戳写不进去只是"下次多查一次"，无害；autoCheck 挂在无 handler 的
+            // ioScope 上，这里抛出去会把一次成功的检查变成进程级未捕获异常，所以兜住
+            runCatching { store?.commit(mapOf(KEY_LAST_CHECK to clock())) }
         } catch (cancelled: CancellationException) {
             // 手动检查挂页面作用域，离开设置页会取消：回落 Idle，别把状态卡死在 Checking
             if (state() is UpdateState.Checking) set(UpdateState.Idle)

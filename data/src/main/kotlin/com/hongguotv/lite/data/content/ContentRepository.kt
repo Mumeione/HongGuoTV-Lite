@@ -339,7 +339,7 @@ class ContentRepository(
      * 两个候选封顶：一次进页多三次请求已经是极限，不能为了补一季把页面拖成转圈。
      */
     private suspend fun backfillFirstSeason(base: String, excludeId: String): Series? {
-        val page = runCatching { search(base, ContentFilter.ALL, 1) }.getOrNull() ?: return null
+        val page = runCatchingIo { search(base, ContentFilter.ALL, 1) }.getOrNull() ?: return null
         val candidates = page.items.asSequence()
             .filter { item ->
                 item.id != excludeId && item.season == 0 &&
@@ -348,7 +348,7 @@ class ContentRepository(
             .sortedByDescending { it.episodeCount }
             .take(MAX_FIRST_SEASON_CANDIDATES)
         for (candidate in candidates) {
-            val detail = runCatching { detail(candidate.id) }.getOrNull() ?: continue
+            val detail = runCatchingIo { detail(candidate.id) }.getOrNull() ?: continue
             if (detail.series.season == 1 && detail.series.albumId.isNotBlank()) return detail.series
         }
         return null

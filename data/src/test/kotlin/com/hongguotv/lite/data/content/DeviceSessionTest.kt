@@ -28,11 +28,19 @@ import kotlin.test.assertFailsWith
  */
 class DeviceSessionTest {
 
+    /** 类型白名单与 SharedPreferencesStore 对齐：假体不校验，存错类型单测也发现不了。 */
     private class MemoryStore(initial: Map<String, Any?> = emptyMap()) : KeyValueStore {
         private val values = LinkedHashMap<String, Any?>(initial)
         override fun all(): Map<String, Any?> = LinkedHashMap(values)
         override fun commit(batch: Map<String, Any?>) {
-            batch.forEach { (key, value) -> if (value == null) values.remove(key) else values[key] = value }
+            batch.forEach { (key, value) ->
+                when (value) {
+                    null -> values.remove(key)
+                    is String, is Int, is Long, is Float, is Boolean -> values[key] = value
+                    is Set<*> -> values[key] = value.filterIsInstance<String>().toSet()
+                    else -> throw IllegalArgumentException("不支持的本地存储类型：${value::class.java.name}")
+                }
+            }
         }
     }
 
@@ -241,5 +249,23 @@ class DeviceSessionTest {
         val devices = session(store, RegisterTransport())
         assertNull(devices.snapshot())
         assertEquals(DeviceIdentity("4175314086266699", "4175314086270795"), devices.ensure().identity)
+    }
+
+    @Test
+    fun `persist failure does not fail registration`() = runTest {
+        // 磁盘满 = commit 抛异常：注册本身成功过，落盘失败不该把这次注册变成内容请求失败；
+        // 内存态（current）已在写盘前更新，重启后重新注册即可
+        val throwing = object : KeyValueStore {
+            override fun all(): Map<String, Any?> = emptyMap()
+            override fun commit(values: Map<String, Any?>) = throw IllegalStateException("disk full")
+        }
+        val transport = RegisterTransport()
+        val devices = session(throwing, transport)
+
+        val snapshot = devices.ensure()
+        assertEquals("4175314086266699", snapshot.identity.deviceId)
+        assertEquals(1, transport.calls)
+        // 本次会话继续用内存态身份，不会因为写盘失败而重复注册
+        assertEquals(snapshot, devices.snapshot())
     }
 }

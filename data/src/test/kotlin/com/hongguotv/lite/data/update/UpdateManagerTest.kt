@@ -35,10 +35,21 @@ class UpdateManagerTest {
         }
     }
 
+    /**
+     * 类型白名单与 [com.hongguotv.lite.data.library.SharedPreferencesStore] 对齐：
+     * 假体不校验的话，业务代码存了 prefs 存不了的类型，单测照样全绿（4b229b8 的教训）。
+     */
     private class InMemoryStore : KeyValueStore {
         val data = LinkedHashMap<String, Any?>()
         override fun all(): Map<String, Any?> = data.toMap()
-        override fun commit(values: Map<String, Any?>) = values.forEach { (k, v) -> if (v == null) data.remove(k) else data[k] = v }
+        override fun commit(values: Map<String, Any?>) = values.forEach { (k, v) ->
+            when (v) {
+                null -> data.remove(k)
+                is String, is Int, is Long, is Float, is Boolean -> data[k] = v
+                is Set<*> -> data[k] = v.filterIsInstance<String>().toSet()
+                else -> throw IllegalArgumentException("不支持的本地存储类型：${v::class.java.name}")
+            }
+        }
     }
 
     /** 假下载器：写目标文件 + 回报 50%，返回 manifest 记录供断言。 */
@@ -61,8 +72,9 @@ class UpdateManagerTest {
         downloader: ApkDownloader = FakeDownloader(),
         store: KeyValueStore? = null,
         now: Long = 1_000_000L,
+        downloadDir: File = tmp.newFolder(),
     ): UpdateManager = UpdateManager(
-        downloadDir = tmp.newFolder(),
+        downloadDir = downloadDir,
         http = transport,
         downloader = downloader,
         store = store,
@@ -184,5 +196,28 @@ class UpdateManagerTest {
         val later = manager(transport, store = store, now = 100_000_000L + UpdateManager.THROTTLE_MS + 1)
         later.autoCheck()
         assertEquals(4, transport.requests.size)
+    }
+
+    @Test
+    fun staleDownloadArtifactsAreCleanedUpOnConstruction() {
+        val dir = tmp.newFolder()
+        File(dir, "hongguotv-update.apk").writeBytes(ByteArray(10))
+        File(dir, "hongguotv-update.apk.part").writeBytes(ByteArray(3))
+        File(dir, "unrelated.txt").writeBytes(ByteArray(1))
+        // Unconfined 下清理协程同步走完：构造返回时已知文件已删，目录里别的产物不误伤
+        manager(FakeTransport(respond = { null }), downloadDir = dir)
+        assertEquals(listOf("unrelated.txt"), dir.listFiles()?.map { it.name }?.sorted())
+    }
+
+    @Test
+    fun throttledTimestampWriteFailureDoesNotBreakCheck() = runBlocking {
+        // 磁盘满 = commit 抛异常：节流时间戳丢了只是下次多查一次，检查结果必须照常落地
+        val throwing = object : KeyValueStore {
+            override fun all(): Map<String, Any?> = emptyMap()
+            override fun commit(values: Map<String, Any?>) = throw IllegalStateException("disk full")
+        }
+        val updates = manager(FakeTransport(respond = { if (isCnb(it.url)) cnbManifest else null }), store = throwing)
+        updates.check()
+        assertTrue(updates.state() is UpdateState.Available)
     }
 }
