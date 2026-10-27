@@ -538,7 +538,9 @@ class ArtworkLoader(
         }
         val out = ByteArrayOutputStream()
         val ok = flat.compress(Bitmap.CompressFormat.JPEG, DISK_JPEG_QUALITY, out)
-        if (flat !== decoded) flat.recycle()
+        // 压完无条件回收：flat 是这条路径上最后一份位图（缩放失败时它与 decoded 同一张，
+        // 条件回收会把 decoded 漏在原生堆上——老设备攒几张就是一次 OOM）
+        flat.recycle()
         if (!ok) return null
         val encoded = out.toByteArray()
         return encoded.takeIf { it.size < bytes.size }

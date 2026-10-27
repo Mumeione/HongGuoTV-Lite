@@ -2,6 +2,7 @@ package com.hongguotv.lite.data.update
 
 import android.os.Handler
 import android.os.Looper
+import com.hongguotv.core.model.UpdateFailure
 import com.hongguotv.core.model.UpdateManifest
 import com.hongguotv.core.model.UpdateState
 import com.hongguotv.core.port.DiagnosticsPort
@@ -92,8 +93,8 @@ class UpdateManager(
                     UpdatePolicy.Decision.UpToDate -> UpdateState.UpToDate
                 }
                 // 双源都没货：这是"还没发版"，不是故障——文案按状态给，不是错误
-                Fetch.None -> if (silent) UpdateState.Idle else UpdateState.Failed(REASON_NONE)
-                Fetch.Unavailable -> if (silent) UpdateState.Idle else UpdateState.Failed(REASON_NETWORK)
+                Fetch.None -> if (silent) UpdateState.Idle else UpdateState.Failed(UpdateFailure.NONE)
+                Fetch.Unavailable -> if (silent) UpdateState.Idle else UpdateState.Failed(UpdateFailure.NETWORK)
             }
             set(state)
             store?.commit(mapOf(KEY_LAST_CHECK to clock()))
@@ -134,7 +135,7 @@ class UpdateManager(
         method = HttpMethod.GET,
         url = url,
         headers = mapOf(
-            "User-Agent" to "HongGuoTV-Lite/$versionName",
+            "User-Agent" to UpdateSources.userAgent(versionName),
             "Accept" to "application/vnd.cnb.api+json, application/vnd.github+json, application/json",
         ),
         body = null,
@@ -149,7 +150,7 @@ class UpdateManager(
             loadCatching({ error ->
                 diagnostics.event("update.download", mapOf("ok" to false, "error" to error.message))
                 runCatching { target.delete() }
-                set(UpdateState.Failed(if (error is IncompleteDownload) REASON_INCOMPLETE else REASON_DOWNLOAD))
+                set(UpdateState.Failed(if (error is IncompleteDownload) UpdateFailure.INCOMPLETE else UpdateFailure.DOWNLOAD))
             }) {
                 downloader.download(manifest, target) { percent -> set(UpdateState.Downloading(percent)) }
                 val actual = target.length()
@@ -201,9 +202,5 @@ class UpdateManager(
 
         /** 启动静默检查的节流：一天一次足够（检查本身只是一个几 KB 的 GET）。 */
         const val THROTTLE_MS = 24 * 60 * 60 * 1000L
-        const val REASON_NONE = "尚无可用版本"
-        const val REASON_NETWORK = "检查失败，请稍后再试"
-        const val REASON_DOWNLOAD = "下载失败，请重试"
-        const val REASON_INCOMPLETE = "下载不完整，请重试"
     }
 }

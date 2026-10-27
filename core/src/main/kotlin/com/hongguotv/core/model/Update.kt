@@ -29,6 +29,24 @@ sealed class UpdateState {
     /** 下载完成：确认键拉起系统安装器（Intent 由 app 层组装）。 */
     data class ReadyToInstall(val apkPath: String, val versionName: String) : UpdateState()
 
-    /** 检查或下载失败：reason 是可直接展示的中文短语。 */
-    data class Failed(val reason: String) : UpdateState()
+    /** 检查或下载失败：只给**类型**，文案由 UI 按类型映射（ARCHITECTURE：运行期失败不传中文字符串）。 */
+    data class Failed(val failure: UpdateFailure) : UpdateState()
+}
+
+/**
+ * 更新链路的失败类型。检查类两种（没货 / 网络不通），下载类两种（失败 / 不完整）；
+ * 展示文案见设置页的标签映射，这里只做分类——"还没发版"和"网络断了"要分开说。
+ */
+enum class UpdateFailure {
+    /** 双源都没货：还没发版，不是故障。 */
+    NONE,
+
+    /** 双源都不可达：网络或服务端问题。 */
+    NETWORK,
+
+    /** 下载中途失败（网络断、写盘失败等）。 */
+    DOWNLOAD,
+
+    /** 下载完成但大小与清单不符：不完整，删了重来。 */
+    INCOMPLETE,
 }

@@ -24,7 +24,7 @@ class OkHttpApkDownloader(
             val part = File(target.parentFile, target.name + ".part")
             val request = Request.Builder()
                 .url(manifest.apkUrl)
-                .header("User-Agent", "HongGuoTV-Lite/${manifest.versionName}")
+                .header("User-Agent", UpdateSources.userAgent(manifest.versionName))
                 .build()
             try {
                 client.newCall(request).execute().use { response ->

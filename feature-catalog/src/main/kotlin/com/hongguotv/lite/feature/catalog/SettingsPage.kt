@@ -4,6 +4,7 @@ import android.graphics.Typeface
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import com.hongguotv.core.model.Settings
 import com.hongguotv.core.model.UpdateState
@@ -11,15 +12,18 @@ import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.focus.FocusSections
 import com.hongguotv.lite.uikit.focus.navKey
 import com.hongguotv.lite.uikit.page.TwoStepConfirm
+import com.hongguotv.lite.uikit.ui.ButtonVariant
 import com.hongguotv.lite.uikit.ui.SettingRow
+import com.hongguotv.lite.uikit.ui.TvButton
 import kotlinx.coroutines.launch
 
 /**
  * 设置页。
  *
- * 左栏播放偏好四行；右栏片库与数据五行（含「检查更新」）。焦点是一个两列的网格
- * （左右横移、上下逐行，最后一行只有右列）。
- * 每一项按下即切到下一档（循环），不弹选择框——档位最多 6 个，循环比弹窗少一次按键。
+ * 「检查更新」在页头（与收藏页同款：小胶囊按钮 + 旁边的状态说明文字，不弹窗）；
+ * 左栏播放偏好四行；右栏片库与数据四行。焦点是"页头一粒 + 两列网格"：
+ * 左右横移、上下逐行。每一项按下即切到下一档（循环），不弹选择框——
+ * 档位最多 6 个，循环比弹窗少一次按键。
  *
  * 这里改的是 `SettingsPort` 的同一份事实：搜索页的筛选与排序开关读的也是它。
  */
@@ -33,17 +37,27 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
     private lateinit var sortRow: SettingRow
     private lateinit var clearRow: SettingRow
     private lateinit var startupRow: SettingRow
-    private lateinit var updateRow: SettingRow
+    private lateinit var updateButton: TvButton
+    private lateinit var updateNote: TextView
 
     private val confirm = TwoStepConfirm()
 
     override fun onBuild() {
-        // B 方案（mockup 画面7）：「设置」26 + 说明跟在旁边
+        // B 方案（mockup 画面7）：「设置」26 + 检查更新跟在旁边（收藏页同款）
         val header = scaffold.showHeader("设置")
         header.titleSize(tokens.type.display)
-        header.leadNote("偏好自动保存，下一部剧继续使用")
+        updateButton = ui.button("检查更新", variant = ButtonVariant.SMALL) { onUpdateTap() }
+        // 定宽（不是 minWidth）：按钮宽度不随旁边说明的长短变化（收藏页同一条纪律）
+        header.lead().addView(
+            updateButton,
+            LinearLayout.LayoutParams(ui.dp(tokens.metrics.leadActionWidth), ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                leftMargin = ui.dp(tokens.space.m)
+            },
+        )
+        // 无更新 / 检查失败都写在这句话里，不做弹窗
+        updateNote = header.leadNote("").apply { textSize = tokens.type.footnote }
 
-        // 不滚动：这一页固定两栏（左 4 右 5）行，用会撑满高度的 body 才能把页脚压在页底
+        // 不滚动：这一页固定两栏（左 4 右 4）行，用会撑满高度的 body 才能把页脚压在页底
         // （mockup：`.setbody{flex:1}` 居中两栏、`.setfoot` 贴底）
         val body = scaffold.body()
         body.addView(spacer(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
@@ -66,7 +80,6 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
         sortRow = setting(right, "搜索结果顺序") { toggleSort() }
         clearRow = setting(right, "清空观看记录") { requestClear() }
         startupRow = setting(right, "启动页面") { cycleStartup() }
-        updateRow = setting(right, "检查更新") { onUpdateTap() }
         // 启动时的静默检查可能已经把状态推到 Available：这行一建好就跟上。
         // 离开页面时在 release() 里摘除，别让管理器通知一个已销毁的页面。
         host.updates.onChange { onUpdatedRemotely() }
@@ -105,9 +118,9 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
     }
 
     private fun footerNote(): String = buildString {
-        append("红果 TV")
+        append("红果TV-Lite")
         if (host.versionName.isNotBlank()) append(" · ").append(host.versionName)
-        append(" · 非官方客户端 · 开源许可 GPL-3.0，完整清单见 NOTICE.md")
+        append(" · 非官方客户端 · GPL-3.0")
     }
 
     private fun syncLabels() {
@@ -122,7 +135,7 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
         // 第二次按才换成「再按一次确认」——比把警告塞进主标签更贴近表格的读法
         clearRow.value(if (confirm.isArmed(KEY_CLEAR)) "再按一次确认" else "不可恢复")
         startupRow.value(SettingRows.tabLabel(current.startupTab))
-        updateRow.value(SettingRows.updateLabel(host.updates.state()))
+        updateNote.text = SettingRows.updateLabel(host.updates.state())
     }
 
     // ---------- 交互 ----------
@@ -220,6 +233,8 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
 
         val views = LinkedHashMap<FocusKey, View>()
         views.putAll(navViews())
+        // 「检查更新」在页头：段在网格前面，网格首行往上一按就到（收藏页同款落法）
+        views[FocusKey("settings:update")] = updateButton
         leftRows.forEachIndexed { index, row -> views[FocusKey("setting:L$index")] = row }
         rightRows.forEachIndexed { index, row -> views[FocusKey("setting:R$index")] = row }
 
@@ -233,6 +248,7 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
         // 侧栏由 `applyPlan` 统一当"侧段"加进去，这里只提交内容段——
         // 再放一次 navSection() 会让同一批 nav key 出现在两处，焦点图直接拒绝
         val sections = listOf(
+            FocusSections.section(listOf(FocusKey("settings:update")), 1),
             FocusSections.section(keys, 2),
         )
         applyPlan(sections, views)

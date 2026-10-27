@@ -15,4 +15,10 @@ object UpdateSources {
     const val CNB_APK_BASE = "https://cnb.cool/Private_Auto/HongGuoTV_Lite/-/releases/latest/download/"
 
     const val GITHUB_LATEST_URL = "https://api.github.com/repos/Mumeione/HongGuoTV-Lite/releases/latest"
+
+    /**
+     * 两个更新请求共用一份 UA（清单检查与 apk 下载各写一份会漂移）；
+     * 版本取**发起方**的版本名——清单检查用本机版本，下载用远端清单里的版本。
+     */
+    fun userAgent(versionName: String): String = "HongGuoTV-Lite/$versionName"
 }

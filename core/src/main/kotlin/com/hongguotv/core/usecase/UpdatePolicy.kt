@@ -45,8 +45,12 @@ object UpdatePolicy {
     }
 
     private fun segments(version: String): List<Int> =
-        version.trim().removePrefix("v").removePrefix("V")
+        stripVersionPrefix(version)
             .split('.').map { it.filter(Char::isDigit).toIntOrNull() ?: 0 }
+
+    /** `v1.2` / `V1.2` 与 `1.2` 等价：两个解析入口（分段比较、GitHub tag）共用这一份。 */
+    private fun stripVersionPrefix(version: String): String =
+        version.trim().removePrefix("v").removePrefix("V")
 
     /**
      * 解析 CNB 的 `update.json`。结构：`{versionCode, versionName, apk, size?, notes?}`。
@@ -80,7 +84,7 @@ object UpdatePolicy {
         if (obj.has("message") && !obj.has("tag_name")) return null
         val tag = obj.optString("tag_name").trim()
         if (tag.isEmpty()) return null
-        val name = tag.removePrefix("v").removePrefix("V").ifEmpty { return null }
+        val name = stripVersionPrefix(tag).ifEmpty { return null }
         val asset = obj.optJSONArray("assets")
             ?.let { array -> (0 until array.length()).mapNotNull { array.optJSONObject(it) } }
             ?.firstOrNull { it.optString("name").endsWith(".apk", ignoreCase = true) }

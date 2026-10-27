@@ -1,5 +1,6 @@
 package com.hongguotv.lite.data.update
 
+import com.hongguotv.core.model.UpdateFailure
 import com.hongguotv.core.model.UpdateState
 import com.hongguotv.core.port.UpstreamError
 import com.hongguotv.core.protocol.SignedRequest
@@ -101,14 +102,14 @@ class UpdateManagerTest {
     fun bothSourcesEmptyMeansNoRelease() = runBlocking {
         val updates = manager(FakeTransport(respond = { null }))
         updates.check()
-        assertEquals(UpdateState.Failed(UpdateManager.REASON_NONE), updates.state())
+        assertEquals(UpdateState.Failed(UpdateFailure.NONE), updates.state())
     }
 
     @Test
     fun networkFailureOnBothSourcesMeansCheckFailed() = runBlocking {
         val updates = manager(FakeTransport(respond = { "!net down" }))
         updates.check()
-        assertEquals(UpdateState.Failed(UpdateManager.REASON_NETWORK), updates.state())
+        assertEquals(UpdateState.Failed(UpdateFailure.NETWORK), updates.state())
     }
 
     @Test
@@ -152,7 +153,7 @@ class UpdateManagerTest {
         updates.check()
         updates.download()
         val state = updates.state()
-        assertEquals(UpdateState.Failed(UpdateManager.REASON_INCOMPLETE), state)
+        assertEquals(UpdateState.Failed(UpdateFailure.INCOMPLETE), state)
     }
 
     @Test
@@ -162,7 +163,7 @@ class UpdateManagerTest {
         val updates = manager(transport, downloader)
         updates.check()
         updates.download()
-        assertEquals(UpdateState.Failed(UpdateManager.REASON_DOWNLOAD), updates.state())
+        assertEquals(UpdateState.Failed(UpdateFailure.DOWNLOAD), updates.state())
     }
 
     @Test

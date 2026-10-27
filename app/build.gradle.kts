@@ -20,7 +20,7 @@ android {
         minSdk = 23
         targetSdk = 36
         versionCode = System.getenv("HONGGUOTV_VERSION_CODE")?.toInt() ?: 1
-        versionName = System.getenv("HONGGUOTV_VERSION_NAME") ?: "1.0.0-lite"
+        versionName = System.getenv("HONGGUOTV_VERSION_NAME") ?: "1.0.0"
     }
 
     buildFeatures { buildConfig = true }
