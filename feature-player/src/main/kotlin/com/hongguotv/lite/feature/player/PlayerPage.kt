@@ -64,6 +64,17 @@ internal class PlayerPage(
     private val scope = CoroutineScope(host.scope.coroutineContext + jobs)
     // 播放页（抽屉）与详情页一样按视觉位置走：分集格、两侧长条与右列设置是一条横带
     private val focus = FocusSession(PAGE_KEY, root = root)
+
+    /**
+     * 全局焦点监听的唯一实例，[release] 时摘掉。
+     *
+     * `ViewTreeObserver` 是窗口级共享的：播放页被路由摘下之后监听器仍留在窗口的 observer 上，
+     * 它捕获了本页与整棵侧栏视图树——每看一集就漏一页。
+     */
+    private val focusListener =
+        android.view.ViewTreeObserver.OnGlobalFocusChangeListener { oldFocus, newFocus ->
+            focus.onFocusChanged(oldFocus, newFocus)
+        }
     private val engine = ExoPlayerEngine(ui.context, tokens)
     private val handler = Handler(Looper.getMainLooper())
     private val repeatGate = KeyRepeatGate(SEEK_REPEAT_GATE_MS)
@@ -111,7 +122,7 @@ internal class PlayerPage(
         notice.attachTo(root)
         buildOperationHint()
         buildSidebar()
-        root.viewTreeObserver.addOnGlobalFocusChangeListener { oldFocus, newFocus -> focus.onFocusChanged(oldFocus, newFocus) }
+        root.viewTreeObserver.addOnGlobalFocusChangeListener(focusListener)
         handler.postDelayed(tick, TICK_MS)
         loadDetail()
     }
@@ -619,6 +630,9 @@ internal class PlayerPage(
         handler.removeCallbacksAndMessages(null)
         streamJob?.cancel()
         jobs.cancel()
+        // 监听挂到窗口级 observer 上：不摘就一直持有本页。observer 已死时 remove 会抛异常
+        val observer = root.viewTreeObserver
+        if (observer.isAlive) observer.removeOnGlobalFocusChangeListener(focusListener)
         if (::session.isInitialized) session.release()
         toast?.cancel()
     }

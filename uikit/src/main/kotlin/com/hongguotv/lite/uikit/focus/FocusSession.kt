@@ -2,6 +2,7 @@ package com.hongguotv.lite.uikit.focus
 
 import android.util.Log
 import android.view.View
+import com.hongguotv.lite.uikit.internal.removeLayoutListenerIfAlive
 
 /** 与 data 层 [com.hongguotv.lite.data.diagnostics.LogcatDiagnostics] 同名：`logcat -s HongGuoTV` 一把抓。 */
 private const val TAG = "HongGuoTV"
@@ -138,11 +139,12 @@ class FocusSession(
             if (generation == visualGeneration) FocusBinder.bindVisual(anchor, bound, exits, graph, sideKeys)
         }
         // 首次建页时 post 可能跑在第一次 measure 之前：布局完成后再补一次。
-        // 上一轮还没等到布局的监听器先摘掉，否则翻组时每次 bind 都会挂一个。
-        pendingLayout?.let { anchor.viewTreeObserver.removeOnGlobalLayoutListener(it) }
+        // 上一轮还没等到布局的监听器先摘掉，否则翻组时每次 bind 都会挂一个
+        // （observer 可能已经死了，remove 会抛 IllegalStateException，见 helper）。
+        pendingLayout?.let { pending -> anchor.viewTreeObserver.removeLayoutListenerIfAlive(pending) }
         val listener = object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
             override fun onGlobalLayout() {
-                anchor.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                anchor.viewTreeObserver.removeLayoutListenerIfAlive(this)
                 if (pendingLayout === this) pendingLayout = null
                 if (generation == visualGeneration) FocusBinder.bindVisual(anchor, bound, exits, graph, sideKeys)
             }

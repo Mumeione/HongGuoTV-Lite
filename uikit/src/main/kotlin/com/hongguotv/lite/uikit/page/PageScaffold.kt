@@ -5,12 +5,14 @@ import android.graphics.Typeface
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.hongguotv.lite.uikit.focus.FocusSession
 import com.hongguotv.lite.uikit.internal.dp
+import com.hongguotv.lite.uikit.internal.removeFocusListenerIfAlive
 import com.hongguotv.lite.uikit.internal.setTextIfChanged
 import com.hongguotv.lite.uikit.ui.ButtonVariant
 import com.hongguotv.lite.uikit.ui.RailItem
@@ -158,6 +160,20 @@ class PageScaffold internal constructor(private val ui: UiKit) : FrameLayout(ui.
     private var session: FocusSession? = null
     private var bodyMode = BodyMode.UNSET
 
+    /**
+     * 全局焦点监听的**唯一实例**，跟着视图树挂/摘（见 [onAttachedToWindow] / [onDetachedFromWindow]）。
+     *
+     * ViewTreeObserver 是**窗口级共享**的：页面被 `removeAllViews` 摘掉之后，监听器仍然留在窗口的
+     * observer 上，而它的 lambda 捕获了本页（以及整棵卡片树）。每切一次 tab、每进一次详情
+     * 就漏一整页——不摘的话，翻十几次页面就能在低内存盒子上攒出几十 MB 垃圾。
+     * 挂在 attach/detach 上自动成对，不依赖各 feature 记得调 release。
+     */
+    private val focusListener =
+        ViewTreeObserver.OnGlobalFocusChangeListener { oldFocus, newFocus ->
+            session?.onFocusChanged(oldFocus, newFocus)
+        }
+    private var focusListenerAttached = false
+
     /** 信息带高度是否预留（[reserveBand]）：收起时用 INVISIBLE，内容区高度不跟着变。 */
     private var bandReserved = false
 
@@ -204,6 +220,28 @@ class PageScaffold internal constructor(private val ui: UiKit) : FrameLayout(ui.
         bodyContent = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
         }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        attachFocusListener()
+    }
+
+    override fun onDetachedFromWindow() {
+        detachFocusListener()
+        super.onDetachedFromWindow()
+    }
+
+    private fun attachFocusListener() {
+        if (focusListenerAttached) return
+        viewTreeObserver.addOnGlobalFocusChangeListener(focusListener)
+        focusListenerAttached = true
+    }
+
+    private fun detachFocusListener() {
+        if (!focusListenerAttached) return
+        focusListenerAttached = false
+        viewTreeObserver.removeFocusListenerIfAlive(focusListener)
     }
 
     /**
@@ -308,6 +346,7 @@ class PageScaffold internal constructor(private val ui: UiKit) : FrameLayout(ui.
         if (bodyMode == BodyMode.PLAIN) bodySlot.removeView(bodyContent)
         val scroll = ui.scroll(bodyContent)
         bodySlot.addView(scroll, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        // keeper 自己跟着 ScrollView 的 attach/detach 挂摘监听，页面不需要持有它
         ui.keepFocusVisible(scroll)
         bodyMode = BodyMode.SCROLL
         return bodyContent
@@ -337,7 +376,8 @@ class PageScaffold internal constructor(private val ui: UiKit) : FrameLayout(ui.
         // post = 本视图的一帧延迟：焦点"落定"回调（信息栏更新）靠它滤掉同帧内的中间态
         return FocusSession(page, root = this, post = ::post).also { created ->
             session = created
-            viewTreeObserver.addOnGlobalFocusChangeListener { oldFocus, newFocus -> session?.onFocusChanged(oldFocus, newFocus) }
+            // 目录页/详情页都是"先 addView 再 build"：这时已经在窗口上，监听要立刻挂
+            if (isAttachedToWindow) attachFocusListener()
         }
     }
 }
