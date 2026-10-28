@@ -55,10 +55,26 @@ class LiteActivity : Activity(), Navigator {
         super.onCreate(savedInstanceState)
         immersive()
         graph = AppGraph(this, this)
+        // 低内存杀进程后的状态恢复：必须在 view() 搭首屏之前，
+        // 恢复的 tab / 光标记忆才能成为首屏的初始值
+        graph.catalog.restoreState(savedInstanceState?.getBundle(STATE_CATALOG))
+        graph.detail.restoreState(savedInstanceState?.getBundle(STATE_DETAIL))
         root = FrameLayout(this).apply { setBackgroundColor(graph.ui.tokens.colors.background) }
         setContentView(root)
         // 首屏 = 目录页：`CatalogFeature` 构造时已经读过启动页偏好，`view()` 自己会搭出那一页
         render(Route.Catalog)
+    }
+
+    /**
+     * 电视设备低内存杀进程是常态：`onSaveInstanceState` 把目录页的 tab/关键词/光标
+     * 与详情页的光标记忆交给系统，`onCreate` 里恢复。configChanges 已规避配置变更，
+     * 这里只在真正的进程死亡重建时被走到。
+     */
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        if (!::graph.isInitialized) return
+        outState.putBundle(STATE_CATALOG, graph.catalog.saveState())
+        outState.putBundle(STATE_DETAIL, graph.detail.saveState())
     }
 
     /**
@@ -276,6 +292,10 @@ class LiteActivity : Activity(), Navigator {
     private companion object {
         /** 长按方向键的重复间隔（原仓库详情页 `KeyRepeatGate(110)` 口径）。 */
         const val FOCUS_REPEAT_GATE_MS = 110L
+
+        /** 进程重建状态包里的两个 feature 状态键。 */
+        const val STATE_CATALOG = "state:catalog"
+        const val STATE_DETAIL = "state:detail"
 
         /** 需要节流的四个方向键（遥控器导航键）。 */
         val MOVE_KEY_CODES = intArrayOf(

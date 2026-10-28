@@ -1,5 +1,6 @@
 package com.hongguotv.lite.feature.detail
 
+import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -64,6 +65,34 @@ class DetailFeature(
     fun release() {
         page?.release()
         page = null
+    }
+
+    // ---------- 进程重建后的状态恢复 ----------
+
+    /**
+     * 序列化跨进程死亡的状态：每个详情类页面最后的光标 key。
+     * 详情页本身不序列化——它是一次性导航目标，进程死亡后回目录页；
+     * 但"返回目录再进同一部剧，光标还在原处"的记忆要活下来。
+     *
+     * pageKey（`detail:<id>`）与光标 key（`detail:play`）都含冒号，
+     * 不能拼成一个字符串——用嵌套 Bundle：pageKey 做 key、光标值做 value。
+     */
+    fun saveState(): Bundle = Bundle().apply {
+        val focusKeys = Bundle()
+        lastFocus.forEach { (pageKey, key) -> focusKeys.putString(pageKey, key.value) }
+        putBundle(KEY_LAST_FOCUS, focusKeys)
+    }
+
+    /** 恢复 [saveState] 存下的状态；null（冷启动）或脏数据一律静默跳过。 */
+    fun restoreState(state: Bundle?) {
+        val focusKeys = state?.getBundle(KEY_LAST_FOCUS) ?: return
+        focusKeys.keySet().forEach { pageKey ->
+            focusKeys.getString(pageKey)?.let { lastFocus[pageKey] = FocusKey(it) }
+        }
+    }
+
+    private companion object {
+        const val KEY_LAST_FOCUS = "lastFocus"
     }
 
     private fun swap(create: () -> DetailPage) {

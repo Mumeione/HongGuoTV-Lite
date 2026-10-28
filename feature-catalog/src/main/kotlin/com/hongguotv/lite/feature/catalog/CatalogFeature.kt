@@ -1,5 +1,6 @@
 package com.hongguotv.lite.feature.catalog
 
+import android.os.Bundle
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
@@ -126,6 +127,47 @@ class CatalogFeature(
      * 返回是否被消费（消费了宿主就不再走焦点系统默认）。
      */
     fun onKeyEvent(event: KeyEvent): Boolean = page?.onKeyEvent(event) ?: false
+
+    // ---------- 进程重建后的状态恢复 ----------
+
+    /**
+     * 序列化跨进程死亡的状态：当前 tab、搜索关键词与窗口页码、各页的光标 key。
+     * 结果列表本身不序列化——内存聚合态重建的成本远高于重新搜一次；
+     * 光标 key 是纯字符串（[FocusKey.value]），按 tab 序号做 key 放进嵌套 Bundle
+     * （与 [com.hongguotv.lite.feature.detail.DetailFeature] 同一形状）。
+     *
+     * 由宿主在 `onSaveInstanceState` 调用；对口的 [restoreState] 必须在
+     * `view()` 搭首屏**之前**调，恢复的 tab 才能成为首屏。
+     */
+    fun saveState(): Bundle = Bundle().apply {
+        putInt(KEY_TAB, tab.ordinal)
+        putString(KEY_KEYWORD, searchModel.keyword)
+        putInt(KEY_PAGE, searchModel.page)
+        val focusKeys = Bundle()
+        lastFocus.forEach { (t, key) -> focusKeys.putString(t.ordinal.toString(), key.value) }
+        putBundle(KEY_LAST_FOCUS, focusKeys)
+    }
+
+    /** 恢复 [saveState] 存下的状态；null（冷启动）或脏数据一律静默回到默认。 */
+    fun restoreState(state: Bundle?) {
+        if (state == null) return
+        tab = CatalogTab.of(state.getInt(KEY_TAB, tab.ordinal))
+        state.getString(KEY_KEYWORD)?.let { searchModel.keyword = it }
+        val page = state.getInt(KEY_PAGE, 1)
+        if (page >= 1) searchModel.page = page
+        val focusKeys = state.getBundle(KEY_LAST_FOCUS) ?: return
+        focusKeys.keySet().forEach { ordinal ->
+            val tabIndex = ordinal.toIntOrNull() ?: return@forEach
+            focusKeys.getString(ordinal)?.let { lastFocus[CatalogTab.of(tabIndex)] = FocusKey(it) }
+        }
+    }
+
+    private companion object {
+        const val KEY_TAB = "tab"
+        const val KEY_KEYWORD = "keyword"
+        const val KEY_PAGE = "page"
+        const val KEY_LAST_FOCUS = "lastFocus"
+    }
 }
 
 /**
