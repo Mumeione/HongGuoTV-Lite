@@ -9,6 +9,7 @@ import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import kotlin.random.Random
+import kotlin.random.asKotlinRandom
 
 /**
  * 匿名设备注册（`POST /service/2/device_register/`）。
@@ -59,6 +60,15 @@ object DeviceRegister {
 
     private const val SIG_HASH = "56a962410c494bbaf0b58dba20cae56f"
 
+    /**
+     * 注册体加密的随机源：**必须 CSPRNG**。
+     *
+     * 这 32 字节种子同时派生 AES key 与 IV——`Random.Default` 是非密码学 PRNG，
+     * 观测少量输出即可恢复状态、离线解密历史注册包。`SecureRandom`（API 1）
+     * 包一层 [Random] 即可注入；测试仍可传确定性 LCG 断言密文形状。
+     */
+    private val SECURE = java.security.SecureRandom().asKotlinRandom()
+
     /** 注册结果：平台下发的设备身份 + 需要回写的那几个 Cookie。 */
     data class Registered(
         val deviceId: String,
@@ -74,7 +84,7 @@ object DeviceRegister {
      * ttEncrypt：`MAGIC || rnd[32] || AES-128-CBC(key, iv, PKCS7(SHA512(data) || data))`。
      * `key || iv = SHA512(SHA512(rnd) || KDF_SALT)` 的前 32 字节。
      */
-    fun ttEncrypt(data: ByteArray, random: Random = Random.Default): ByteArray {
+    fun ttEncrypt(data: ByteArray, random: Random = SECURE): ByteArray {
         val rnd = ByteArray(32).also { random.nextBytes(it) }
         val derived = digest("SHA-512", digest("SHA-512", rnd) + KDF_SALT)
         val plain = digest("SHA-512", data) + data
@@ -96,7 +106,7 @@ object DeviceRegister {
         profile: DeviceProfile,
         now: Long = System.currentTimeMillis(),
         randomId: () -> String = { UUID.randomUUID().toString() },
-        random: Random = Random.Default,
+        random: Random = SECURE,
     ): ByteArray = ttEncrypt(gzip(bodyJson(profile, now, randomId).toByteArray(Charsets.UTF_8)), random)
 
     /** 明文 JSON（拆出来是为了单测能直接断言字段，不必每次解密）。 */

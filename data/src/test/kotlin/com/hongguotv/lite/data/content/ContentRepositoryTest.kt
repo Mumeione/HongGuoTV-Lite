@@ -617,9 +617,9 @@ class ContentRepositoryTest {
         repo.stream("123", 1080)
         val first = transport!!.urls.first()
         assertTrue(first.startsWith("https://api5-normal-sinfonlineb.fqnovel.com/novel/player/video_model/v1/"))
-        // 身份是注入的那一对；内置的固定值已被平台拉黑
+        // 身份是注入的那一对；内置的固定值已被平台拉黑（字面量：LEGACY 已收进 core 测试作用域）
         assertTrue("必须带注入的 device_id：$first", first.contains("device_id=${identity.deviceId}"))
-        assertFalse("不能带内置身份：$first", first.contains(DeviceIdentity.LEGACY.deviceId))
+        assertFalse("不能带内置身份：$first", first.contains("1905892595378490"))
     }
 
     @Test

@@ -48,7 +48,8 @@ class PlainSignerTest {
     }
 
     @Test
-    fun registryShipsWithTheUnsignedChannel() {
-        assertEquals(SignerKind.NONE, SignerRegistry().forKind(SignerKind.NONE).kind)
+    fun registryDispatchesTheUnsignedChannelItIsGiven() {
+        // 默认签名器表已删：注册表不再自带任何签名器，装配必须显式给
+        assertEquals(SignerKind.NONE, SignerRegistry(listOf(PlainSigner())).forKind(SignerKind.NONE).kind)
     }
 }

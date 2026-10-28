@@ -10,10 +10,10 @@ internal object VendorConstants {
      * **身份与机型都是参数，不是常量**：内置那对 `device_id` 已被平台拉黑，
      * 生产用 [DeviceRegister] 注册下发的一对；机型必须与注册档案 [DeviceProfile] 同源，
      * 否则"注册时是平板、签名时是手机"，风控一眼就能看出来。
-     * 无参形式只为表形状测试保留。
+     * 身份不设默认值：漏注入在编译期报错，而不是在线上静默回 200 空体。
      */
     fun device(
-        identity: DeviceIdentity = DeviceIdentity.LEGACY,
+        identity: DeviceIdentity,
         profile: DeviceProfile = DeviceProfile.DEFAULT,
     ): LinkedHashMap<String, String> = linkedMapOf(
         "iid" to identity.installId,

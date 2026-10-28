@@ -30,7 +30,7 @@ internal class Signer private constructor(
         identity: DeviceIdentity,
         profile: DeviceProfile = DeviceProfile.DEFAULT,
         cookies: Map<String, String> = emptyMap(),
-    ) : this(identity, profile, cookies, System::currentTimeMillis, Math::random)
+    ) : this(identity, profile, cookies, System::currentTimeMillis, { randomUnit() })
 
     data class Request(val url: String, val headers: Map<String, String>, val body: ByteArray?)
     private fun rand() = (random() * 4294967296.0).toLong().toInt()
@@ -207,6 +207,14 @@ internal class Signer private constructor(
         error("无法生成请求签名")
     }
     companion object {
+        // Math.random 是 48-bit LCG 全局单例——它喂了 gorgon / medusa / helios 的全部
+        // 防重放随机量，nonce 可预测 = 服务端去重形同虚设。生产默认换 CSPRNG；
+        // 测试构造的注入口保留，oracle 样本仍用固定随机源。
+        private val SECURE_RANDOM = java.security.SecureRandom()
+
+        /** 与 `Math.random` 同域 [0,1) 的 CSPRNG 取值：53 位精度，取不到 1.0（rand() 不再退化成固定值）。 */
+        private fun randomUnit(): Double = (SECURE_RANDOM.nextLong() ushr 11).toDouble() / (1L shl 53)
+
         fun encode(values: Map<String,String>) = values.entries.joinToString("&") { (k,v) -> "${encode(k)}=${encode(v)}" }
         fun encode(value: String): String = URLEncoder.encode(value,"UTF-8").replace("+","%20").replace("%7E","~")
     }

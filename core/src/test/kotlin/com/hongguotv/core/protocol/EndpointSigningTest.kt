@@ -26,16 +26,19 @@ class EndpointSigningTest {
 
     /** 旧实现 `apiValues(vararg pairs)` 的形状：公共设备常量在前，端点参数在后。 */
     private fun legacyContentValues(vararg pairs: Pair<String, String>) = LinkedHashMap<String, String>().apply {
-        putAll(VendorConstants.device())
+        putAll(VendorConstants.device(DeviceIdentity.LEGACY))
         pairs.forEach { (key, value) -> put(key, value) }
     }
+
+    /** 表形状测试沿用内置身份；生产路径已不允许缺省身份。 */
+    private fun fullSuite() = FullSuiteSigner(crypto(), DeviceIdentity.LEGACY)
 
     @Test
     fun detailRequestMatchesDirectCall() {
         val endpoint = Endpoints["detail"]
         val values = mapOf("seriesId" to "123")
 
-        val viaTable = FullSuiteSigner(crypto()).sign(endpoint, values)
+        val viaTable = fullSuite().sign(endpoint, values)
         val direct = crypto().sign(endpoint.base, legacyContentValues(), endpoint.resolvedBody(values))
 
         assertEquals(direct.url, viaTable.url)
@@ -55,7 +58,7 @@ class EndpointSigningTest {
     @Test
     fun seasonLineRequestMatchesDirectCall() {
         val seriesId = "7123456789012345678"
-        val viaTable = FullSuiteSigner(crypto()).sign(Endpoints["seasonLine"], mapOf("seriesId" to seriesId))
+        val viaTable = fullSuite().sign(Endpoints["seasonLine"], mapOf("seriesId" to seriesId))
         val direct = crypto().sign(
             Endpoints["seasonLine"].base,
             legacyContentValues(
@@ -89,7 +92,7 @@ class EndpointSigningTest {
 
     @Test
     fun registryDispatchesByEndpointDeclaration() {
-        val registry = SignerRegistry()
+        val registry = SignerRegistry(listOf(fullSuite(), PlainSigner()))
         assertEquals(SignerKind.FULL, registry.forEndpoint("detail").kind)
         assertEquals(SignerKind.NONE, registry.forEndpoint("suggest").kind)
         assertEquals(SignerKind.FULL, registry.forEndpoint("seasonLine").kind)
@@ -106,7 +109,7 @@ class EndpointSigningTest {
 
     @Test
     fun unregisteredSignerKindIsRejected() {
-        val registry = SignerRegistry(listOf(FullSuiteSigner(crypto())))
+        val registry = SignerRegistry(listOf(fullSuite()))
         val error = assertThrows(IllegalStateException::class.java) { registry.forEndpoint("siteSearch") }
         assertTrue(error.message.orEmpty().contains("none"))
     }

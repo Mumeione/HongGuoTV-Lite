@@ -20,7 +20,11 @@ data class DeviceIdentity(val deviceId: String, val installId: String) {
     companion object {
         private val ID = Regex("\\d{10,20}")
 
-        /** 旧实现里写死的那一对：保留给表形状测试与"没有注入身份"的默认路径，**生产不得使用**。 */
-        val LEGACY = DeviceIdentity("1905892595378490", "1905892595382586")
+        /**
+         * 旧实现里写死的那一对：已被平台拉黑，**生产不得使用**。
+         * 只留给本模块的表形状测试与签名样本 oracle——不是 public API，
+         * 生产代码不会再有任何一处把它当默认值（装配漏注入在编译期就报错）。
+         */
+        internal val LEGACY = DeviceIdentity("1905892595378490", "1905892595382586")
     }
 }

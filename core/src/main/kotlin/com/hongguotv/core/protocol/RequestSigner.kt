@@ -26,7 +26,7 @@ interface RequestSigner {
 /** 按端点的 queryProfile 组装参数表；顺序 = 公共常量 → 端点参数，签名覆盖这个顺序。 */
 private fun Endpoint.mergedQuery(
     values: Map<String, String>,
-    identity: DeviceIdentity = DeviceIdentity.LEGACY,
+    identity: DeviceIdentity,
     profile: DeviceProfile = DeviceProfile.DEFAULT,
 ): LinkedHashMap<String, String> {
     val merged = LinkedHashMap<String, String>()
@@ -38,12 +38,12 @@ private fun Endpoint.mergedQuery(
 /** 内容端点用：并入公共设备常量，query 含 ts，带五件套头。 */
 class FullSuiteSigner internal constructor(
     private val crypto: Signer,
-    private val identity: DeviceIdentity = DeviceIdentity.LEGACY,
+    private val identity: DeviceIdentity,
     private val profile: DeviceProfile = DeviceProfile.DEFAULT,
 ) : RequestSigner {
 
     constructor(
-        identity: DeviceIdentity = DeviceIdentity.LEGACY,
+        identity: DeviceIdentity,
         profile: DeviceProfile = DeviceProfile.DEFAULT,
         cookies: Map<String, String> = emptyMap(),
     ) : this(Signer(identity = identity, profile = profile, cookies = cookies), identity, profile)
@@ -78,7 +78,10 @@ class PlainSigner(private val profile: DeviceProfile = DeviceProfile.DEFAULT) : 
         require(endpoint.signer == kind) {
             "端点 ${endpoint.id} 声明用 ${endpoint.signer.id}，不该走 ${kind.id}"
         }
-        val query = endpoint.mergedQuery(values).entries.joinToString("&") { (key, value) ->
+        // 当前表里所有 none 签名端点的 queryProfile 都是 none（见 endpoints.json），
+        // 设备常量本就进不来——直接用 resolvedQuery，不再借"LEGACY 身份当默认值"的那条路径。
+        // 若未来出现"none 签名 + device 档案"的端点，这里要显式注入身份，不能回到默认值。
+        val query = endpoint.resolvedQuery(values).joinToString("&") { (key, value) ->
             "${urlEncode(key)}=${urlEncode(value)}"
         }
         val url = endpoint.url(values) + if (query.isEmpty()) "" else "?$query"
@@ -106,9 +109,12 @@ object RequestDefaults {
 /**
  * 签名实现的注册表：按端点声明的 [SignerKind] 派发。
  * data 层的 ContentPort 实现从这里取，不再自己判断"这个端点该用哪套"。
+ *
+ * 签名器集合不设默认值：默认表会悄悄装出一台"内置拉黑身份"的签名器，
+ * 现象是全应用回 200 空体、与"这部剧没剧集"无法区分——装配必须显式给。
  */
 class SignerRegistry(
-    signers: List<RequestSigner> = listOf(FullSuiteSigner(), PlainSigner()),
+    signers: List<RequestSigner>,
 ) {
 
     private val byKind: Map<SignerKind, RequestSigner> = signers.associateBy { it.kind }
