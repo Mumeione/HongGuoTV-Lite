@@ -10,6 +10,7 @@ import com.hongguotv.core.model.Series
 import com.hongguotv.core.model.UpdateFailure
 import com.hongguotv.core.model.UpdateManifest
 import com.hongguotv.core.model.UpdateState
+import com.hongguotv.core.usecase.CheckFailure
 import com.hongguotv.core.usecase.FavoriteCheckReport
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -131,6 +132,31 @@ class CatalogLabelsTest {
         assertEquals("检查完成 · 4 部都已是最新", FavoriteLabels.summary(FavoriteCheckReport(4, 0, 0, 0, false)))
         // 连续失败中止：不能报成"检查完成"
         assertTrue(FavoriteLabels.summary(FavoriteCheckReport(2, 3, 1, 0, true)).startsWith("检查中断"))
+    }
+
+    @Test
+    fun riskControlPointsAtReRegisterInsteadOfRetry() {
+        // 被风控时"重试"是死路：文案要说唯一有效的动作，按钮也要跟着换
+        val report = FavoriteCheckReport(0, 3, 0, 0, true, CheckFailure.RISK_CONTROL)
+        assertEquals("设备被拒绝 · 按「重新注册」", FavoriteLabels.summary(report))
+        assertEquals("重新注册", FavoriteLabels.checkAction(CheckFailure.RISK_CONTROL))
+    }
+
+    @Test
+    fun networkFailureSaysNetworkNotCheckFailure() {
+        assertEquals(
+            "网络异常 · 请稍后重试",
+            FavoriteLabels.summary(FavoriteCheckReport(0, 1, 0, 0, false, CheckFailure.NETWORK)),
+        )
+        // 检查到一半断网：已检查的部数照报，不然用户以为一部都没查
+        assertEquals(
+            "网络异常 · 已检查 2 部 · 稍后重试",
+            FavoriteLabels.summary(FavoriteCheckReport(2, 1, 0, 0, false, CheckFailure.NETWORK)),
+        )
+        // 断网只需要再试一次：按钮变成「重试」，按下去就是手动重试
+        assertEquals("重试", FavoriteLabels.checkAction(CheckFailure.NETWORK))
+        assertEquals("检查更新", FavoriteLabels.checkAction(CheckFailure.OTHER))
+        assertEquals("检查更新", FavoriteLabels.checkAction(null))
     }
 
     // ---------- 系列进度 ----------

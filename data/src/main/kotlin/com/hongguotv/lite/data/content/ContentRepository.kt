@@ -16,6 +16,7 @@ import com.hongguotv.core.port.DiagnosticsPort
 import com.hongguotv.core.port.SilentDiagnostics
 import com.hongguotv.core.port.UpstreamError
 import com.hongguotv.core.port.VideoCodec
+import com.hongguotv.core.port.isRiskControl
 import com.hongguotv.core.protocol.Fields
 import com.hongguotv.core.protocol.FullSuiteSigner
 import com.hongguotv.core.protocol.HttpMethod
@@ -101,16 +102,13 @@ class ContentRepository(
         return try {
             action()
         } catch (error: UpstreamError) {
-            if (!error.isRiskControl()) throw error
+            if (!error.isRiskControl) throw error
             val renewed = devices.renew(error.javaClass.simpleName) ?: throw error
             diagnostics.event("device.retry", mapOf("reason" to error.javaClass.simpleName))
             apply(renewed)
             action()
         }
     }
-
-    private fun UpstreamError.isRiskControl(): Boolean =
-        this is UpstreamError.EmptyBody || this is UpstreamError.RiskControl
 
     /**
      * 签名统一入口。端点 id 是日志里唯一允许出现的"请求目标"——

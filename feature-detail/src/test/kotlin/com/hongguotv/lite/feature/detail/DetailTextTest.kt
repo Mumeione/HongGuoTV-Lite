@@ -145,7 +145,7 @@ class DetailTextTest {
         assertEquals("记录行 strong", true, rows[3].strong)
     }
 
-    /** 记录行：详情页只说"第几集 · 几分几秒"，手动标已看说「已看完」。 */
+    /** 记录行：详情页只说"第几集 · 几分几秒"，没有记录就整行去掉。 */
     @Test
     fun episodeRecordIsTheResumePoint() {
         assertEquals("第 20 集 · 05:00", DetailText.episodeRecord(progress(19, 300_000)))

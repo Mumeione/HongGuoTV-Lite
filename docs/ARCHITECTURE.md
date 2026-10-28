@@ -37,12 +37,12 @@ app               壳：Activity、导航、依赖组装
 
 ## 端口
 
-六个业务端口 + 四个支撑端口。业务端口回答「要做什么」，支撑端口回答「怎么做才不散」：
+六个业务端口 + 五个支撑端口。业务端口回答「要做什么」，支撑端口回答「怎么做才不散」：
 
 | 端口 | 接口 | 背后藏着 |
 | --- | --- | --- |
 | `ContentPort` | `search / suggest / detail / seasons / stream` | 端点表、签名、HTTP、字段解析、季线排序、锚点补全、介质过滤、清晰度选择 |
-| `ProgressPort` | 进度 / 历史 / 已看 / 写入 | prefs 键、编解码、写队列、节流 |
+| `ProgressPort` | 进度 / 历史 / 写入 | prefs 键、编解码、写队列、节流 |
 | `FavoritesPort` | 收藏 / 季键 / 季线缓存 / 确认更新 / 当前季 | 系列语义、LRU、检查结果 |
 | `SettingsPort` | 读 / 原子更新 | 七项偏好的读写路径 |
 | `MediaPort` | `open(vid, maxHeight) → MediaStream` | Range 分段、CENC 索引、逐样本解密 |
@@ -51,13 +51,14 @@ app               壳：Activity、导航、依赖组装
 | `DiagnosticsPort` | `stage / event` | 五段探针与日志节点 |
 | `DecoderCapabilities` | `supports(codec)` | 平台 `MediaCodecList` 查询；取流选档先按它过滤，避开本机解不了的编码 |
 | `UpdatePort` | `check / download / autoCheck` | CNB+GitHub 双源清单、版本比较、下载状态机（安装 Intent 在 `app` 层） |
+| `DevicePort` | `reRegister()` | 强制重新注册一台设备（忽略 12 小时冷却）；自动换新藏在 `ContentPort` 背后 |
 
 `ContentPort` 只有五个方法，这是刻意的：把「上游长什么样」全部挡在背后，
 调用方只谈业务（搜索、详情、季线、取流）。协议细节见 [PROTOCOL.md](PROTOCOL.md)。
 
-`ArtworkPort`、`DiagnosticsPort`、`DecoderCapabilities` 与 `UpdatePort` 是四个支撑端口：
-它们不属于业务能力，但同样需要接缝，否则封面策略、日志字段、解码能力查询与更新流程
-会重新散回每个页面。
+`ArtworkPort`、`DiagnosticsPort`、`DecoderCapabilities`、`UpdatePort` 与 `DevicePort` 是五个支撑端口：
+它们不属于业务能力，但同样需要接缝，否则封面策略、日志字段、解码能力查询、更新流程与
+设备身份的应急出口会重新散回每个页面。
 
 ## 状态归属
 

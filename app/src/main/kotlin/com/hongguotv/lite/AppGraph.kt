@@ -159,6 +159,7 @@ internal class AppGraph(
         favorites = library,
         settings = library,
         navigator = navigator,
+        devices = devices,
         updates = updates,
         onInstallApk = ::installApk,
         scope = scope,

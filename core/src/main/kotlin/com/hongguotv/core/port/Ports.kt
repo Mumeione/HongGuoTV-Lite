@@ -87,6 +87,23 @@ interface SettingsPort {
     suspend fun update(transform: (Settings) -> Settings)
 }
 
+/**
+ * 设备身份的**手动**出口。
+ *
+ * 自动换新在 [ContentPort] 的实现里：被风控时换一台设备重试一次，但受 12 小时冷却约束
+ * （见 `DeviceSession.renew`）。冷却期内那是**静默失败**的——用户能做的只剩"等"或者
+ * 清数据重装，后者不可接受。所以再开一个强制入口：只有用户明确按下「重新注册」时才走。
+ */
+interface DevicePort {
+    /**
+     * 强制重新注册一台设备（**忽略冷却**），用于"服务端把这台设备判成异常客户端"的场合。
+     *
+     * 成功返回 true：新身份已落盘，下一次内容请求就会带上它（签名器按最新快照重建）。
+     * 失败返回 false：旧身份保持不变，仍然可用——换新失败不该让设备变成没身份。
+     */
+    suspend fun reRegister(): Boolean
+}
+
 /** 上游 `codec_type` 归一化后的编码种类。未知编码不在这里：放行与否由实现层决定。 */
 enum class VideoCodec { AVC, HEVC }
 
@@ -225,3 +242,12 @@ sealed class LocalError(message: String, cause: Throwable? = null) : Exception(m
     class Storage(cause: Throwable) : LocalError("storage", cause)
     class Corrupt(val partition: String, cause: Throwable?) : LocalError("corrupt $partition", cause)
 }
+
+/**
+ * 是否属于"这台设备被拦"（风控）。
+ *
+ * 判据**只有这一份**：换设备重试（[ContentPort] 实现）、检查更新的失败分档都读它。
+ * 两处各写一遍必然漂移——上游加一个风控码，只改一处的那个分支会把风控说成"网络问题"。
+ */
+val UpstreamError.isRiskControl: Boolean
+    get() = this is UpstreamError.EmptyBody || this is UpstreamError.RiskControl

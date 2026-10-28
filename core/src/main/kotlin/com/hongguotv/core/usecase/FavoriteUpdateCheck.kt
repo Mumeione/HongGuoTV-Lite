@@ -6,6 +6,24 @@ import com.hongguotv.core.model.SeasonKeys
 import com.hongguotv.core.port.ContentPort
 import com.hongguotv.core.port.FavoritesPort
 import com.hongguotv.core.port.UpstreamError
+import com.hongguotv.core.port.isRiskControl
+
+/**
+ * 检查失败的原因分档——页面据此决定那个按钮该说"重试"还是"重新注册"。
+ *
+ * 三档按**可采取的动作**排：风控只能换设备，网络只能等，其余是上游自己的问题。
+ * 一列里出现多种原因时取 `severity` 最高的那条（用户只要知道最该做的那件事）。
+ */
+enum class CheckFailure(val severity: Int) {
+    /** 被风控（200 空体 / 风控码）：这台设备被拦，**重试没有意义**，只能换一台。 */
+    RISK_CONTROL(2),
+
+    /** 网络/连接层失败：等一会儿重试即可。 */
+    NETWORK(1),
+
+    /** 其余（HTTP 状态码、结构变化、解密失败、注册被拒）：说不清，给通用文案。 */
+    OTHER(0),
+}
 
 /** 一次「检查更新」的结果。页面只按这几个数拼状态行。 */
 data class FavoriteCheckReport(
@@ -24,6 +42,8 @@ data class FavoriteCheckReport(
     val newEpisodes: Int,
     /** 是否因为连续失败达上限而提前中止。 */
     val stoppedEarly: Boolean,
+    /** 失败的**原因**（null = 没失败）。混合失败时取最该处理的那一档。 */
+    val failure: CheckFailure? = null,
 )
 
 /**
@@ -95,6 +115,7 @@ object FavoriteUpdateCheck {
         var newEpisodes = 0
         var streak = 0
         var stopped = false
+        var failure: CheckFailure? = null
 
         for ((index, entry) in pending.withIndex()) {
             onProgress(index, pending.size, entry.series.title)
@@ -102,6 +123,9 @@ object FavoriteUpdateCheck {
             val finding: Finding? = try {
                 checkOne(entry, content, favorites, clock())
             } catch (error: UpstreamError) {
+                // 失败分档：风控与断网对用户的含义完全不同（一个要换设备，一个等会儿就好）
+                val kind = error.asCheckFailure()
+                if (kind.severity > (failure?.severity ?: -1)) failure = kind
                 null
             }
             if (finding == null) {
@@ -120,7 +144,14 @@ object FavoriteUpdateCheck {
             if (finding.newEpisodes) newEpisodes++
             onChecked(entry.seriesKey)
         }
-        return FavoriteCheckReport(checked, failed, newSeasons, newEpisodes, stopped)
+        return FavoriteCheckReport(checked, failed, newSeasons, newEpisodes, stopped, failure)
+    }
+
+    /** 上游失败 → 分档。风控判据与"换设备重试"共用 [isRiskControl] 那一份。 */
+    private fun UpstreamError.asCheckFailure(): CheckFailure = when {
+        isRiskControl -> CheckFailure.RISK_CONTROL
+        this is UpstreamError.Network -> CheckFailure.NETWORK
+        else -> CheckFailure.OTHER
     }
 
     /** @return 这次检查各发现了什么；两个标志独立，允许同时为真 */

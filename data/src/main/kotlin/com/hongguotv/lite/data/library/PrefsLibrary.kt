@@ -33,9 +33,8 @@ import java.util.concurrent.Executors
  * 未被端口覆盖的旧版分区（later / hidden / favorites / searches / watched）不读不写不删：
  * 删了就是丢数据，将来哪个端口需要时它们还在。
  *
- * `watched`（手动"已看"标记）是**故意丢下**的：写入口在历史页改版（管理菜单换成卡上垃圾桶）
- * 那次就没了，只剩一个永远不会变的集合在给 UI 供数——保留它等于让"已看"永远停在老用户那批数据上。
- * 现在"看过"的唯一事实是 [watchedUpTo]（从 [historyRows] 派生）。
+ * `watched` 属于这一类：它存的是"手动标记已看"，而手动标记的入口已经不存在——读它只会让
+ * 界面显示一批永远不会变的旧值。"看过"的唯一事实是 [watchedUpTo]（从 [historyRows] 派生）。
  */
 class PrefsLibrary(
     private val store: KeyValueStore,
@@ -571,19 +570,6 @@ class PrefsLibrary(
         batch
     }
 
-    /**
-     * 解一段 JSON：**只有 `Exception` 算"数据坏了"**。
-     *
-     * `runCatching` 捕的是 `Throwable`：解析大分区时的 `OutOfMemoryError` 会被当成"这个分区
-     * 损坏" → 内存态按空处理 → 下一次写盘把空分区覆盖回去，用户的收藏就这么静默没了。
-     * 进程级错误（OOM / StackOverflow）该炸就炸，不能降级成"没有数据"。
-     */
-    private inline fun <T> parseOrNull(block: () -> T): T? = try {
-        block()
-    } catch (error: Exception) {
-        null
-    }
-
     private fun encodeFavoriteSeries(rows: Map<String, Pair<Series, Long>>): String {
         val obj = JSONObject()
         rows.forEach { (base, value) ->
@@ -772,15 +758,13 @@ internal data class FavoriteUpdateRow(val total: Int, val seen: Int, val checked
         }
 
         /** 坏行返回 null（丢掉这一条的"检查结果"，不牵连整个分区）。 */
-        fun fromJson(value: JSONObject?): FavoriteUpdateRow? = try {
+        fun fromJson(value: JSONObject?): FavoriteUpdateRow? = parseOrNull {
             requireNotNull(value)
             val total = value.getInt("total")
             val seen = value.getInt("seen")
             val time = value.getLong("checkedAt")
             require(total > 0 && seen > 0 && time >= 0)
             FavoriteUpdateRow(total, seen, time)
-        } catch (error: Exception) {
-            null
         }
     }
 }

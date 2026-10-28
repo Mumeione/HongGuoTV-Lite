@@ -16,6 +16,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -135,6 +136,67 @@ class DeviceSessionTest {
         // 再换一次 → 第三份档案
         now += DeviceSession.RENEW_COOLDOWN_MS + 1
         assertEquals(DeviceProfile.of(2), devices.renew("EmptyBody")?.profile)
+    }
+
+    @Test
+    fun `manual re-register ignores the cooldown that blocks renew`() = runTest {
+        var now = 1_000_000L
+        val transport = RegisterTransport()
+        val devices = session(ValidatingMemoryStore(), transport) { now }
+        devices.ensure()
+        assertEquals(1, transport.calls)
+
+        // 风控自动换新用掉这一次机会
+        now += 60 * 60 * 1000L
+        assertNotNull(devices.renew("EmptyBody"))
+        assertEquals(2, transport.calls)
+
+        // 冷却期内自动换新被拒——这正是"用户点重试永远没用"的原因
+        now += 60 * 60 * 1000L
+        assertNull(devices.renew("EmptyBody"))
+        assertEquals(2, transport.calls)
+
+        // 但「重新注册」是用户明确按下的：冷却挡不住它
+        assertTrue(devices.reRegister())
+        assertEquals(3, transport.calls)
+        assertEquals("换新仍要轮换机型", DeviceProfile.of(2), devices.snapshot()!!.profile)
+        assertEquals("renewedAt 照常刷新，之后的自动换新继续按 12 小时节流", now, devices.snapshot()!!.renewedAt)
+    }
+
+    @Test
+    fun `a failed manual re-register keeps the old identity usable`() = runTest {
+        var now = 1_000_000L
+        val store = ValidatingMemoryStore()
+        val devices = session(store, RegisterTransport()) { now }
+        val first = devices.ensure()
+
+        val rejecting = DeviceSession(store, RegisterTransport(bodyFor = { """{"device_id":0,"install_id":0}""" }), clock = { now })
+        assertEquals(first.identity, rejecting.ensure().identity)
+        // 失败返回 false，不抛：按钮只需要知道"没换成"，旧身份还在
+        assertFalse(rejecting.reRegister())
+        assertEquals("失败后旧身份必须还能用", first.identity, rejecting.snapshot()?.identity)
+    }
+
+    @Test
+    fun `a manual re-register right after a failed one does not hammer the endpoint`() = runTest {
+        var now = 1_000_000L
+        val store = ValidatingMemoryStore()
+        session(store, RegisterTransport()).ensure()
+
+        val rejecting = RegisterTransport(bodyFor = { """{"device_id":0,"install_id":0}""" })
+        val devices = DeviceSession(store, rejecting, clock = { now })
+        assertFalse(devices.reRegister())
+        assertEquals(1, rejecting.calls)
+
+        // 连点：退避期内不再发注册请求（否则一次风控能被点出几十台设备）
+        now += 10_000
+        assertFalse(devices.reRegister())
+        assertEquals(1, rejecting.calls)
+
+        // 过了退避期才真的再试一次
+        now += 60_000
+        assertFalse(devices.reRegister())
+        assertEquals(2, rejecting.calls)
     }
 
     @Test

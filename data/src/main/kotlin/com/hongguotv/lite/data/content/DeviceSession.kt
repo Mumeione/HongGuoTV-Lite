@@ -1,5 +1,6 @@
 package com.hongguotv.lite.data.content
 
+import com.hongguotv.core.port.DevicePort
 import com.hongguotv.core.port.DiagnosticsPort
 import com.hongguotv.core.port.SilentDiagnostics
 import com.hongguotv.core.port.UpstreamError
@@ -78,7 +79,7 @@ class DeviceSession(
     private val diagnostics: DiagnosticsPort = SilentDiagnostics,
     private val clock: () -> Long = System::currentTimeMillis,
     private val random: Random = Random.Default,
-) : DeviceIdentitySource {
+) : DeviceIdentitySource, DevicePort {
 
     private val mutex = Mutex()
 
@@ -109,7 +110,20 @@ class DeviceSession(
     private fun blocked(): Throwable? =
         failure?.takeIf { clock() - failureAt < FAILURE_BACKOFF_MS }
 
-    override suspend fun renew(reason: String): DeviceSnapshot? {
+    override suspend fun renew(reason: String): DeviceSnapshot? = rotate(reason, forced = false)
+
+    /**
+     * 手动换一台设备：**忽略 12 小时冷却**，但不忽略"注册失败后 60 秒退避"。
+     *
+     * 冷却挡的是"一失败就换设备"；用户按下「重新注册」是明确的人工意图，冷却期内静默
+     * 返回 null 会让人以为按钮坏了。退避不同——它挡的是失败风暴，连点按钮同样会打出一串
+     * 注册请求，所以照旧生效（这一分钟内返回 false，界面提示稍后重试）。
+     */
+    override suspend fun reRegister(): Boolean = rotate(MANUAL_REASON, forced = true) != null
+
+    private suspend fun rotate(reason: String, forced: Boolean): DeviceSnapshot? {
+        // 刚失败过的这一分钟不发请求：自动换新与手动点击都一样（见 reRegister 的说明）
+        blocked()?.let { return null }
         val base = current ?: try {
             ensure()
         } catch (cancelled: CancellationException) {
@@ -117,10 +131,10 @@ class DeviceSession(
         } catch (error: Exception) {
             return null
         }
-        if (!canRenew(base)) return null
+        if (!forced && !canRenew(base)) return null
         return mutex.withLock {
             val fresh = current ?: base
-            if (!canRenew(fresh)) return@withLock null
+            if (!forced && !canRenew(fresh)) return@withLock null
             // 换新失败不要把旧身份丢掉：旧身份还能继续试，丢掉只会让下次请求连签名都没有
             val next = try {
                 register(nextProfileIndex = DeviceProfile.indexOf(fresh.profile) + 1, renewed = true)
@@ -277,6 +291,9 @@ class DeviceSession(
 
         /** 风控换新的冷却：比"重试"慢得多，比"永远不换"快得多。 */
         const val RENEW_COOLDOWN_MS = 12 * 60 * 60 * 1000L
+
+        /** 手动重新注册的诊断口径：日志里要能分清"风控自动换的"与"用户按的"。 */
+        private const val MANUAL_REASON = "manual"
 
         /** 注册失败后的退避：一分钟内不再为下一个内容请求重试注册。 */
         const val FAILURE_BACKOFF_MS = 60 * 1000L

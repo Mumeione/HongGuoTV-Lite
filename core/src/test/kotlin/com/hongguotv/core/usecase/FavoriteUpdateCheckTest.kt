@@ -16,6 +16,7 @@ import com.hongguotv.core.port.UpstreamError
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
@@ -50,6 +51,9 @@ class FavoriteUpdateCheckTest {
         val details = LinkedHashMap<String, Detail>()
         val lines = LinkedHashMap<String, SeasonLine>()
         val failingDetails = mutableSetOf<String>()
+
+        /** 详情接口按风控处理（200 空体）的 id。 */
+        val riskDetails = mutableSetOf<String>()
         val failingLines = mutableSetOf<String>()
 
         override suspend fun search(keyword: String, filter: ContentFilter, page: Int): SearchResult =
@@ -59,6 +63,7 @@ class FavoriteUpdateCheckTest {
 
         override suspend fun detail(seriesId: String): Detail {
             calls += "detail:$seriesId"
+            if (seriesId in riskDetails) throw UpstreamError.EmptyBody()
             if (seriesId in failingDetails) throw UpstreamError.Network(IOException("offline"))
             return details.getValue(seriesId)
         }
@@ -328,5 +333,50 @@ class FavoriteUpdateCheckTest {
             FavoriteCheckReport(checked = 0, failed = 0, newSeasons = 0, newEpisodes = 0, stoppedEarly = false),
             report,
         )
+    }
+
+    // ---------- 失败分档 ----------
+
+    @Test
+    fun riskControlIsItsOwnFailureKind() {
+        val content = FakeContent().apply {
+            details["1"] = detail("1", episodes = 3)
+            riskDetails += setOf("1", "2")
+        }
+        val report = check(listOf(entry("1"), entry("2")), content, FakeFavorites())
+
+        assertEquals(2, report.failed)
+        assertEquals(CheckFailure.RISK_CONTROL, report.failure)
+    }
+
+    @Test
+    fun networkFailureIsNotMistakenForRiskControl() {
+        // 断网时给"重新注册"是错的：用户换设备也解决不了没网
+        val content = FakeContent().apply {
+            details["1"] = detail("1", episodes = 3)
+            failingDetails += "1"
+        }
+        assertEquals(CheckFailure.NETWORK, check(listOf(entry("1")), content, FakeFavorites()).failure)
+    }
+
+    @Test
+    fun theMostActionableFailureWins() {
+        // 一列里混着断网与风控：用户只需要知道"要换设备"这件最该做的事
+        val content = FakeContent().apply {
+            details["1"] = detail("1", episodes = 3)
+            details["2"] = detail("2", episodes = 3)
+            failingDetails += "1"
+            riskDetails += "2"
+        }
+        val report = check(listOf(entry("1"), entry("2")), content, FakeFavorites())
+
+        assertEquals(2, report.failed)
+        assertEquals(CheckFailure.RISK_CONTROL, report.failure)
+    }
+
+    @Test
+    fun aCleanCheckReportsNoFailureKind() {
+        val content = FakeContent().apply { details["1"] = detail("1", episodes = 3) }
+        assertNull(check(listOf(entry("1")), content, FakeFavorites()).failure)
     }
 }

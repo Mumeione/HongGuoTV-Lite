@@ -7,6 +7,7 @@ import android.widget.TextView
 import com.hongguotv.core.model.FavoriteEntry
 import com.hongguotv.core.model.Progress
 import com.hongguotv.core.model.SeasonLine
+import com.hongguotv.core.usecase.CheckFailure
 import com.hongguotv.core.usecase.FavoriteUpdateCheck
 import com.hongguotv.core.usecase.SeasonProgress
 import com.hongguotv.lite.uikit.focus.FocusKey
@@ -20,6 +21,7 @@ import com.hongguotv.lite.uikit.ui.CardItem
 import com.hongguotv.lite.uikit.ui.ButtonVariant
 import com.hongguotv.lite.uikit.ui.TvButton
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -43,7 +45,14 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
     private var rendered: GridRendered? = null
     private var checkJob: Job? = null
     private var status: String = ""
-    private var checking: Boolean = false
+
+    /**
+     * 按钮在忙什么。一个字段而不是两个布尔：检查与注册互斥，两个布尔能拼出"既在检查又在注册"
+     * 这种不存在的状态，`chrome()` 也就得自己决定先信谁。
+     */
+    private var busy: Busy = Busy.IDLE
+
+    private enum class Busy { IDLE, CHECKING, REGISTERING }
 
     override fun onBuild() {
         // 信息栏只在"焦点落定且落在卡片上"时出现，离开卡片区就收起
@@ -54,7 +63,7 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
         header.titleSize(tokens.type.display)
         // 顺序按维护者口径：我的收藏 → 检查更新 → 更新说明，三者贴在一起靠左，不推到屏幕右边。
         // 2026-10-24 口径：按钮与说明都缩小一档（小号胶囊 + footnote），它是低频动作不抢主视觉。
-        checkButton = ui.button("检查更新", variant = ButtonVariant.SMALL) { startCheck(force = true) }
+        checkButton = ui.button("检查更新", variant = ButtonVariant.SMALL) { onCheckPressed() }
         // 定宽（不是 minWidth）：文案在「检查更新」↔「正在检查…」间切换时右侧说明不重排。
         // minWidth 只保下限，长文案仍会把说明顶走——这条要的是"宽度不变"。
         header.lead().addView(
@@ -97,6 +106,16 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
     private fun dueEntries(): List<FavoriteEntry> =
         FavoriteUpdateCheck.due(entries, System.currentTimeMillis(), force = false)
 
+    /**
+     * 按钮的两个动作共用一个焦点项：平时「检查更新」，被风控之后变「重新注册」。
+     *
+     * 被风控时"重试"是死路——同一台设备再问一次还是被拦；自动换新又有 12 小时冷却，
+     * 冷却期内静默返回 null。所以那一刻按钮必须换成唯一能推进的动作。
+     */
+    private fun onCheckPressed() {
+        if (host.lastCheckFailure == CheckFailure.RISK_CONTROL) startReRegister() else startCheck(force = true)
+    }
+
     private fun startCheck(force: Boolean) {
         if (checkJob?.isActive == true) return
         val source = host.favorites.all()
@@ -112,30 +131,63 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
             return
         }
 
-        checking = true
+        busy = Busy.CHECKING
+        chrome()
+        checkJob = scope.launch { runCheck(source, force) }
+    }
+
+    /** 先换一台设备，再立刻按"用户按了重新注册"的意图重跑一次检查。 */
+    private fun startReRegister() {
+        if (checkJob?.isActive == true) return
+        val source = host.favorites.all()
+        if (source.isEmpty()) {
+            // 一部收藏都没有时没有"检查"这回事：不为清掉一个按钮状态去换设备
+            host.lastCheckFailure = null
+            status = FavoriteLabels.idleStatus(0, 0)
+            chrome()
+            return
+        }
+        busy = Busy.REGISTERING
+        status = "正在重新注册设备…"
         chrome()
         checkJob = scope.launch {
-            try {
-                val report = FavoriteUpdateCheck.run(
-                    entries = source,
-                    content = host.content,
-                    favorites = host.favorites,
-                    clock = System::currentTimeMillis,
-                    force = force,
-                    onProgress = { index, total, title ->
-                        status = FavoriteLabels.progressText(index, total, title)
-                        chrome()
-                    },
-                    // 每检查完一部就刷新角标：走 grid 的增量路径，光标不动
-                    onChecked = { reloadCards() },
-                )
-                status = FavoriteLabels.summary(report)
-            } finally {
-                checking = false
-                if (isActive) {
-                    reloadCards()
+            if (!host.devices.reRegister()) {
+                // 换新失败：旧身份还在（仍可用），只是这台设备还是被拦——如实说，别假装重新注册过
+                busy = Busy.IDLE
+                status = "重新注册失败 · 请稍后重试"
+                chrome()
+                return@launch
+            }
+            busy = Busy.CHECKING
+            status = "设备已更换 · 正在检查…"
+            runCheck(source, force = true)
+        }
+    }
+
+    /** 检查本体：两条入口（直接检查 / 换设备后检查）共用，只是"谁先跑"不同。 */
+    private suspend fun runCheck(source: List<FavoriteEntry>, force: Boolean) {
+        try {
+            val report = FavoriteUpdateCheck.run(
+                entries = source,
+                content = host.content,
+                favorites = host.favorites,
+                clock = System::currentTimeMillis,
+                force = force,
+                onProgress = { index, total, title ->
+                    status = FavoriteLabels.progressText(index, total, title)
                     chrome()
-                }
+                },
+                // 每检查完一部就刷新角标：走 grid 的增量路径，光标不动
+                onChecked = { reloadCards() },
+            )
+            host.lastCheckFailure = report.failure
+            status = FavoriteLabels.summary(report)
+        } finally {
+            busy = Busy.IDLE
+            // 页面被离开就不刷了：视图已经摘掉，写它只会打一串 Log
+            if (currentCoroutineContext().isActive) {
+                reloadCards()
+                chrome()
             }
         }
     }
@@ -143,7 +195,7 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
     private fun stopCheck() {
         checkJob?.cancel()
         checkJob = null
-        checking = false
+        busy = Busy.IDLE
         chrome()
     }
 
@@ -170,7 +222,13 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
 
     private fun chrome() {
         statusView.text = status
-        checkButton.label(if (checking) "正在检查…" else "检查更新")
+        checkButton.label(
+            when (busy) {
+                Busy.REGISTERING -> "正在注册…"
+                Busy.CHECKING -> "正在检查…"
+                Busy.IDLE -> FavoriteLabels.checkAction(host.lastCheckFailure)
+            },
+        )
     }
 
     // ---------- 信息栏 ----------

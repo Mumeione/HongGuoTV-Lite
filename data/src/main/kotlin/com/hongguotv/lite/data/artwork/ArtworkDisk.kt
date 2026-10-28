@@ -43,7 +43,7 @@ class ArtworkDisk(
             // 同一张封面在不同视口下是不同尺寸、也就成了两个任务（Key 含宽高），
             // 共用 `<name>.tmp` 会让两路字节交错写进同一个文件——写坏的那张 rename 成功之后
             // 永远解不开（has() 只看文件在不在），封面就再也不刷新了。
-            val temp = File.createTempFile(file.name, ".tmp", dir)
+            val temp = File.createTempFile(file.name, TEMP_SUFFIX, dir)
             temp.writeBytes(stored)
             if (!temp.renameTo(file)) temp.delete()
             trim()

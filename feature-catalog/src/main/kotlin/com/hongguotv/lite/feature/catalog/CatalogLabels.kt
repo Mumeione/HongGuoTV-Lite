@@ -8,6 +8,7 @@ import com.hongguotv.core.model.PlaybackOptions
 import com.hongguotv.core.model.nextAfter
 import com.hongguotv.core.model.UpdateFailure
 import com.hongguotv.core.model.UpdateState
+import com.hongguotv.core.usecase.CheckFailure
 import com.hongguotv.core.usecase.FavoriteCheckReport
 import com.hongguotv.lite.uikit.text.TvText
 
@@ -62,6 +63,11 @@ internal object FavoriteLabels {
         "正在检查 ${index + 1}/$total · ${title.take(14)}"
 
     fun summary(report: FavoriteCheckReport): String = when {
+        // 风控：重试一千次也还是被拦，唯一有效的动作是换一台设备——文案直接说那件事
+        report.failure == CheckFailure.RISK_CONTROL -> "设备被拒绝 · 按「重新注册」"
+        // 断网：用户能做的只有等，别把网络问题说成"检查失败"
+        report.failure == CheckFailure.NETWORK && report.checked == 0 -> "网络异常 · 请稍后重试"
+        report.failure == CheckFailure.NETWORK -> "网络异常 · 已检查 ${report.checked} 部 · 稍后重试"
         // 全军覆没时先说"失败"，别报成"中断"——用户要知道是网络断了
         report.checked == 0 && report.failed > 0 -> "检查失败 · 稍后联网再试"
         // 连续失败中止：别让用户以为"检查完成"
@@ -74,6 +80,21 @@ internal object FavoriteLabels {
         report.failed > 0 -> "检查完成 · ${report.checked} 部已是最新 · ${report.failed} 部失败"
         report.checked == 1 -> "检查完成 · 已是最新"
         else -> "检查完成 · ${report.checked} 部都已是最新"
+    }
+
+    /**
+     * 「检查更新」那个按钮该写什么。
+     *
+     * 同一个按钮承担三种状态，不给遥控器多加一个焦点项：
+     * - 风控 → 「重新注册」（换设备是唯一能推进的动作，重试一千次还是被拦）；
+     * - 断网 → 「重试」（用户能做的只有再试一次）；
+     * - 其余 → 「检查更新」。
+     * 三种文案都不超过 5 字，定宽胶囊不会因此重排。
+     */
+    fun checkAction(failure: CheckFailure?): String = when (failure) {
+        CheckFailure.RISK_CONTROL -> "重新注册"
+        CheckFailure.NETWORK -> "重试"
+        else -> "检查更新"
     }
 }
 

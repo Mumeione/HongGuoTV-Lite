@@ -151,9 +151,15 @@ class StreamTransport(
         }
 
         override fun read(offset: Long, size: Int): ByteArray {
+            // DataSource 的契约里 0 是合法请求（"这次没东西要读"），回空数组而不是抛
+            if (size == 0) return ByteArray(0)
             require(size in 1..MAX_READ) { "单次读取大小非法：$size" }
             if (closed) throw IOException("播放请求已取消")
+            // 先判 EOF 再判偏移上限：读超长偏移在短流上就是"读到结尾"，按契约回空数组
             if (offset >= length) return ByteArray(0)
+            // 偏移是文件坐标，下面要按 Int 切片；超过 2GB 的资源不在这个应用的目标里（单集短剧），
+            // 但静默截断会切成错位的字节喂给播放器，宁可报错也不要放半截花屏
+            require(offset <= Int.MAX_VALUE) { "读取偏移超出单段上限：$offset" }
             val end = minOf(length, offset + size)
             val cachedBytes = (minOf(end, prefix.size.toLong()) - offset).coerceAtLeast(0).toInt()
             val head = if (cachedBytes > 0) prefix.copyOfRange(offset.toInt(), offset.toInt() + cachedBytes) else ByteArray(0)

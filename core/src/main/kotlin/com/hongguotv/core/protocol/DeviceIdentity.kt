@@ -13,9 +13,14 @@ package com.hongguotv.core.protocol
 data class DeviceIdentity(val deviceId: String, val installId: String) {
 
     init {
-        require(ID.matches(deviceId)) { "device_id 形状不对：$deviceId" }
-        require(ID.matches(installId)) { "install_id 形状不对：$installId" }
+        // 身份是风控字段：异常消息里**不带原值**。这个消息会随未捕获异常进 logcat / 崩溃上报，
+        // 写全等于把 device_id 公开。留长度与前 2 位，够判断"形状错在哪"，不够拿来冒用。
+        require(ID.matches(deviceId)) { "device_id 形状不对：${masked(deviceId)}" }
+        require(ID.matches(installId)) { "install_id 形状不对：${masked(installId)}" }
     }
+
+    private fun masked(value: String): String =
+        if (value.length <= 2) "长度 ${value.length}" else "长度 ${value.length} · 前缀 ${value.take(2)}…"
 
     companion object {
         private val ID = Regex("\\d{10,20}")

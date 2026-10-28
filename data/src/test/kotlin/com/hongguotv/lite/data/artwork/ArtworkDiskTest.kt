@@ -69,7 +69,7 @@ class ArtworkDiskTest {
         assertTrue(disk.has(urls.last()))
     }
 
-    // ---------- 并发写盘与临时文件（审计 P2-4） ----------
+    // ---------- 并发写盘与临时文件 ----------
 
     @Test
     fun `临时文件不算封面也不占配额`() {
@@ -77,15 +77,17 @@ class ArtworkDiskTest {
         val disk = ArtworkDisk(dir, limit = 2)
         val first = "$url&index=1"
         val second = "$url&index=2"
+        val third = "$url&index=3"
+        // 用显式 mtime 定序，不靠 sleep 抢时序（CI 上会抖）
         disk.put(first, byteArrayOf(1))
-        Thread.sleep(5)
+        age(dir, first, millis = 3_000)
         disk.put(second, byteArrayOf(2))
-        Thread.sleep(5)
+        age(dir, second, millis = 2_000)
         // 一个"正在写"的临时文件：既不能被当成封面，也不能把真封面挤出配额
         val inflight = File.createTempFile("inflight", ".tmp", dir)
-        disk.put("$url&index=3", byteArrayOf(3))
+        disk.put(third, byteArrayOf(3))
 
-        assertTrue("最新一张必须留下", disk.has("$url&index=3"))
+        assertTrue("最新一张必须留下", disk.has(third))
         assertTrue("临时文件占了名额的话这张会被挤掉", disk.has(second))
         assertTrue("正在写的临时文件不能被 trim 删掉", inflight.isFile)
     }
@@ -100,6 +102,11 @@ class ArtworkDiskTest {
         disk.put(url, byteArrayOf(9))
 
         assertFalse("进程被杀留下的临时文件不能永远占着目录", stale.exists())
+    }
+
+    /** 把某个地址的落盘文件"变老"，让淘汰顺序可断言。 */
+    private fun age(dir: File, url: String, millis: Long) {
+        assertTrue(File(dir, ArtworkDisk.nameFor(url)).setLastModified(System.currentTimeMillis() - millis))
     }
 
     // ---------- 容量治理（V1.0.0）：重编码 + 总字节上限 ----------

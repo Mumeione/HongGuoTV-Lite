@@ -7,6 +7,16 @@ import java.math.BigInteger
 object MediaCrypto {
     data class Sample(val start: Long, val end: Long, val iv: ByteArray, val encryptedOffset: Long = 0)
     data class Prepared(val header: ByteArray, val samples: List<Sample>)
+
+    /**
+     * CENC counter 的 128 位掩码（`2^128 - 1`）。
+     *
+     * 提成常量而不是每次现算：`ONE.shiftLeft(128)-ONE` 原来写在逐样本的循环里，
+     * 一次 512KB 读取要按几百个样本各算一遍——那是解密热路径上最没必要的分配。
+     * 只搬这一个，counter 的加法仍用 BigInteger：换成 Long 增量要处理进位与 128 位回绕，
+     * 算错就是整段花屏，收益不抵风险。
+     */
+    private val MASK_128: BigInteger = BigInteger.ONE.shiftLeft(128).subtract(BigInteger.ONE)
     fun deriveKey(value: String): ByteArray {
         val raw=decode64(value); require(raw.size>=3) { "内容密钥格式异常" }
         val length=minOf(raw.size-(raw[0].u() xor raw[1].u() xor raw[2].u())+47,raw.size-1)
@@ -170,7 +180,7 @@ object MediaCrypto {
             val sample=samples[i]; if(sample.start>=end) break
             val begin=maxOf(start,sample.start); val stop=minOf(end,sample.end); if(begin>=stop) continue
             val relative=begin-sample.start+sample.encryptedOffset; val skip=(relative%16).toInt()
-            val counter=(BigInteger(1,sample.iv)+BigInteger.valueOf(relative/16)).and(BigInteger.ONE.shiftLeft(128)-BigInteger.ONE).toByteArray()
+            val counter=(BigInteger(1,sample.iv)+BigInteger.valueOf(relative/16)).and(MASK_128).toByteArray()
             val iv=ByteArray(16); counter.copyInto(iv,maxOf(0,16-counter.size),maxOf(0,counter.size-16),counter.size)
             val decrypted=aes("CTR",key,iv,ByteArray(skip)+result.copyOfRange((begin-start).toInt(),(stop-start).toInt()))
             decrypted.copyInto(result,(begin-start).toInt(),skip)

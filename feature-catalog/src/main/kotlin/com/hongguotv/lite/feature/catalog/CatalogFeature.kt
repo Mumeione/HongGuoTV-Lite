@@ -9,11 +9,13 @@ import com.hongguotv.core.model.SearchResult
 import com.hongguotv.core.model.SeasonKeys
 import com.hongguotv.core.model.Series
 import com.hongguotv.core.port.ContentPort
+import com.hongguotv.core.port.DevicePort
 import com.hongguotv.core.port.FavoritesPort
 import com.hongguotv.core.port.Navigator
 import com.hongguotv.core.port.ProgressPort
 import com.hongguotv.core.port.SettingsPort
 import com.hongguotv.core.port.UpdatePort
+import com.hongguotv.core.usecase.CheckFailure
 import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.ui.UiKit
 import kotlinx.coroutines.CoroutineScope
@@ -33,6 +35,11 @@ class CatalogFeature(
     val favorites: FavoritesPort,
     val settings: SettingsPort,
     val navigator: Navigator,
+    /**
+     * 设备身份的手动出口：收藏页在被风控时把「检查更新」换成「重新注册」。
+     * 自动换新走 [ContentPort] 内部，那条路有 12 小时冷却，冷却期内是静默失败的。
+     */
+    val devices: DevicePort,
     /** 更新检查端口（设置页的「检查更新」行）；安装动作经 [onInstallApk] 回到 app 层。 */
     val updates: UpdatePort,
     /** 拉起系统安装器：app 层负责 FileProvider 与 Intent，feature 只交出 apk 路径。 */
@@ -59,6 +66,14 @@ class CatalogFeature(
 
     /** 搜索结果与关键词。放这里而不是页面里：切到收藏再回来，用户不该重搜一次。 */
     internal val searchModel = SearchModel()
+
+    /**
+     * 上一次「检查更新」的失败分档（null = 没失败过）。
+     *
+     * 放这里而不是收藏页：切一次 tab 页面就重建一次，风控态会被忘掉——用户回来看到
+     * 按钮又写回「检查更新」，点一下才想起"这台设备已经被拒了"。
+     */
+    internal var lastCheckFailure: CheckFailure? = null
 
     /** 惰性搭首屏：`app` 拿到视图就能用，不需要额外的一次 `start()` 调用。 */
     fun view(): View {

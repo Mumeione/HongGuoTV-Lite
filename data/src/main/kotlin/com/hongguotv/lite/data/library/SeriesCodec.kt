@@ -7,6 +7,22 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
+ * 解一段 JSON：**只有 `Exception` 算"数据坏了"**。
+ *
+ * `runCatching` 捕的是 `Throwable`：解析大分区时的 `OutOfMemoryError` 会被当成"这个分区
+ * 损坏" → 内存态按空处理 → 下一次写盘把空分区覆盖回去，用户的收藏就这么静默没了。
+ * 进程级错误（OOM / StackOverflow）该炸就炸，不能降级成"没有数据"。
+ *
+ * [onFailure] 只在这段确实解不开时收到异常（坏行留痕用），调用方不需要 try/catch。
+ */
+internal inline fun <T> parseOrNull(onFailure: (Throwable) -> Unit = {}, block: () -> T): T? = try {
+    block()
+} catch (error: Exception) {
+    onFailure(error)
+    null
+}
+
+/**
  * Series 的磁盘 JSON。键名与旧版逐字相同（旧版 prefs 必须能读，见交接 01 的坑 3），
  * 唯一映射：旧盘的 description → 模型的 intro。
  *
@@ -46,24 +62,13 @@ internal object SeriesCodec {
     /**
      * 坏行跳过、不拖垮整个分区；调用方需要感知时给 onCorrupt。
      *
-     * 只把 `Exception` 当"这行坏了"：`runCatching` 捕 Throwable，解析时的 `OutOfMemoryError`
-     * 会被当成"数据损坏"，整段季线按空处理——进程级错误该炸就炸（同 PrefsLibrary.parseOrNull）。
+     * 单行解不开只丢这一行：一条脏数据不该让整条季线消失。
      */
     fun decodeList(raw: String?, onCorrupt: (Throwable) -> Unit = {}): List<Series> {
         if (raw.isNullOrEmpty()) return emptyList()
-        val rows = try {
-            JSONArray(raw)
-        } catch (error: Exception) {
-            onCorrupt(error)
-            return emptyList()
-        }
+        val rows = parseOrNull(onCorrupt) { JSONArray(raw) } ?: return emptyList()
         return (0 until rows.length()).mapNotNull { i ->
-            try {
-                fromJson(rows.getJSONObject(i))
-            } catch (error: Exception) {
-                onCorrupt(error)
-                null
-            }
+            parseOrNull(onCorrupt) { fromJson(rows.getJSONObject(i)) }
         }
     }
 }
