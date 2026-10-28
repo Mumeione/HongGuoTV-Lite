@@ -219,8 +219,15 @@ internal class SeasonPage(
         applyFocus()
     }
 
-    /** 收藏行存的就是系列基名；只有"季线缓存里有、收藏里没有"时才需要现算一次。 */
-    private fun titleText(series: Series): String = entry?.series?.title ?: SeasonKeys.seasonBase(series.title)
+    /**
+     * 收藏行存的就是系列基名；只有"季线缓存里有、收藏里没有"时才需要现算一次。
+     *
+     * 两级兜底：上游给的标题可能是空串（`?:` 只挡 null），空标题会让 hero 变成一块白板——
+     * 先退到原样标题，再退到季号（季卡列表里认得出是哪一季）。同 `EpisodePage.renderHero`。
+     */
+    private fun titleText(series: Series): String = (entry?.series?.title ?: SeasonKeys.seasonBase(series.title))
+        .ifBlank { series.title }
+        .ifBlank { TvText.season(series.season) }
 
     /**
      * 按"上次光标停在那一季"把组别翻回去：几十季的剧一页 8 张，返回时还在第一组
@@ -352,7 +359,6 @@ internal class SeasonPage(
             base = base,
             current = season.id == currentSeasonId,
             progress = host.progress.progressOf(season.id),
-            watched = host.progress.isWatched(season.id),
         )
 
         // 后台季线刷新回来时 ids 与顺序通常没变：就地重绑角标，不重建行。

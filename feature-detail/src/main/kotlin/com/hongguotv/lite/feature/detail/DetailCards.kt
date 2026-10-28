@@ -12,11 +12,11 @@ import com.hongguotv.lite.uikit.ui.CardItem
  */
 internal object DetailCards {
 
-    fun season(season: Series, base: String, current: Boolean, progress: Progress?, watched: Boolean): CardItem = CardItem(
+    fun season(season: Series, base: String, current: Boolean, progress: Progress?): CardItem = CardItem(
         id = season.id,
         title = DetailText.seasonCardTitle(season, base),
         coverUrl = season.cover,
-        badge = DetailText.seasonState(season, progress, watched),
+        badge = DetailText.seasonState(season, progress),
         dim = !season.released,
         // 取不到封面时露出剧名，免得季卡变成一个认不出是谁的黑块
         artworkTitle = season.title,

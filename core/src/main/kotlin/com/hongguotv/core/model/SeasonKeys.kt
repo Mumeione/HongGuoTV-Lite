@@ -21,7 +21,7 @@ object SeasonKeys {
     /** 标题中的季号（第N季/部、"40季"，阿拉伯或中文数字）；无季号返回 0。 */
     fun seasonNumber(title: String): Int {
         val match = seasonPattern.find(title) ?: return 0
-        val text = match.groupValues[1].ifEmpty { match.groupValues[2] }.replace('０', '0').replace('９', '9')
+        val text = foldFullWidthDigits(match.groupValues[1].ifEmpty { match.groupValues[2] })
         text.toIntOrNull()?.let { return it }
         var total = 0
         var current = 0
@@ -31,6 +31,17 @@ object SeasonKeys {
         }
         return total + current
     }
+
+    /**
+     * 全角数字折成半角（`０-９` → `0-9`）。
+     *
+     * 为什么不留着"只折 ０ 和 ９"：`Integer.parseInt` 本来就认全角，那两行是空转；
+     * 而手写的中文数字回路（`cnDigits`）不认全角，一旦"１２" 走到那条路就会退化成 0。
+     * 折全 10 个，两条路读到的都是同一份文本——省得下次改解析时踩到 １-８ 的死角。
+     */
+    private fun foldFullWidthDigits(text: String): String =
+        if (text.none { it in '０'..'９' }) text
+        else text.map { if (it in '０'..'９') '0' + (it - '０') else it }.joinToString("")
 
     /** 去掉季号后缀的系列基名，取「第N季」之前的前缀；无季号返回原标题。 */
     fun seasonBase(title: String): String {

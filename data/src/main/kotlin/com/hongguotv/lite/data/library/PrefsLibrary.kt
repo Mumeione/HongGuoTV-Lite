@@ -30,8 +30,12 @@ import java.util.concurrent.Executors
  * 队列异步落盘（端口契约："写操作是提交意图"），磁盘失败不回滚内存，
  * 下一次写会整分区重写覆盖（与旧版 LatestWriteQueue 的失败口径一致）。
  *
- * 未被端口覆盖的旧版分区（later / hidden / favorites / searches）不读不写不删：
+ * 未被端口覆盖的旧版分区（later / hidden / favorites / searches / watched）不读不写不删：
  * 删了就是丢数据，将来哪个端口需要时它们还在。
+ *
+ * `watched`（手动"已看"标记）是**故意丢下**的：写入口在历史页改版（管理菜单换成卡上垃圾桶）
+ * 那次就没了，只剩一个永远不会变的集合在给 UI 供数——保留它等于让"已看"永远停在老用户那批数据上。
+ * 现在"看过"的唯一事实是 [watchedUpTo]（从 [historyRows] 派生）。
  */
 class PrefsLibrary(
     private val store: KeyValueStore,
@@ -63,7 +67,6 @@ class PrefsLibrary(
     /** 观看历史：updatedAt 降序、按系列去重、截 [HISTORY_LIMIT]。series 保留盘上的元数据（标题/封面）。 */
     private var historyRows: List<HistoryRow>
 
-    private var watchedIds: Set<String>
     private var settings: Settings
 
     /**
@@ -84,7 +87,6 @@ class PrefsLibrary(
         seasonLines = decodeSeasonGroups(values[KEY_SEASON_GROUPS] as? String) { corrupt += KEY_SEASON_GROUPS }
         updateRows = decodeUpdates(values[KEY_FAVORITE_UPDATES] as? String) { corrupt += KEY_FAVORITE_UPDATES }
         historyRows = decodeHistory(values[KEY_PROGRESS] as? String) { corrupt += KEY_PROGRESS }
-        watchedIds = (values[KEY_WATCHED] as? Set<*>)?.filterIsInstance<String>()?.toSet().orEmpty()
         settings = loadSettings(values)
         if (!values.containsKey(KEY_FAVORITE_SERIES)) migrateLegacyFavorites(values)
         // 旧收藏行按季线里的 id 证据换到系列基名（篇名季的标题算不出基名）
@@ -105,8 +107,6 @@ class PrefsLibrary(
         val known = knownSeriesById()
         historyRows.take(limit).map { HistoryEntry(enrich(it.series, known[it.progress.seriesId]), it.progress) }
     }
-
-    override fun isWatched(seriesId: String): Boolean = synchronized(lock) { seriesId in watchedIds }
 
     /** 已看高水位：最新记录之前各集都算看过；当前集看完（completed）则含当前集。无记录返回 0。 */
     override fun watchedUpTo(seriesId: String): Int = synchronized(lock) {
@@ -187,29 +187,18 @@ class PrefsLibrary(
         if (changed) persist(KEY_PROGRESS)
     }
 
-    override suspend fun setWatched(seriesId: String, watched: Boolean) {
-        val changed = synchronized(lock) {
-            if ((seriesId in watchedIds) == watched) return
-            watchedIds = if (watched) watchedIds + seriesId else watchedIds - seriesId
-            true
-        }
-        if (changed) persist(KEY_WATCHED)
-    }
-
     override suspend fun removeHistory(seriesId: String) {
         synchronized(lock) {
             historyRows = historyRows.filterNot { it.progress.seriesId == seriesId }
-            watchedIds = watchedIds - seriesId
         }
-        persist(KEY_PROGRESS, KEY_WATCHED)
+        persist(KEY_PROGRESS)
     }
 
     override suspend fun clearHistory() {
         synchronized(lock) {
             historyRows = emptyList()
-            watchedIds = emptySet()
         }
-        persist(KEY_PROGRESS, KEY_WATCHED)
+        persist(KEY_PROGRESS)
     }
 
     // ---------- FavoritesPort ----------
@@ -568,7 +557,6 @@ class PrefsLibrary(
                 KEY_SEASON_GROUPS -> batch[key] = encodeSeasonGroups(seasonLines)
                 KEY_FAVORITE_UPDATES -> batch[key] = encodeUpdates(updateRows)
                 KEY_PROGRESS -> batch[key] = encodeHistory(historyRows)
-                KEY_WATCHED -> batch[key] = watchedIds
                 SETTING_QUALITY -> batch[key] = settings.quality
                 SETTING_SPEED -> batch[key] = settings.speed
                 SETTING_AUTO_NEXT -> batch[key] = settings.autoNext
@@ -583,6 +571,19 @@ class PrefsLibrary(
         batch
     }
 
+    /**
+     * 解一段 JSON：**只有 `Exception` 算"数据坏了"**。
+     *
+     * `runCatching` 捕的是 `Throwable`：解析大分区时的 `OutOfMemoryError` 会被当成"这个分区
+     * 损坏" → 内存态按空处理 → 下一次写盘把空分区覆盖回去，用户的收藏就这么静默没了。
+     * 进程级错误（OOM / StackOverflow）该炸就炸，不能降级成"没有数据"。
+     */
+    private inline fun <T> parseOrNull(block: () -> T): T? = try {
+        block()
+    } catch (error: Exception) {
+        null
+    }
+
     private fun encodeFavoriteSeries(rows: Map<String, Pair<Series, Long>>): String {
         val obj = JSONObject()
         rows.forEach { (base, value) ->
@@ -594,15 +595,16 @@ class PrefsLibrary(
     private fun decodeFavoriteSeries(raw: String?, onPartitionCorrupt: () -> Unit = {}): LinkedHashMap<String, Pair<Series, Long>> {
         val result = LinkedHashMap<String, Pair<Series, Long>>()
         if (raw.isNullOrEmpty()) return result
-        val obj = runCatching { JSONObject(raw) }.getOrNull() ?: run { onPartitionCorrupt(); return result }
+        val obj = parseOrNull { JSONObject(raw) } ?: run { onPartitionCorrupt(); return result }
         obj.keys().forEach { base ->
-            runCatching {
+            parseOrNull {
                 val entry = obj.getJSONObject(base)
                 val series = SeriesCodec.fromJson(entry.getJSONObject("series"))
                 // 脏数据防线：id 不合法的行整条丢弃。这种 id 进到内容仓库会在
                 // require(SeriesIds.ID.matches) 上炸出去（V1.0.0 审计 P1-3）。
-                if (!SeriesIds.ID.matches(series.id)) return@runCatching
-                result[base] = series.copy(title = base) to entry.optLong("addedAt")
+                if (SeriesIds.ID.matches(series.id)) {
+                    result[base] = series.copy(title = base) to entry.optLong("addedAt")
+                }
             }
         }
         return keepNewest(result)
@@ -617,9 +619,9 @@ class PrefsLibrary(
     private fun decodeSeasonGroups(raw: String?, onPartitionCorrupt: () -> Unit = {}): LinkedHashMap<String, List<Series>> {
         val result = LinkedHashMap<String, List<Series>>()
         if (raw.isNullOrEmpty()) return result
-        val obj = runCatching { JSONObject(raw) }.getOrNull() ?: run { onPartitionCorrupt(); return result }
+        val obj = parseOrNull { JSONObject(raw) } ?: run { onPartitionCorrupt(); return result }
         obj.keys().forEach { base ->
-            runCatching { obj.getJSONArray(base) }.getOrNull()?.let { arr ->
+            parseOrNull { obj.getJSONArray(base) }?.let { arr ->
                 val seasons = SeriesCodec.decodeList(arr.toString())
                 if (seasons.isNotEmpty()) result[base] = seasons
             }
@@ -636,7 +638,7 @@ class PrefsLibrary(
     private fun decodeUpdates(raw: String?, onPartitionCorrupt: () -> Unit = {}): LinkedHashMap<String, FavoriteUpdateRow> {
         val result = LinkedHashMap<String, FavoriteUpdateRow>()
         if (raw.isNullOrEmpty()) return result
-        val obj = runCatching { JSONObject(raw) }.getOrNull() ?: run { onPartitionCorrupt(); return result }
+        val obj = parseOrNull { JSONObject(raw) } ?: run { onPartitionCorrupt(); return result }
         obj.keys().forEach { id ->
             FavoriteUpdateRow.fromJson(obj.optJSONObject(id))?.let { result[id] = it }
         }
@@ -658,19 +660,21 @@ class PrefsLibrary(
 
     private fun decodeHistory(raw: String?, onPartitionCorrupt: () -> Unit = {}): List<HistoryRow> {
         if (raw.isNullOrEmpty()) return emptyList()
-        val rows = runCatching { JSONArray(raw) }.getOrNull() ?: run { onPartitionCorrupt(); return emptyList() }
+        val rows = parseOrNull { JSONArray(raw) } ?: run { onPartitionCorrupt(); return emptyList() }
         // 单行坏掉不拖垮整段历史：跳过该行并留痕，绝不用 episodeId 冒充 seriesId
         var corrupt = false
         return (0 until rows.length()).mapNotNull { i ->
-            val row = runCatching { rows.getJSONObject(i) }.getOrNull() ?: return@mapNotNull null
-            val parsed = runCatching { SeriesCodec.fromJson(row.getJSONObject("series")) }
-                .getOrElse { corrupt = true; null }
-            if (parsed == null) return@mapNotNull null
-            runCatching {
-                // 新数据优先读显式 seriesId；旧数据没有这个字段时退回 series.id（迁移兼容）
-                val storedId = row.optString("seriesId")
-                val seriesId = storedId.ifEmpty { parsed.id }
-                if (seriesId.isBlank()) { corrupt = true; return@runCatching null }
+            val row = parseOrNull { rows.getJSONObject(i) } ?: return@mapNotNull null
+            val parsed = parseOrNull { SeriesCodec.fromJson(row.getJSONObject("series")) }
+                ?: run { corrupt = true; return@mapNotNull null }
+            // 新数据优先读显式 seriesId；旧数据没有这个字段时退回 series.id（迁移兼容）
+            val storedId = row.optString("seriesId")
+            val seriesId = storedId.ifEmpty { parsed.id }
+            if (seriesId.isBlank()) {
+                corrupt = true
+                return@mapNotNull null
+            }
+            parseOrNull {
                 val series = if (storedId.isNotEmpty() && parsed.id != storedId) parsed.copy(id = storedId) else parsed
                 HistoryRow(
                     series,
@@ -684,7 +688,7 @@ class PrefsLibrary(
                         updatedAt = row.getLong("updatedAt"),
                     ),
                 )
-            }.getOrNull()
+            }
         }
             .also { if (corrupt) onPartitionCorrupt() }
             .sortedByDescending { it.progress.updatedAt }
@@ -734,7 +738,6 @@ class PrefsLibrary(
         const val KEY_SEASON_GROUPS = "seasonGroups"
         const val KEY_FAVORITE_UPDATES = "favoriteUpdates"
         const val KEY_PROGRESS = "progress"
-        const val KEY_WATCHED = "watched"
 
         // 设置项与旧版 prefs 键名逐字相同（旧数据要能读）
         const val SETTING_QUALITY = "quality"
@@ -768,13 +771,16 @@ internal data class FavoriteUpdateRow(val total: Int, val seen: Int, val checked
             return FavoriteUpdateRow(count, count, now)
         }
 
-        fun fromJson(value: JSONObject?): FavoriteUpdateRow? = runCatching {
-            require(value != null)
+        /** 坏行返回 null（丢掉这一条的"检查结果"，不牵连整个分区）。 */
+        fun fromJson(value: JSONObject?): FavoriteUpdateRow? = try {
+            requireNotNull(value)
             val total = value.getInt("total")
             val seen = value.getInt("seen")
             val time = value.getLong("checkedAt")
             require(total > 0 && seen > 0 && time >= 0)
             FavoriteUpdateRow(total, seen, time)
-        }.getOrNull()
+        } catch (error: Exception) {
+            null
+        }
     }
 }

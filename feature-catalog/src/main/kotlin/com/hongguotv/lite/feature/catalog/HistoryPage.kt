@@ -122,7 +122,7 @@ internal class HistoryPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.
 
     private fun render() {
         val isEmpty = entries.isEmpty()
-        rendered = if (isEmpty) null else grid.render(entries.map { CatalogCards.history(it, host.progress.isWatched(it.series.id)) })
+        rendered = if (isEmpty) null else grid.render(entries.map(CatalogCards::history))
         if (isEmpty) {
             pane.showEmpty("播放过的剧集会自动保存在这里")
             scaffold.hideBand()

@@ -51,8 +51,8 @@ internal object CatalogCards {
      * 季与集之间一个空格，季号**总是**带上：多季剧的历史记录散在各季里，
      * 不写季名就分不清看的是哪一季。
      */
-    fun history(entry: HistoryEntry, watched: Boolean): CardItem {
-        val finished = watched || entry.progress.completed
+    fun history(entry: HistoryEntry): CardItem {
+        val finished = entry.progress.completed
         return CardItem(
             id = entry.series.id,
             title = "",

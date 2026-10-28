@@ -47,7 +47,8 @@ interface ProgressPort {
 
     /** 历史按更新时间降序。[HistoryEntry] 同时给出作品元数据：历史页要标题与封面。 */
     fun history(limit: Int = 30): List<HistoryEntry>
-    fun isWatched(seriesId: String): Boolean
+
+    /** 已看高水位：最新记录之前各集都算看过；当前集看完则含当前集。**唯一**的"看过"事实。 */
     fun watchedUpTo(seriesId: String): Int
     suspend fun save(progress: Progress)
 
@@ -59,7 +60,6 @@ interface ProgressPort {
      * **只更新已存在的行**：不因为浏览详情就凭空造一条"看过"。
      */
     suspend fun rememberSeries(series: Series)
-    suspend fun setWatched(seriesId: String, watched: Boolean)
     suspend fun removeHistory(seriesId: String)
     suspend fun clearHistory()
 }

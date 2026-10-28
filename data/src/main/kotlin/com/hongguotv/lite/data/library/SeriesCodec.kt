@@ -43,12 +43,27 @@ internal object SeriesCodec {
         episodeCount = o.optInt("episodeCnt", 0),
     )
 
-    /** 坏行跳过、不拖垮整个分区；调用方需要感知时给 onCorrupt。 */
+    /**
+     * 坏行跳过、不拖垮整个分区；调用方需要感知时给 onCorrupt。
+     *
+     * 只把 `Exception` 当"这行坏了"：`runCatching` 捕 Throwable，解析时的 `OutOfMemoryError`
+     * 会被当成"数据损坏"，整段季线按空处理——进程级错误该炸就炸（同 PrefsLibrary.parseOrNull）。
+     */
     fun decodeList(raw: String?, onCorrupt: (Throwable) -> Unit = {}): List<Series> {
         if (raw.isNullOrEmpty()) return emptyList()
-        val rows = runCatching { JSONArray(raw) }.onFailure(onCorrupt).getOrNull() ?: return emptyList()
+        val rows = try {
+            JSONArray(raw)
+        } catch (error: Exception) {
+            onCorrupt(error)
+            return emptyList()
+        }
         return (0 until rows.length()).mapNotNull { i ->
-            runCatching { fromJson(rows.getJSONObject(i)) }.onFailure(onCorrupt).getOrNull()
+            try {
+                fromJson(rows.getJSONObject(i))
+            } catch (error: Exception) {
+                onCorrupt(error)
+                null
+            }
         }
     }
 }

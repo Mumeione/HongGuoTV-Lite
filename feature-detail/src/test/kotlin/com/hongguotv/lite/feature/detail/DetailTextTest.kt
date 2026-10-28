@@ -27,14 +27,12 @@ class DetailTextTest {
 
     @Test
     fun playLabelFollowsTheResumeTarget() {
-        assertEquals("开始观看", DetailText.playLabel(null, ResumeTarget(0, 0L, false), watched = false))
-        assertEquals("继续播放 · 第 9 集", DetailText.playLabel(progress(8, 754_000), ResumeTarget(8, 754_000L, false), watched = false))
+        assertEquals("开始观看", DetailText.playLabel(null, ResumeTarget(0, 0L, false)))
+        assertEquals("继续播放 · 第 9 集", DetailText.playLabel(progress(8, 754_000), ResumeTarget(8, 754_000L, false)))
         // 看完了 → 落点挪到下一集，文案也要挪
-        assertEquals("开始下一集", DetailText.playLabel(progress(8, 0, completed = true), ResumeTarget(9, 0L, true), watched = false))
+        assertEquals("开始下一集", DetailText.playLabel(progress(8, 0, completed = true), ResumeTarget(9, 0L, true)))
         // 最后一集看完：落点没有前移，是重看本集
-        assertEquals("重新播放", DetailText.playLabel(progress(29, 0, completed = true), ResumeTarget(29, 0L, true), watched = false))
-        // 手动标"已看"优先：从头看
-        assertEquals("重新观看", DetailText.playLabel(progress(8, 754_000), ResumeTarget(0, 0L, false), watched = true))
+        assertEquals("重新播放", DetailText.playLabel(progress(29, 0, completed = true), ResumeTarget(29, 0L, true)))
     }
 
     /**
@@ -82,14 +80,13 @@ class DetailTextTest {
     }
 
     @Test
-    fun seasonStateCoversAllFiveCases() {
+    fun seasonStateCoversAllFourCases() {
         val season = Series("10", "测试书第十季", season = 10, released = false)
         // 第一行已经写了季号，第二行再写一遍就是「第十季 · 未上线」（维护者截图）
-        assertEquals("未上线", DetailText.seasonState(season, progress = null, watched = false))
-        assertEquals("已看完", DetailText.seasonState(series(), progress(29, 0, completed = true), watched = false))
-        assertEquals("上次第 9 集", DetailText.seasonState(series(), progress(8, 0), watched = false))
-        assertEquals("已看完", DetailText.seasonState(series(), progress = null, watched = true))
-        assertEquals("未观看", DetailText.seasonState(series(), progress = null, watched = false))
+        assertEquals("未上线", DetailText.seasonState(season, progress = null))
+        assertEquals("已看完", DetailText.seasonState(series(), progress(29, 0, completed = true)))
+        assertEquals("上次第 9 集", DetailText.seasonState(series(), progress(8, 0)))
+        assertEquals("未观看", DetailText.seasonState(series(), progress = null))
     }
 
     // ---------- B 方案：两行 hero 的规格表与片名副行 ----------
@@ -151,9 +148,8 @@ class DetailTextTest {
     /** 记录行：详情页只说"第几集 · 几分几秒"，手动标已看说「已看完」。 */
     @Test
     fun episodeRecordIsTheResumePoint() {
-        assertEquals("第 20 集 · 05:00", DetailText.episodeRecord(progress(19, 300_000), watched = false))
-        assertEquals("已看完", DetailText.episodeRecord(progress(19, 300_000), watched = true))
-        assertEquals("", DetailText.episodeRecord(null, watched = false))
+        assertEquals("第 20 集 · 05:00", DetailText.episodeRecord(progress(19, 300_000)))
+        assertEquals("", DetailText.episodeRecord(null))
     }
 
     /** 系列页的记录行带季名：不写季名就分不清是哪一季的"第 20 集"。 */

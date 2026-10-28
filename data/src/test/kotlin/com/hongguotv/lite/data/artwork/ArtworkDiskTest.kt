@@ -9,6 +9,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.File
 
 /**
  * 封面落盘：文件名稳定、能读写、写坏的读回是 null（不炸）。
@@ -66,6 +67,39 @@ class ArtworkDiskTest {
         assertTrue("上限没生效：${remaining.size}", remaining.size <= 3)
         // 最新写的那张必须还在
         assertTrue(disk.has(urls.last()))
+    }
+
+    // ---------- 并发写盘与临时文件（审计 P2-4） ----------
+
+    @Test
+    fun `临时文件不算封面也不占配额`() {
+        val dir = temp.newFolder("artwork")
+        val disk = ArtworkDisk(dir, limit = 2)
+        val first = "$url&index=1"
+        val second = "$url&index=2"
+        disk.put(first, byteArrayOf(1))
+        Thread.sleep(5)
+        disk.put(second, byteArrayOf(2))
+        Thread.sleep(5)
+        // 一个"正在写"的临时文件：既不能被当成封面，也不能把真封面挤出配额
+        val inflight = File.createTempFile("inflight", ".tmp", dir)
+        disk.put("$url&index=3", byteArrayOf(3))
+
+        assertTrue("最新一张必须留下", disk.has("$url&index=3"))
+        assertTrue("临时文件占了名额的话这张会被挤掉", disk.has(second))
+        assertTrue("正在写的临时文件不能被 trim 删掉", inflight.isFile)
+    }
+
+    @Test
+    fun `被杀进程留下的临时文件会被清掉`() {
+        val dir = temp.newFolder("artwork")
+        val disk = ArtworkDisk(dir)
+        val stale = File(dir, "half-written.tmp").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        assertTrue(stale.setLastModified(System.currentTimeMillis() - 120_000))
+
+        disk.put(url, byteArrayOf(9))
+
+        assertFalse("进程被杀留下的临时文件不能永远占着目录", stale.exists())
     }
 
     // ---------- 容量治理（V1.0.0）：重编码 + 总字节上限 ----------

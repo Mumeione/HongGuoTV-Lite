@@ -21,6 +21,8 @@ class SeasonKeysTest {
         assertEquals(40, SeasonKeys.seasonNumber("之无灵证道40季"))
         // 全角数字
         assertEquals(3, SeasonKeys.seasonNumber("第３季"))
+        // 多位全角：手写数字表只认 ０/９ 的话这一条会退化成 0
+        assertEquals(12, SeasonKeys.seasonNumber("第１２季"))
     }
 
     @Test

@@ -81,12 +81,9 @@ internal object DetailText {
     fun updateLabel(episodeCount: Int): String =
         if (episodeCount <= 0) "" else "更新到 第 $episodeCount 集"
 
-    /** 剧集详情的「记录」值：**有记录就必须说出来**——这是用户回到这一页的理由。手动标"已看"优先。 */
-    fun episodeRecord(progress: Progress?, watched: Boolean): String = when {
-        watched -> "已看完"
-        progress == null -> ""
-        else -> TvText.progress(progress.episodeIndex, progress.positionMs)
-    }
+    /** 剧集详情的「记录」值：**有记录就必须说出来**——这是用户回到这一页的理由。 */
+    fun episodeRecord(progress: Progress?): String =
+        progress?.let { TvText.progress(it.episodeIndex, it.positionMs) }.orEmpty()
 
     /** 系列页的「记录」值：多季剧必须带季名，否则"第 20 集"分不清是哪一季的。 */
     fun seasonRecord(progress: Progress?, line: SeasonLine?, fallbackSeason: Int): String {
@@ -110,8 +107,7 @@ internal object DetailText {
     }
 
     /** 主按钮文案。看 [ResumeTarget] 而不是原始记录：落点挪到下一集时文案也要跟着挪。 */
-    fun playLabel(progress: Progress?, target: ResumeTarget, watched: Boolean): String = when {
-        watched -> "重新观看"
+    fun playLabel(progress: Progress?, target: ResumeTarget): String = when {
         progress == null -> "开始观看"
         !target.finished -> "继续播放 · 第 ${target.index + 1} 集"
         // 看完最后一集时落点没有前移：这时是重看本集，不是"下一集"
@@ -140,12 +136,11 @@ internal object DetailText {
     fun nextSeasonHint(next: Series?): String = next?.let { "本季看完后会接着播《${it.title}》" } ?: ""
 
     /** 季卡状态。看完的季不能停在"上次第 N 集"，那既不准确也没用。 */
-    fun seasonState(season: Series, progress: Progress?, watched: Boolean): String = when {
+    fun seasonState(season: Series, progress: Progress?): String = when {
         // 季卡第一行已经是季号（「第十季」），第二行只补状态（2026-10-24 验收：别重复）
         !season.released -> "未上线"
         progress != null && progress.completed -> "已看完"
         progress != null -> "上次第 ${progress.episodeIndex + 1} 集"
-        watched -> "已看完"
         else -> "未观看"
     }
 

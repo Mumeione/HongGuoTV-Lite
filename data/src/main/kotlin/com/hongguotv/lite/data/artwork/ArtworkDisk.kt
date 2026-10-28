@@ -37,8 +37,13 @@ class ArtworkDisk(
                 ?.takeIf { it.isNotEmpty() && it.size < bytes.size }
                 ?: bytes
             val file = fileOf(url)
-            // 先写临时文件再改名：中途被杀不会留下半张图（读出来解码失败也是一样的，但少一次坏读）
-            val temp = File(dir, file.name + ".tmp")
+            // 先写临时文件再改名：中途被杀不会留下半张图（读出来解码失败也是一样的，但少一次坏读）。
+            //
+            // 临时名**必须带唯一后缀**：文件名只取 URL 的 SHA-1，而工作线程有两个，
+            // 同一张封面在不同视口下是不同尺寸、也就成了两个任务（Key 含宽高），
+            // 共用 `<name>.tmp` 会让两路字节交错写进同一个文件——写坏的那张 rename 成功之后
+            // 永远解不开（has() 只看文件在不在），封面就再也不刷新了。
+            val temp = File.createTempFile(file.name, ".tmp", dir)
             temp.writeBytes(stored)
             if (!temp.renameTo(file)) temp.delete()
             trim()
@@ -49,9 +54,14 @@ class ArtworkDisk(
      * 超上限时按最后修改时间删最旧的一批（各留 10% 余量）：文件数回到
      * `limit - limit/10`，总字节回到 `maxTotalBytes - maxTotalBytes/10`。
      * 一个循环同时看两个口径——老机器上 ≤200 次文件 stat，成本可忽略。
+     *
+     * 临时文件**不参与配额**（它是正在写的那一张的中间态，按"最后修改时间最旧"淘汰会
+     * 删掉正在写的那份），但顺手清掉放了一分钟以上的残留——进程被杀会留下它，
+     * 不清就永远占着目录。
      */
     private fun trim() {
-        val files = dir.listFiles()?.filter { it.isFile } ?: return
+        sweepStaleTemps()
+        val files = dir.listFiles()?.filter { it.isFile && !it.name.endsWith(TEMP_SUFFIX) } ?: return
         var total = files.sumOf { runCatching { it.length() }.getOrDefault(0L) }
         if (files.size <= limit && total <= maxTotalBytes) return
         val keepFiles = limit - limit / 10
@@ -67,10 +77,24 @@ class ArtworkDisk(
         }
     }
 
+    /** 清掉写盘中途被杀留下的临时文件（一分钟内的可能是刚起的另一路写，别动）。 */
+    private fun sweepStaleTemps() {
+        val now = System.currentTimeMillis()
+        dir.listFiles()?.forEach { file ->
+            if (file.name.endsWith(TEMP_SUFFIX) && now - file.lastModified() > TEMP_STALE_MS) file.delete()
+        }
+    }
+
     internal fun fileOf(url: String): File = File(dir, nameFor(url))
 
     companion object {
         private const val MAX_FILES = 200
+
+        /** 临时文件后缀：`File.createTempFile` 的产物，配额与淘汰都不看它。 */
+        private const val TEMP_SUFFIX = ".tmp"
+
+        /** 临时文件超过这个年龄就是残留（正常写一张图是毫秒级）。 */
+        private const val TEMP_STALE_MS = 60_000L
 
         /** 磁盘总量上限：200 张压缩后（~30-80KB/张）正常到不了，这是防上游下发大图的兜底。 */
         const val MAX_TOTAL_BYTES = 30L * 1024 * 1024

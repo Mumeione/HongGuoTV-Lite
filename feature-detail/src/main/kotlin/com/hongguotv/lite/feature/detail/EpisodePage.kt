@@ -216,7 +216,6 @@ internal class EpisodePage(
     private fun renderHero(data: Detail) {
         val series = data.series
         val progress = host.progress.progressOf(series.id)
-        val watched = host.progress.isWatched(series.id)
         val favorite = favoriteEntryOf(series) != null
         val line = host.favorites.seasonLine(seriesKeyOf(series))
 
@@ -236,11 +235,11 @@ internal class EpisodePage(
                 total = data.episodes.size,
                 watchedCount = host.progress.watchedUpTo(series.id),
                 tags = TvText.tags(series.tags),
-                record = DetailText.episodeRecord(progress, watched),
+                record = DetailText.episodeRecord(progress),
             ),
             intro = series.intro.ifBlank { "选择剧集开始观看" },
         )
-        val (title, note) = DetailText.playLabelLines(DetailText.playLabel(progress, target, watched))
+        val (title, note) = DetailText.playLabelLines(DetailText.playLabel(progress, target))
         playButton.label(title, note)
         favoriteButton.label(if (favorite) "已收藏" else "收藏")
     }
@@ -375,11 +374,10 @@ internal class EpisodePage(
     }
 
     private fun openPlayer(data: Detail) {
-        val watched = host.progress.isWatched(data.series.id)
         host.navigator.toPlayer(
             seriesId = data.series.id,
-            episodeIndex = if (watched) 0 else target.index,
-            positionMs = if (watched) 0L else target.positionMs,
+            episodeIndex = target.index,
+            positionMs = target.positionMs,
         )
     }
 

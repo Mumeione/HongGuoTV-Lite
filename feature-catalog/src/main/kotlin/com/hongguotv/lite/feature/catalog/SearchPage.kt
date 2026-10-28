@@ -549,7 +549,7 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         // 视口还没量到时不夹（保持比例）；量到之后由布局回调再走一遍 render
         applyCardLimit()
         continueRendered = if (showContinue) {
-            continueGrid.render(continueEntries.map { CatalogCards.history(it, host.progress.isWatched(it.series.id)) })
+            continueGrid.render(continueEntries.map(CatalogCards::history))
         } else {
             null
         }

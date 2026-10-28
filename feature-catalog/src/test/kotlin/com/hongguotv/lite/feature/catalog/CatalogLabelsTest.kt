@@ -144,15 +144,11 @@ class CatalogLabelsTest {
             progress = progress("1", updatedAt = 0L).copy(completed = true),
         )
         // 看完的一季停在"第1集 · 00:01"既没用也不准确
-        assertEquals("整剧已看完", CatalogCards.history(finished, watched = false).badge)
+        assertEquals("整剧已看完", CatalogCards.history(finished).badge)
         // B 方案：历史卡不带时间（详情在底部信息栏里），季与集之间一个空格
         assertEquals(
             "第1集",
-            CatalogCards.history(finished.copy(progress = finished.progress.copy(completed = false)), watched = false).badge,
-        )
-        assertEquals(
-            "整剧已看完",
-            CatalogCards.history(finished.copy(progress = finished.progress.copy(completed = false)), watched = true).badge,
+            CatalogCards.history(finished.copy(progress = finished.progress.copy(completed = false))).badge,
         )
     }
 
@@ -164,7 +160,7 @@ class CatalogLabelsTest {
 
         // B 方案：历史卡只写「第九季 第20集」——不带时间，季与集之间一个空格
         val entry = HistoryEntry(series, progress("1", updatedAt = 0L, index = 19))
-        assertEquals("第九季 第20集", CatalogCards.history(entry, watched = false).badge)
+        assertEquals("第九季 第20集", CatalogCards.history(entry).badge)
     }
 
     @Test

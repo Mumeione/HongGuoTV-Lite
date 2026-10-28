@@ -39,6 +39,7 @@ class PrefsLibraryTest {
                 .put("position", 65_000L).put("duration", 120_000L)
                 .put("completed", false).put("updatedAt", 1_000L)
         ).toString(),
+        // 旧版"手动已看"分区：现在不读不写不删（写入口早就没了，留在盘上也不该影响任何行为）
         "watched" to setOf("1"),
         "quality" to 720,
         "playbackSpeed" to 1.5f,
@@ -66,7 +67,7 @@ class PrefsLibraryTest {
     }
 
     @Test
-    fun readsLegacyProgressWatchedAndSettings() = runTest {
+    fun readsLegacyProgressAndSettings() = runTest {
         val lib = PrefsLibrary(store(*oldPrefs()))
         val progress = lib.progressOf("1")
         assertNotNull(progress)
@@ -75,8 +76,8 @@ class PrefsLibraryTest {
         assertEquals(65_000L, progress.positionMs)
         assertEquals(120_000L, progress.durationMs)
         assertFalse(progress.completed)
-        assertTrue(lib.isWatched("1"))
-        assertFalse(lib.isWatched("2"))
+        // "看过"的唯一事实是进度高水位，不是旧版的 watched 集合
+        assertEquals(2, lib.watchedUpTo("1"))
         val settings = lib.current()
         assertEquals(720, settings.quality)
         assertEquals(1.5f, settings.speed)
@@ -294,11 +295,14 @@ class PrefsLibraryTest {
     }
 
     @Test
-    fun removeAndClearHistoryAlsoDropTheWatchedMark() = runTest {
-        val lib = PrefsLibrary(store(*oldPrefs()))
+    fun clearHistoryLeavesLegacyPartitionsAlone() = runTest {
+        val s = store(*oldPrefs())
+        val lib = PrefsLibrary(s)
         lib.clearHistory()
+        lib.flush()
         assertTrue(lib.history().isEmpty())
-        assertFalse(lib.isWatched("1"))
+        // 旧版 watched 分区不归端口管：清历史不该顺手删掉它（删了就是丢数据）
+        assertEquals(setOf("1"), s.data["watched"])
     }
 
     // ---------- 收藏 ----------
