@@ -3,6 +3,7 @@ package com.hongguotv.lite.uikit.token
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.lang.reflect.Modifier
 
 class TokensTest {
 
@@ -109,5 +110,113 @@ class TokensTest {
         val space = Tokens.Default.space
         val scale = listOf(space.hairline, space.xxs, space.xs, space.s, space.m, space.l, space.xl, space.xxl)
         assertEquals(scale.sorted(), scale)
+    }
+
+    // ---------- 全局缩放（4K） ----------
+
+    @Test
+    fun `ui scale maps the 960dp design width to one and 4K to two`() {
+        assertEquals(1f, UiScale.ofWidthDp(960f), 0.001f)
+        assertEquals(2f, UiScale.ofWidthDp(1920f), 0.001f)
+        assertEquals(1.33f, UiScale.ofWidthDp(1280f), 0.001f)
+    }
+
+    @Test
+    fun `ui scale never shrinks below the design width and never exceeds two`() {
+        assertEquals("720p 盒子按 960dp 报，不缩小", 1f, UiScale.ofWidthDp(720f), 0.001f)
+        assertEquals("8K（3840dp）封顶 2 倍", 2f, UiScale.ofWidthDp(3840f), 0.001f)
+        assertEquals("非法宽度退回 1 倍", 1f, UiScale.ofWidthDp(0f), 0.001f)
+        assertEquals("NaN 退回 1 倍", 1f, UiScale.ofWidthDp(Float.NaN), 0.001f)
+    }
+
+    @Test
+    fun `scaled tokens double every physical length`() {
+        val big = Tokens.of(UiTier.NORMAL, scale = 2f)
+        val base = Tokens.Default
+
+        assertEquals(2f, big.scale, 0.001f)
+        assertEquals("详情片名 26 → 52", base.type.display * 2f, big.type.display, 0.001f)
+        assertEquals("侧栏 80 → 160", base.metrics.railWidth * 2, big.metrics.railWidth)
+        assertEquals("页边距 40 → 80", base.metrics.pagePaddingH * 2, big.metrics.pagePaddingH)
+        assertEquals("间距 14 → 28", base.space.l * 2, big.space.l)
+        assertEquals("焦点框 3 → 6", base.shapes.focusStroke * 2, big.shapes.focusStroke)
+        assertEquals("分集格 26 → 52", base.metrics.episodeCellHeight * 2, big.metrics.episodeCellHeight)
+    }
+
+    @Test
+    fun `scaling leaves counts ratios and alphas untouched`() {
+        val big = Tokens.of(UiTier.NORMAL, scale = 2f)
+
+        assertEquals("列数上限是计数，不是长度", 5, big.metrics.gridMaxColumns)
+        assertEquals(3, big.metrics.gridMinColumns)
+        assertEquals("分集列数不变", 20, big.metrics.episodeColumns)
+        assertEquals("封面比例不变", 0.7f, big.metrics.posterAspect, 0.0001f)
+        assertEquals("副行比例不变", 0.7f, big.type.noteScale, 0.0001f)
+        assertEquals("行距倍数不变", 1.6f, big.type.lineSpacing, 0.0001f)
+        assertEquals("聚光透明度不变", 0.62f, big.metrics.focusDimAlpha, 0.0001f)
+        assertEquals("禁用透明度不变", 0.4f, big.metrics.disabledAlpha, 0.0001f)
+        assertEquals("胶囊哨兵值不变", 99, big.shapes.pill)
+        assertEquals("颜色与缩放无关", Tokens.Default.colors, big.colors)
+    }
+
+    @Test
+    fun `type scale stays ordered after scaling`() {
+        val type = Tokens.of(UiTier.NORMAL, scale = 2f).type
+        val ladder = listOf(
+            type.corner, type.railLabel, type.micro, type.footnote, type.caption, type.cardStatus,
+            type.specLabel, type.specValue, type.compact, type.specValueDetail, type.seasonLine,
+            type.body, type.group, type.subtitle, type.heading, type.display, type.pageTitle,
+        )
+        assertEquals("等比放大后字号顺序不能乱", ladder.sorted(), ladder)
+    }
+
+    @Test
+    fun `scale one is the historical token set`() {
+        assertEquals(1f, Tokens.Default.scale, 0.001f)
+        assertEquals(Tokens.Default, Tokens.of(UiTier.NORMAL, scale = 1f))
+    }
+
+    /**
+     * 缩放是**逐字段手写**的（数据类有 70 多个尺寸），漏一个就是"4K 上某处还是小一号"，
+     * 而这种漏只能靠肉眼在电视上发现。这里用反射兜底：新增字段若没进 `scaled()`，
+     * 失败信息会点名字段——是物理长度就补上，是比例/计数就加进 skip 并写清理由。
+     */
+    @Test
+    fun `every physical token field is scaled`() {
+        val base = Tokens.Default
+        val big = Tokens.of(UiTier.NORMAL, scale = 2f)
+
+        // 不是"物理长度"的字段：计数、比例、透明度，以及胶囊的哨兵值
+        val skipped = mapOf(
+            "type" to setOf("lineSpacing", "noteScale"),
+            "space" to emptySet(),
+            "shapes" to setOf("pill"),
+            "metrics" to setOf(
+                "disabledAlpha", "focusDimAlpha", "dimAlpha",
+                "introMaxLines", "episodeColumns", "gridMinColumns", "gridMaxColumns",
+                "posterAspect", "sidebarWidthRatio", "jumpDigitsScale",
+            ),
+        )
+
+        fun verify(owner: String, skip: Set<String>, small: Any, large: Any, minFields: Int) {
+            val fields = small.javaClass.declaredFields
+                .filterNot { Modifier.isStatic(it.modifiers) || it.isSynthetic }
+            // 反射读不到字段时上面的断言会全过——先钉住"确实读到了这么多字段"
+            assertTrue("$owner 只反射到 ${fields.size} 个字段，兜底测试要失效了", fields.size >= minFields)
+            fields.forEach { field ->
+                if (field.name in skip) return@forEach
+                field.isAccessible = true
+                val hint = "$owner.${field.name} 没乘 scale：物理长度要补进 scaled()，比例/计数加进 skip"
+                when (val value = field.get(small)) {
+                    is Int -> assertEquals(hint, value * 2, field.get(large) as Int)
+                    is Float -> assertEquals(hint, value * 2f, field.get(large) as Float, 0.001f)
+                }
+            }
+        }
+
+        verify("type", skipped.getValue("type"), base.type, big.type, minFields = 17)
+        verify("space", skipped.getValue("space"), base.space, big.space, minFields = 8)
+        verify("shapes", skipped.getValue("shapes"), base.shapes, big.shapes, minFields = 9)
+        verify("metrics", skipped.getValue("metrics"), base.metrics, big.metrics, minFields = 70)
     }
 }
