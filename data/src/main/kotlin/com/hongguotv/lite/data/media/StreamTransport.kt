@@ -8,7 +8,9 @@ import com.hongguotv.core.port.SilentDiagnostics
 import com.hongguotv.core.port.UpstreamError
 import com.hongguotv.core.protocol.MediaCrypto
 import com.hongguotv.lite.data.diagnostics.stageTimed
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import java.io.IOException
@@ -31,12 +33,28 @@ class StreamTransport(
     private val diagnostics: DiagnosticsPort = SilentDiagnostics,
 ) : MediaPort {
 
-    override suspend fun open(vid: String, maxHeight: Int): MediaStream = withContext(Dispatchers.IO) {
-        val info = content.stream(vid, maxHeight)
-        // 预热（拉头 + 解索引）放在 open 里：它慢，但不该慢在播放器的读取线程上
-        val session = Session(readerFor(info.url), info.key, diagnostics)
-        diagnostics.event("stream.open", mapOf("length" to session.length, "encrypted" to (info.key != null)))
-        session
+    override suspend fun open(vid: String, maxHeight: Int): MediaStream {
+        var opened: Session? = null
+        return try {
+            withContext(Dispatchers.IO) {
+                val info = content.stream(vid, maxHeight)
+                // 换地址是网络调用：取消就到此为止，不必再拉 256KB 头、解一遍全量索引
+                ensureActive()
+                // 预热（拉头 + 解索引）放在 open 里：它慢，但不该慢在播放器的读取线程上。
+                // checkActive 让两段阻塞读之间也能响应取消（用户连按跳集时取消的是上一个 vid）。
+                val session = Session(readerFor(info.url), info.key, diagnostics, checkActive = { ensureActive() })
+                opened = session
+                // 交出去之前的最后一次检查：withContext 只在**返回点**才发现取消的话，
+                // 这条已经建好的流没人接得住，reader 与 Range 连接就漏在连接池里了。
+                ensureActive()
+                diagnostics.event("stream.open", mapOf("length" to session.length, "encrypted" to (info.key != null)))
+                session
+            }
+        } catch (cancelled: CancellationException) {
+            // 取消不是失败：原样抛给调用方，但先把自己开出来的连接收掉
+            opened?.close()
+            throw cancelled
+        }
     }
 
     companion object {
@@ -62,6 +80,8 @@ class StreamTransport(
         private val reader: RangeReader,
         private val key: ByteArray?,
         private val diagnostics: DiagnosticsPort,
+        /** 取消检查：两段阻塞读之间问一次，被取消的那次取流不该把整条索引解完。 */
+        private val checkActive: () -> Unit = {},
     ) : MediaStream {
 
         override var length: Long = 0L
@@ -92,6 +112,8 @@ class StreamTransport(
             val first = readOrFail(0L, PREFIX_BYTES - 1L)
             length = first.total
             var cache = first.bytes
+            // 头拉回来之后先问一次：被取消的取流不必再往下解索引（那是 CPU 最重的一段）
+            checkActive()
             val headerEnd = diagnostics.stageTimed(DiagnosticsPort.Stage.DECRYPT, "stream.header") {
                 try {
                     MediaCrypto.headerEnd(cache, length)
@@ -102,6 +124,7 @@ class StreamTransport(
             if (headerEnd > cache.size) {
                 cache += readOrFail(cache.size.toLong(), headerEnd - 1L).bytes
             }
+            checkActive()
             val index = diagnostics.stageTimed(DiagnosticsPort.Stage.DECRYPT, "stream.index") {
                 try {
                     MediaCrypto.prepare(cache.copyOf(headerEnd), key)

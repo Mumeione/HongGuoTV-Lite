@@ -9,6 +9,9 @@ import com.hongguotv.core.model.StreamInfo
 import com.hongguotv.core.model.Suggestion
 import com.hongguotv.core.port.ContentPort
 import com.hongguotv.core.port.UpstreamError
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertArrayEquals
@@ -18,6 +21,8 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * 取流传输：Range 读取、前缀缓存、末尾夹住、资源变化、坏容器。
@@ -149,6 +154,51 @@ class StreamTransportTest {
         stream.close()
         assertThrows(IOException::class.java) { stream.read(0, 16) }
         assertTrue(reader.closed)
+    }
+
+    /**
+     * 取消（用户连按跳集）不能把连接留在那儿。
+     *
+     * `open` 里是阻塞读：协程取消不会打断 `reader.read`，所以每段之间要问一次 isActive；
+     * 取消后必须 `reader.close()` 再抛——只靠 `withContext` 在返回点发现取消的话，
+     * 建好的 Session 会被丢掉，Range 连接泄漏在连接池里。
+     */
+    @Test
+    fun aCancelledOpenClosesTheReaderInsteadOfLeakingIt() = runBlocking {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val source = fakeFile()
+        var closed = false
+        val reader = object : RangeReader {
+            override fun read(start: Long, endInclusive: Long): RangeChunk {
+                entered.countDown()
+                release.await()
+                val last = minOf(endInclusive, source.size - 1L)
+                return RangeChunk(source.copyOfRange(start.toInt(), (last + 1).toInt()), source.size.toLong())
+            }
+
+            override fun close() {
+                closed = true
+            }
+        }
+        val content = FakeContent(StreamInfo("https://v.example/x.mp4", null, 720, fellBack = false))
+        val transport = StreamTransport(content, readerFor = { reader })
+
+        var cancelled: Throwable? = null
+        val job = launch(Dispatchers.IO) {
+            // 显式只接取消：`runCatching` 会把别的异常一起吞掉，取消就不再是"原样抛出"
+            try {
+                transport.open("vid-1", 720)
+            } catch (expected: CancellationException) {
+                cancelled = expected
+            }
+        }
+        assertTrue("取流应该已经卡在第一次读上", entered.await(5, TimeUnit.SECONDS))
+        job.cancel()
+        release.countDown()
+        job.join()
+        assertTrue("取消必须原样抛出，不能变成取流失败", cancelled is CancellationException)
+        assertTrue("取消后 reader 必须被关闭", closed)
     }
 
     @Test

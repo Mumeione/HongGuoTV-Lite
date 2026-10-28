@@ -18,18 +18,33 @@ import java.io.IOException
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 internal class StreamDataSource(private val stream: MediaStream) : BaseDataSource(true) {
 
+    /** 只由加载线程读写。 */
     private var position = 0L
+
+    // 下面四个字段 `close()` 可能在应用线程上改（清零 / 换空数组），`read()` 在加载线程上读。
+    // 至少要保证可见性，否则"关掉之后还从 buffer 里读到旧字节"就成立了；
+    // 不追求完整互斥——读到的是 close 前还是 close 后的字节数都可以，唯独不能读到上一段的残留。
+    @Volatile
     private var remaining = 0L
+
+    @Volatile
     private var buffer = ByteArray(0)
+
+    @Volatile
     private var offset = 0
+
+    @Volatile
     private var opened = false
+
     private var uri: Uri? = null
 
     override fun open(spec: DataSpec): Long {
+        // 边界校验放在任何 transfer* 回调之前：抛出去之后不会留下"初始化了却没结束"的账
+        // （BaseDataSource 的 listener 记账要求 initializing/started 与 ended 成对）。
+        if (spec.position > stream.length) throw IOException("读取位置超出视频长度")
         transferInitializing(spec)
         uri = spec.uri
         position = spec.position
-        if (position > stream.length) throw IOException("读取位置超出视频长度")
         remaining = if (spec.length == C.LENGTH_UNSET.toLong()) {
             stream.length - position
         } else {
@@ -43,6 +58,8 @@ internal class StreamDataSource(private val stream: MediaStream) : BaseDataSourc
     }
 
     override fun read(target: ByteArray, targetOffset: Int, length: Int): Int {
+        // 关掉之后再被读到就报错，不能拿 buffer 里的旧字节接着喂给播放器
+        if (!opened) throw IOException("数据源已关闭")
         if (length == 0) return 0
         if (remaining == 0L) return C.RESULT_END_OF_INPUT
         if (offset >= buffer.size) {
@@ -63,6 +80,9 @@ internal class StreamDataSource(private val stream: MediaStream) : BaseDataSourc
 
     override fun close() {
         buffer = ByteArray(0)
+        offset = 0
+        // 不清的话，"关掉之后还读到旧字节"会算成正常数据：remaining 是 read 的唯一闸门
+        remaining = 0
         uri = null
         if (opened) {
             opened = false

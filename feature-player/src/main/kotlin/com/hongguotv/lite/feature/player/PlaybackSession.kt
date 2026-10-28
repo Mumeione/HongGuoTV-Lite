@@ -235,14 +235,20 @@ class PlaybackSession(
         refresh()
     }
 
-    /** 改清晰度：写设置后**从当前位置重新取流**（旧行为）。 */
+    /**
+     * 改清晰度：写设置后**从当前位置重新取流**（旧行为）。
+     *
+     * 不继承重试预算：换清晰度是一次新的观看意图，不是"自动重试的一环"。
+     * 继承的话，上一档把三次预算烧完之后换到 720P，新流首败就直接判 `Exhausted`，
+     * 用户看到"已自动重试 3 次"却一次都没重试过。
+     */
     fun setQuality(value: Int) {
         val normalized = PlaybackOptions.normalizeQuality(value)
         if (normalized == quality) return
         quality = normalized
         host.applySettings { it.copy(quality = normalized) }
         if (detail == null) return
-        playEpisode(index, currentPositionMs(), keepBudget = true)
+        playEpisode(index, currentPositionMs())
     }
 
     fun setFrame(mode: FrameMode) {

@@ -630,6 +630,28 @@ class PlaybackSessionTest {
         assertEquals(30_000L, f.engine.loads.last().positionMs)
     }
 
+    /**
+     * 换清晰度是新的观看意图：不继承上一档已经烧完的重试预算。
+     *
+     * 继承的话，烧完三次后换到 720P，新流首败就直接判 `Exhausted`——用户看到
+     * 「已自动重试 3 次」，可新流一次都没重试过。
+     */
+    @Test
+    fun changingTheQualityStartsAFreshRetryBudget() {
+        val f = Fixture().start()
+        repeat(3) {
+            f.session.onStreamFailed(IOException("boom"))
+            f.scheduler.fire()
+        }
+        f.session.onStreamFailed(IOException("boom"))
+        assertEquals(RetryState.Exhausted, (f.session.state as PlaybackState.Failed).retry)
+
+        f.session.setQuality(720)
+        assertEquals(PlaybackState.Preparing(0), f.session.state)
+        f.session.onStreamFailed(IOException("boom"))
+        assertTrue((f.session.state as PlaybackState.Failed).retry is RetryState.Scheduled)
+    }
+
     @Test
     fun changingTheFrameModeAppliesImmediatelyAndIsPersisted() {
         val f = Fixture().start().ready()
