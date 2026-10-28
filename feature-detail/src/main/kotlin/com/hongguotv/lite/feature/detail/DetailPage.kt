@@ -96,7 +96,9 @@ internal abstract class DetailPage(
 
     /**
      * 提交焦点结构。空的段（失败态的重试、单页时的分页行）整段丢弃；
-     * 一个可聚焦项都没有时不动现有结构（页面还在加载）。
+     * 内容段全空时**绑侧栏单独成图**：加载中的空窗期旧实现直接 return，
+     * 焦点图停留在旧结构（换目标后即作废），遥控器整页失灵。
+     * 侧栏在 [build] 里已建好，永远可绑；落焦由 [requestFocus] 兜到侧栏当前项。
      *
      * [preferred] 为 null 时用**本页上次的光标**（`host.lastFocus`）——页面换目标销毁重建后，
      * 这是"回来还在原处"的唯一来源。
@@ -124,7 +126,8 @@ internal abstract class DetailPage(
             sideAnchor = navKey(RAIL_SELECTED),
             leftFlank = leftFlank,
             rightFlank = rightFlank,
-        ) ?: return
+            // 空态兜底：内容段全空时把侧栏当内容段单独成图，遥控器至少能操作导航
+        ) ?: FocusSections.plan(listOfNotNull(side)) ?: return
         // 侧栏也要进 views：只声明段、不给 View，方向键的落点表里就没有它，
         // 视觉上在左侧的导航项永远选不中（与长条是同一个坑）
         val allViews = LinkedHashMap(views)
@@ -136,10 +139,35 @@ internal abstract class DetailPage(
         requestFocus(preferred ?: host.lastFocus[pageKey] ?: ladder.firstOrNull(), ladder)
     }
 
+    /**
+     * 落焦带三级兜底：首次失败（视图还没挂窗口）→ `post` 再要一次；
+     * 还失败 → 等一次布局完成再要；仍失败 → 直接把光标点名到侧栏当前项（收藏）。
+     * 侧栏项总是存在且已挂窗口，这一级兜底保证页面永远不会"焦点在页外、遥控器全灭"。
+     */
     private fun requestFocus(preferred: FocusKey?, ladder: List<FocusKey>) {
+        // 阶梯末尾固定接侧栏当前项：内容 key 还不存在（加载中）时光标也有明确的归处
+        val fullLadder = ladder + navKey(RAIL_SELECTED)
+        if (focus.request(preferred, fullLadder)) return
+        scaffold.post {
+            if (focus.request(preferred, fullLadder)) return@post
+            val observer = scaffold.viewTreeObserver
+            if (!observer.isAlive) {
+                focusFallback(preferred, fullLadder)
+                return@post
+            }
+            observer.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
+                override fun onGlobalLayout() {
+                    val live = scaffold.viewTreeObserver
+                    if (live.isAlive) live.removeOnGlobalLayoutListener(this)
+                    focusFallback(preferred, fullLadder)
+                }
+            })
+        }
+    }
+
+    private fun focusFallback(preferred: FocusKey?, ladder: List<FocusKey>) {
         if (focus.request(preferred, ladder)) return
-        // 视图还没挂上窗口时一定失败：等一次 post 再要，别让光标留在页外
-        scaffold.post { focus.request(preferred, ladder) }
+        rail.navItems.getOrNull(RAIL_SELECTED)?.requestFocus()
     }
 
     private companion object {

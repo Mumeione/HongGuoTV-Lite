@@ -121,7 +121,14 @@ internal abstract class CatalogPage(
     protected fun navSection(): FocusSection? =
         FocusSections.section(rail.keys(), columns = 1)
 
-    /** 提交焦点结构。空的段（没有联想、没有结果、页脚没开）由 [FocusSections] 丢弃。 */
+    /**
+     * 提交焦点结构。空的段（没有联想、没有结果、页脚没开）由 [FocusSections] 丢弃。
+     *
+     * **内容段全空时也要绑侧栏**：历史删掉最后一条、搜索清空这类空态，
+     * 旧实现直接 return——焦点图停留在旧结构（或根本没建），遥控器整页失灵。
+     * 侧栏 [navSection] 永远存在（`build` 里 `showRail` 先建），单独成图兜底，
+     * 落焦由 [requestFocus] 的阶梯兜到侧栏当前项。
+     */
     protected fun applyPlan(
         sections: List<FocusSection?>,
         views: Map<FocusKey, View>,
@@ -130,21 +137,49 @@ internal abstract class CatalogPage(
         // 内容往左回侧栏时落在**本页的 tab** 上：内容通常只有一行卡，按竖直位置映射
         // 会落到侧栏中段（实测：搜索页按左键落在「收藏」上，再按确认就换了页）。
         // [sideEntry] 是对称的另一半：侧栏按右进内容的落点（机制见 FocusPlan.sideEntry）。
+        val side = navSection()
         val plan = FocusSections.plan(
             sections,
-            side = navSection(),
+            side = side,
             sideAnchor = navKey(tab.ordinal),
             sideEntry = sideEntry,
-        ) ?: return
+            // 空态兜底：内容段全空时把侧栏当内容段单独成图，遥控器至少能操作导航
+        ) ?: FocusSections.plan(listOfNotNull(side)) ?: return
         focus.bind(plan, views)
         val wanted = preferredOnBuild ?: preferredOnRender
         preferredOnRender = null
         requestFocus(wanted, startFocus())
     }
 
+    /**
+     * 落焦带三级兜底：首次失败（视图还没挂窗口）→ `post` 再要一次；
+     * 还失败 → 等一次布局完成再要；仍失败 → 直接把光标点名到侧栏当前项。
+     * 侧栏项总是存在且已挂窗口，这一级兜底保证页面永远不会"焦点在页外、遥控器全灭"。
+     */
     private fun requestFocus(preferred: FocusKey?, ladder: List<FocusKey> = emptyList()) {
-        if (focus.request(preferred, ladder)) return
+        // 阶梯末尾固定接侧栏当前项：内容 key 不存在（空态/截断）时光标也有明确的归处
+        val fullLadder = ladder + navKey(tab.ordinal)
+        if (focus.request(preferred, fullLadder)) return
         // 视图还没挂上窗口时一定失败：等一次 post 再要，别让光标留在页外
-        scaffold.post { focus.request(preferred, ladder) }
+        scaffold.post {
+            if (focus.request(preferred, fullLadder)) return@post
+            val observer = scaffold.viewTreeObserver
+            if (!observer.isAlive) {
+                focusFallback(preferred, fullLadder)
+                return@post
+            }
+            observer.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
+                override fun onGlobalLayout() {
+                    val live = scaffold.viewTreeObserver
+                    if (live.isAlive) live.removeOnGlobalLayoutListener(this)
+                    focusFallback(preferred, fullLadder)
+                }
+            })
+        }
+    }
+
+    private fun focusFallback(preferred: FocusKey?, ladder: List<FocusKey>) {
+        if (focus.request(preferred, ladder)) return
+        navViews()[navKey(tab.ordinal)]?.requestFocus()
     }
 }
