@@ -64,6 +64,15 @@ internal class EpisodePage(
     /** 分页算术：一行 20 格 × 5 行 = 100 集一页（与播放侧栏的 10×50 各是各的口径）。 */
     private val pagination = EpisodePages.DETAIL
 
+    /**
+     * 整页分集块的高度（dp）：行数 ×（格子高 + 行距）。
+     *
+     * 与 [renderEpisodes] 的排版口径一致——**每一行**都带 `bottomMargin = gap`（含最后一行），
+     * 所以是 rows 份 `cell + gap`，不是 rows-1 份。长条按这个高度固定，末页行数少也不缩短。
+     */
+    private fun episodeBlockHeightDp(): Int =
+        pagination.rows * (tokens.metrics.episodeCellHeight + tokens.metrics.episodeCellGap)
+
     /** 首屏加载完成后光标落在主操作上：用户进来是要看剧，不是要看「返回」。 */
     private var preferredOnRender: FocusKey? = null
     private val episodeCells = LinkedHashMap<String, TvButton>()
@@ -103,8 +112,10 @@ internal class EpisodePage(
             },
         )
 
-        // 分集格夹在左右长条之间：出格就撞到条上，按一下翻一组
-        strips = SideStrips(ui, KEY_PREV, KEY_NEXT) { delta -> goPage(delta) }
+        // 分集格夹在左右长条之间：出格就撞到条上，按一下翻一组。
+        // 长条按**整页满行**的高度固定：末页只有一行时不缩成一小截，
+        // 翻组时条的长度始终一致，遥控器不用重新找位置。
+        strips = SideStrips(ui, KEY_PREV, KEY_NEXT, blockHeightDp = episodeBlockHeightDp()) { delta -> goPage(delta) }
         episodeHost = ui.column()
         val episodesWrap = strips.wrap(episodeHost)
         body.addView(

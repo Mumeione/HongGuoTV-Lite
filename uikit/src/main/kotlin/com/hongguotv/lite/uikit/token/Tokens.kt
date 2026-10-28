@@ -1,5 +1,7 @@
 package com.hongguotv.lite.uikit.token
 
+import kotlin.math.roundToInt
+
 /**
  * 设计令牌：整个应用"长什么样"的唯一事实来源。
  *
@@ -164,7 +166,7 @@ data class Shapes(
 /** 布局尺寸。dp 数值，由控件换算成像素。 */
 data class Metrics(
     // ---------- 页面骨架 ----------
-    /** 页面左右留白（B 方案：固定 40，不再按比例）。 */
+    /** 页面左右留白（设计基准 40dp；4K 上按 [Tokens.scale] 放大，不是按屏宽比例）。 */
     val pagePaddingH: Int = 40,
     /** 页面上留白。 */
     val pagePaddingTop: Int = 24,
@@ -276,7 +278,7 @@ data class Metrics(
      * 会把说明段挤成 0 宽、把右侧按键提示顶出屏幕（LinearLayout 不会自动收缩定宽子项）。
      */
     val bandTitleMaxWidth: Int = 360,
-    /** 1px 结构线（侧栏右缘、信息带上缘）。 */
+    /** 结构线的高度（设计基准 1dp；缩放后 4K 上是 2dp）。 */
     val dividerHeight: Int = 1,
     val keyCapSize: Int = 22,
     val keyCapRadius: Int = 5,
@@ -321,12 +323,18 @@ data class Metrics(
     /**
      * 目标卡宽：列数由可用宽度除以它得出。
      *
-     * 149dp 在 B 方案的内容区（960 − 80 侧栏 − 80 页边距 = 800dp）上是 **4 列、每张约 189dp**。
+     * 149dp 在 B 方案的内容区（960 − 80 侧栏 − 80 页边距 = 800dp）上是 **5 列、每张约 149dp**。
+     * 缩放后（4K 上 298dp）仍然是 5 列——列数不随屏宽增加，这是 2026-10-28 维护者拍板的口径。
      */
     val gridTargetCardWidth: Int = 149,
     val gridMinColumns: Int = 3,
-    /** 上限 6：列数是算出来的，但不会越算越多。 */
-    val gridMaxColumns: Int = 6,
+    /**
+     * 列数上限：**5 列**（2026-10-28 维护者口径：1080p 与 4K 都是一行 5 张）。
+     *
+     * 不用"算出来刚好 5"来保证：算出来的值会随屏宽漂，8K/超宽屏会漂到 6 列，
+     * 卡片就又脱离字号比例（"卡大字小"的老问题）。上限是一种产品口径，写在令牌里。
+     */
+    val gridMaxColumns: Int = 5,
     /** 滚动补偿时项与视口边缘之间保留的余量。 */
     val scrollMargin: Int = 8,
     /** 不可点击的卡片（未上线季）整体透明度：暗一档，一看就知道按不进去。 */
@@ -356,14 +364,37 @@ data class Tokens(
      * 低内存档下调，是"不卡"与"一屏能看多少"之间的取舍。
      */
     val pageCardLimit: Int = 30,
+    /**
+     * 全局缩放系数（见 [UiScale]）。1.0 = 960×540dp 设计基准。
+     *
+     * 构造 [of] 时字号 / 间距 / 尺寸已经乘过它，调用点仍然读原字段名，不需要知道有没有缩放。
+     * **只有需要反推"设计值"的地方**（例如测试、调试日志）才读这个字段。
+     */
+    val scale: Float = 1f,
 ) {
     companion object {
-        /** 低内存档：只降单页卡片上限，颜色、字号、尺寸都不动（没有动效可关）。 */
-        fun of(tier: UiTier): Tokens = when (tier) {
-            UiTier.NORMAL -> Tokens(tier = tier)
-            UiTier.LOW_RAM -> Tokens(
-                tier = tier,
-                pageCardLimit = 18,
+        /**
+         * 低内存档：只降单页卡片上限，颜色、字号、尺寸都不动（没有动效可关）。
+         *
+         * [scale] 来自 [UiScale]：4K 电视（1920dp 宽）取 2.0，整套令牌等比放大；
+         * 1080p（960dp）取 1.0，与历史取值逐位相同。
+         */
+        fun of(tier: UiTier, scale: Float = 1f): Tokens {
+            val base = when (tier) {
+                UiTier.NORMAL -> Tokens(tier = tier)
+                UiTier.LOW_RAM -> Tokens(
+                    tier = tier,
+                    pageCardLimit = 18,
+                )
+            }
+            val s = scale.coerceIn(UiScale.MIN, UiScale.MAX)
+            if (s == 1f) return base
+            return base.copy(
+                scale = s,
+                type = base.type.scaled(s),
+                space = base.space.scaled(s),
+                shapes = base.shapes.scaled(s),
+                metrics = base.metrics.scaled(s),
             )
         }
 
@@ -371,3 +402,149 @@ data class Tokens(
         val Default: Tokens = of(UiTier.NORMAL)
     }
 }
+
+// ---------- 缩放 ----------
+//
+// 只乘"物理长度"：字号（sp）、间距、圆角、描边宽度、控件尺寸。
+// **不乘**：列数 / 行数这类计数（[Metrics.gridMaxColumns]）、比例（posterAspect、noteScale）、
+// 透明度（dimAlpha、focusDimAlpha、disabledAlpha）、胶囊哨兵值（Shapes.pill = 99）。
+// copy() 的默认值就是原值，所以没列出来的字段自动保持不变。
+
+private fun Int.scaledBy(scale: Float): Int = if (this == 0) 0 else (this * scale).roundToInt()
+
+private fun Float.scaledBy(scale: Float): Float = this * scale
+
+private fun Type.scaled(scale: Float): Type = copy(
+    corner = corner.scaledBy(scale),
+    railLabel = railLabel.scaledBy(scale),
+    micro = micro.scaledBy(scale),
+    footnote = footnote.scaledBy(scale),
+    caption = caption.scaledBy(scale),
+    cardStatus = cardStatus.scaledBy(scale),
+    specLabel = specLabel.scaledBy(scale),
+    specValue = specValue.scaledBy(scale),
+    specValueDetail = specValueDetail.scaledBy(scale),
+    compact = compact.scaledBy(scale),
+    seasonLine = seasonLine.scaledBy(scale),
+    body = body.scaledBy(scale),
+    group = group.scaledBy(scale),
+    subtitle = subtitle.scaledBy(scale),
+    heading = heading.scaledBy(scale),
+    display = display.scaledBy(scale),
+    pageTitle = pageTitle.scaledBy(scale),
+)
+
+private fun Space.scaled(scale: Float): Space = copy(
+    hairline = hairline.scaledBy(scale),
+    xxs = xxs.scaledBy(scale),
+    xs = xs.scaledBy(scale),
+    s = s.scaledBy(scale),
+    m = m.scaledBy(scale),
+    l = l.scaledBy(scale),
+    xl = xl.scaledBy(scale),
+    xxl = xxl.scaledBy(scale),
+)
+
+private fun Shapes.scaled(scale: Float): Shapes = copy(
+    card = card.scaledBy(scale),
+    panel = panel.scaledBy(scale),
+    drawer = drawer.scaledBy(scale),
+    row = row.scaledBy(scale),
+    small = small.scaledBy(scale),
+    corner = corner.scaledBy(scale),
+    keyCap = keyCap.scaledBy(scale),
+    stroke = stroke.scaledBy(scale),
+    focusStroke = focusStroke.scaledBy(scale),
+)
+
+private fun Metrics.scaled(scale: Float): Metrics = copy(
+    // 页面骨架
+    pagePaddingH = pagePaddingH.scaledBy(scale),
+    pagePaddingTop = pagePaddingTop.scaledBy(scale),
+    pageTitleRowHeight = pageTitleRowHeight.scaledBy(scale),
+    // 左侧栏
+    railWidth = railWidth.scaledBy(scale),
+    railBrandIcon = railBrandIcon.scaledBy(scale),
+    railIcon = railIcon.scaledBy(scale),
+    railItemWidth = railItemWidth.scaledBy(scale),
+    railItemHeight = railItemHeight.scaledBy(scale),
+    railItemGap = railItemGap.scaledBy(scale),
+    railPaddingTop = railPaddingTop.scaledBy(scale),
+    railPaddingBottom = railPaddingBottom.scaledBy(scale),
+    // 胶囊
+    pillHeight = pillHeight.scaledBy(scale),
+    pillSmallHeight = pillSmallHeight.scaledBy(scale),
+    pillPaddingH = pillPaddingH.scaledBy(scale),
+    pillSmallPaddingH = pillSmallPaddingH.scaledBy(scale),
+    leadActionWidth = leadActionWidth.scaledBy(scale),
+    // 翻组长条
+    sideStripWidth = sideStripWidth.scaledBy(scale),
+    sideStripMinHeight = sideStripMinHeight.scaledBy(scale),
+    // 卡片
+    catalogCardWidth = catalogCardWidth.scaledBy(scale),
+    catalogStripHeight = catalogStripHeight.scaledBy(scale),
+    cardGap = cardGap.scaledBy(scale),
+    gridHeaderGap = gridHeaderGap.scaledBy(scale),
+    cardPadding = cardPadding.scaledBy(scale),
+    historyCardWidth = historyCardWidth.scaledBy(scale),
+    historyCoverHeight = historyCoverHeight.scaledBy(scale),
+    historyStripHeight = historyStripHeight.scaledBy(scale),
+    historyColumnGap = historyColumnGap.scaledBy(scale),
+    historyRowGap = historyRowGap.scaledBy(scale),
+    seasonCardWidth = seasonCardWidth.scaledBy(scale),
+    seasonCoverHeight = seasonCoverHeight.scaledBy(scale),
+    seasonTitleHeight = seasonTitleHeight.scaledBy(scale),
+    seasonStatusHeight = seasonStatusHeight.scaledBy(scale),
+    seasonCardGap = seasonCardGap.scaledBy(scale),
+    // 详情 hero
+    heroCoverWidth = heroCoverWidth.scaledBy(scale),
+    heroCoverHeight = heroCoverHeight.scaledBy(scale),
+    heroColumnGap = heroColumnGap.scaledBy(scale),
+    heroActionsWidth = heroActionsWidth.scaledBy(scale),
+    heroActionRightInset = heroActionRightInset.scaledBy(scale),
+    heroActionGap = heroActionGap.scaledBy(scale),
+    heroActionHeight = heroActionHeight.scaledBy(scale),
+    specLabelWidth = specLabelWidth.scaledBy(scale),
+    specRowGap = specRowGap.scaledBy(scale),
+    // 分集格
+    episodeCellHeight = episodeCellHeight.scaledBy(scale),
+    episodeCellGap = episodeCellGap.scaledBy(scale),
+    episodeCellRadius = episodeCellRadius.scaledBy(scale),
+    drawerCellRadius = drawerCellRadius.scaledBy(scale),
+    episodeCellPaddingH = episodeCellPaddingH.scaledBy(scale),
+    // 信息栏
+    infoBandHeight = infoBandHeight.scaledBy(scale),
+    bandTitleMaxWidth = bandTitleMaxWidth.scaledBy(scale),
+    dividerHeight = dividerHeight.scaledBy(scale),
+    keyCapSize = keyCapSize.scaledBy(scale),
+    keyCapRadius = keyCapRadius.scaledBy(scale),
+    keyCapPaddingH = keyCapPaddingH.scaledBy(scale),
+    // 播放抽屉
+    drawerHeight = drawerHeight.scaledBy(scale),
+    drawerPaddingH = drawerPaddingH.scaledBy(scale),
+    drawerPaddingTop = drawerPaddingTop.scaledBy(scale),
+    drawerPaddingBottom = drawerPaddingBottom.scaledBy(scale),
+    overlayBottomGap = overlayBottomGap.scaledBy(scale),
+    drawerSettingsWidth = drawerSettingsWidth.scaledBy(scale),
+    drawerRowHeight = drawerRowHeight.scaledBy(scale),
+    // 设置面板
+    setRowHeight = setRowHeight.scaledBy(scale),
+    setRowGap = setRowGap.scaledBy(scale),
+    setPanelPaddingH = setPanelPaddingH.scaledBy(scale),
+    setPanelPaddingV = setPanelPaddingV.scaledBy(scale),
+    // 搜索
+    inputHeight = inputHeight.scaledBy(scale),
+    inputMaxWidth = inputMaxWidth.scaledBy(scale),
+    // 网格
+    artworkMinHeight = artworkMinHeight.scaledBy(scale),
+    gridTargetCardWidth = gridTargetCardWidth.scaledBy(scale),
+    scrollMargin = scrollMargin.scaledBy(scale),
+    // 过渡期字段
+    controlPaddingH = controlPaddingH.scaledBy(scale),
+    linkMinHeight = linkMinHeight.scaledBy(scale),
+    iconChip = iconChip.scaledBy(scale),
+    iconGap = iconGap.scaledBy(scale),
+    sidebarPaddingH = sidebarPaddingH.scaledBy(scale),
+    sidebarPaddingV = sidebarPaddingV.scaledBy(scale),
+    sidebarGap = sidebarGap.scaledBy(scale),
+)

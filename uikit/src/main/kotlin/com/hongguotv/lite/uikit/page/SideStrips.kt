@@ -37,10 +37,20 @@ class SideStrips(
     private val ui: UiKit,
     private val prevKey: FocusKey,
     private val nextKey: FocusKey,
+    /**
+     * 长条的固定高度（dp，0 = 跟随内容）。
+     *
+     * 详情页按**整页满行**的高度给（5 行 × 格子高 + 行距）：末页只剩一行时，
+     * 长条不跟着缩成一小截——翻组时条的长度始终一致，遥控器不用重新找位置。
+     */
+    private val blockHeightDp: Int = 0,
     private val onPage: (Int) -> Unit,
 ) {
 
     private val tokens: Tokens = ui.tokens
+
+    /** [wrap] 建出来的外框：整对隐藏时要把它身上的固定高一起撤掉。 */
+    private var wrapper: LinearLayout? = null
 
     private fun stripButton(text: String, delta: Int): TvButton =
         ui.button(text, variant = ButtonVariant.STANDARD) { onPage(delta) }.apply {
@@ -54,9 +64,15 @@ class SideStrips(
     val prev: TvButton = stripButton("上\n一\n组", -1)
     val next: TvButton = stripButton("下\n一\n组", 1)
 
-    /** 把 [content] 夹进两条长条之间；条宽取 `Tokens.metrics.sideStripWidth`，高随内容撑满。 */
+    /**
+     * 把 [content] 夹进两条长条之间；条宽取 `Tokens.metrics.sideStripWidth`。
+     *
+     * 高度默认随内容；给了 [blockHeightDp] 之后由 [show] 决定要不要撑满整页——
+     * **必须跟着显隐走**：单页剧整对隐藏时如果再撑着 5 行，选集下面会多出一大块空白。
+     */
     fun wrap(content: View): LinearLayout = LinearLayout(ui.context).apply {
         orientation = LinearLayout.HORIZONTAL
+        wrapper = this
         addView(
             prev,
             LinearLayout.LayoutParams(ui.dp(tokens.metrics.sideStripWidth), ViewGroup.LayoutParams.MATCH_PARENT).apply {
@@ -80,8 +96,21 @@ class SideStrips(
         val visibility = if (visible) View.VISIBLE else View.GONE
         prev.visibility = visibility
         next.visibility = visibility
+        applyBlockHeight(visible)
         enable(prev, hasPrev)
         enable(next, hasNext)
+    }
+
+    /**
+     * 整页满行高只在**长条真的显示**时才撑：单页剧没有可翻的组，整对收起，
+     * 选集块就该只有自己那几行高——否则末尾多出一整块空白（4K 上约 310dp）。
+     */
+    private fun applyBlockHeight(visible: Boolean) {
+        val host = wrapper ?: return
+        val wanted = if (visible && blockHeightDp > 0) ui.dp(blockHeightDp) else 0
+        if (host.minimumHeight == wanted) return
+        host.minimumHeight = wanted
+        host.requestLayout()
     }
 
     /** 左条在焦点图里的侧翼段；不可用（禁用/隐藏）时整段省略，内容行缘夹住自己。 */

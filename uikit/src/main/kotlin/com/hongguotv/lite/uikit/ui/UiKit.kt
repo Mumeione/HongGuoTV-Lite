@@ -18,6 +18,7 @@ import com.hongguotv.lite.uikit.page.PosterGrid
 import com.hongguotv.lite.uikit.page.ScrollFocusKeeper
 import com.hongguotv.lite.uikit.token.DeviceProfile
 import com.hongguotv.lite.uikit.token.Tokens
+import com.hongguotv.lite.uikit.token.UiScale
 
 /** uikit 自带的矢量图标。着色由控件按当前状态负责。 */
 object Icons {
@@ -41,7 +42,7 @@ object Icons {
  */
 class UiKit(
     val context: Context,
-    val tokens: Tokens = Tokens.of(DeviceProfile.tierOf(context)),
+    val tokens: Tokens = Tokens.of(DeviceProfile.tierOf(context), UiScale.of(context)),
     /** 封面端口；为 null 时不加载封面（预览/单测场景）。 */
     val artwork: ArtworkPort? = null,
 ) {
