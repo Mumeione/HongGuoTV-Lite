@@ -69,6 +69,36 @@ class UpdatePolicyTest {
         assertNull(UpdatePolicy.parseCnbUpdateJson("""{"versionCode":2,"versionName":"1.1.0","apk":"a/b.apk"}""", base))
     }
 
+    // ---------- 清单 sha256 ----------
+
+    private val validHash = "5ac0c9ab377f853fe0b1974a2d33e1fef6c0dbef0d1d3334e6cdf17adb91e164"
+
+    @Test
+    fun cnbManifestParsesSha256NormalizedToLowercase() {
+        val base = "https://cnb.cool/o/r/-/releases/latest/download/"
+        val upper = """{"versionCode":2,"versionName":"1.1.0","apk":"a.apk","sha256":"${validHash.uppercase()}"}"""
+        assertEquals(validHash, UpdatePolicy.parseCnbUpdateJson(upper, base)!!.sha256)
+    }
+
+    @Test
+    fun cnbManifestWithoutSha256YieldsEmpty() {
+        val base = "https://cnb.cool/o/r/-/releases/latest/download/"
+        val manifest = UpdatePolicy.parseCnbUpdateJson("""{"versionCode":2,"versionName":"1.1.0","apk":"a.apk"}""", base)
+        assertEquals("", manifest!!.sha256)
+    }
+
+    /** 格式不对的哈希与"没给"同级：不能让它拦死正常更新。 */
+    @Test
+    fun cnbManifestRejectsMalformedSha256AsAbsent() {
+        val base = "https://cnb.cool/o/r/-/releases/latest/download/"
+        val short = """{"versionCode":2,"versionName":"1.1.0","apk":"a.apk","sha256":"deadbeef"}"""
+        val notHex = """{"versionCode":2,"versionName":"1.1.0","apk":"a.apk","sha256":"${
+            validHash.dropLast(1).replace('5', 'g')
+        }"}"""
+        assertEquals("", UpdatePolicy.parseCnbUpdateJson(short, base)!!.sha256)
+        assertEquals("", UpdatePolicy.parseCnbUpdateJson(notHex, base)!!.sha256)
+    }
+
     // ---------- parseGitHubReleaseJson ----------
 
     @Test

@@ -12,6 +12,12 @@ data class UpdateManifest(
     val apkUrl: String,
     val sizeBytes: Long = 0L,
     val notes: String = "",
+    /**
+     * 安装包 SHA-256（64 位十六进制，大小写不限；CNB 清单可给，GitHub 源没有）。
+     * 空串 = 清单没给，下载后只做包名/签名校验不做哈希比对。
+     * 体积校验只能拦截断，拦不住"等长但被换过内容"的包——哈希才是权威。
+     */
+    val sha256: String = "",
 )
 
 /** 「检查更新」一行按钮的状态机（设置页按它分派点击行为与文案）。 */
@@ -49,4 +55,10 @@ enum class UpdateFailure {
 
     /** 下载完成但大小与清单不符：不完整，删了重来。 */
     INCOMPLETE,
+
+    /**
+     * 下载完成但校验未通过（哈希不符 / 包名不符 / 版本未变新 / 签名不符）：
+     * 不该装的包被拦下了，文案与"下载失败"分开说——重试同样的清单大概率还是拒。
+     */
+    VERIFICATION,
 }

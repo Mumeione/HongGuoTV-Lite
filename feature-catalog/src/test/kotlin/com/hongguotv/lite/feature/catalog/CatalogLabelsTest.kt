@@ -237,5 +237,6 @@ class CatalogLabelsTest {
         assertEquals("检查失败，请稍后再试", SettingRows.updateLabel(UpdateState.Failed(UpdateFailure.NETWORK)))
         assertEquals("下载失败，请重试", SettingRows.updateLabel(UpdateState.Failed(UpdateFailure.DOWNLOAD)))
         assertEquals("下载不完整，请重试", SettingRows.updateLabel(UpdateState.Failed(UpdateFailure.INCOMPLETE)))
+        assertEquals("安装包校验未通过，请稍后再试", SettingRows.updateLabel(UpdateState.Failed(UpdateFailure.VERIFICATION)))
     }
 }

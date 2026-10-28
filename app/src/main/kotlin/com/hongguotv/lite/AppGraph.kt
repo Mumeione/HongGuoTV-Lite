@@ -20,6 +20,7 @@ import com.hongguotv.lite.data.library.PrefsLibrary
 import com.hongguotv.lite.data.library.SharedPreferencesStore
 import com.hongguotv.lite.data.media.StreamTransport
 import com.hongguotv.lite.data.update.OkHttpApkDownloader
+import com.hongguotv.lite.data.update.SignedApkVerifier
 import com.hongguotv.lite.data.update.UpdateManager
 import com.hongguotv.lite.feature.catalog.CatalogFeature
 import com.hongguotv.lite.feature.detail.DetailFeature
@@ -84,11 +85,17 @@ internal class AppGraph(
     /**
      * 更新检查（CNB 主源 + GitHub 备源）。清单请求共用内容客户端；
      * 节流时间戳单独放一个 prefs 文件，不混进 `native-library-v1`（那边是用户数据）。
+     * 装包校验：包名/版本/签名钉死发布密钥，哈希对清单。
      */
     val updates: UpdateManager = UpdateManager(
         downloadDir = File(context.cacheDir, "update"),
         http = transport,
         downloader = OkHttpApkDownloader(http),
+        verifier = SignedApkVerifier(
+            packageManager = context.packageManager,
+            localPackage = BuildConfig.APPLICATION_ID,
+            localVersionCode = BuildConfig.VERSION_CODE.toLong(),
+        ),
         diagnostics = diagnostics,
         store = SharedPreferencesStore(context, "update-check-v1"),
         versionCode = BuildConfig.VERSION_CODE,
@@ -101,8 +108,13 @@ internal class AppGraph(
      * 本地没有注册结果时启动就发一次匿名 `device_register`，之后一直用这一对身份；
      * 只有内容接口回风控特征时才换下一份平板档案（12 小时冷却）。搜索走官网、不需要身份，
      * 所以注册失败也不挡首页。
+     *
+     * 注册落盘单独放一个 prefs 文件：`library` 的写线程与这里的
+     * `Dispatchers.IO` 会对同一个 `SharedPreferences` 文件并发 `commit()`，framework
+     * 内部把活 map 交给磁盘线程写，并发修改就是 CME / 快照回退——`UpdateManager`
+     * 早就是独立文件了，这里补齐。升级后老注册不迁移，重注册一次（一次匿名请求）。
      */
-    private val devices = DeviceSession(store, transport, diagnostics)
+    private val devices = DeviceSession(SharedPreferencesStore(context, "device-session-v1"), transport, diagnostics)
 
     private val content: ContentPort = ContentRepository(
         http = transport,
@@ -172,12 +184,12 @@ internal class AppGraph(
         scope = scope,
     )
 
-    /** 收摊：取消作用域、停封面线程池与更新下载、把排队中的本地写入落盘。 */
+    /** 收摊：取消作用域、停封面线程池与更新下载、把排队中的本地写入落盘后停掉写线程。 */
     fun close() {
         scope.cancel()
         updates.shutdown()
         artwork.close()
-        library.flush()
+        library.close()
     }
 
     /**

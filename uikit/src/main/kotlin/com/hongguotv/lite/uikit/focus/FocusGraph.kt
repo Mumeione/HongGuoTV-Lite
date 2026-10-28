@@ -180,6 +180,12 @@ class FocusGraph private constructor(
     private val map: Map<FocusKey, Neighbors>,
     /** 按声明顺序展开的全部 key，用于"第一个焦点项"这类回退。 */
     val order: List<FocusKey>,
+    /**
+     * 声明重复、被跳过的 key（先声明者保留；正常构造为空）。
+     * 生产路径据此打日志（本文件不引用 android.*，日志在 [com.hongguotv.lite.uikit.focus.FocusSession] 补），
+     * 单测据此断言降级行为。
+     */
+    val duplicates: List<FocusKey> = emptyList(),
 ) {
     val size: Int get() = order.size
 
@@ -203,13 +209,24 @@ class FocusGraph private constructor(
     }
 
     companion object {
-        fun of(plan: FocusPlan): FocusGraph {
+        /**
+         * 生产入口：重复 key **跳过并记录**在 [FocusGraph.duplicates]（先声明者保留），
+         * 不抛——构建发生在主线程渲染路径上，脏数据炸成 IllegalArgumentException
+         * 在 TV 上就是退回 launcher。
+         */
+        fun of(plan: FocusPlan): FocusGraph = build(plan, strict = false)
+
+        /** 单测入口：重复 key 仍按编程错误抛（保持"焦点指向两处"的硬校验可断言）。 */
+        internal fun ofStrict(plan: FocusPlan): FocusGraph = build(plan, strict = true)
+
+        private fun build(plan: FocusPlan, strict: Boolean): FocusGraph {
             val total = plan.sections.sumOf { it.keys.size } +
                 (plan.side?.keys?.size ?: 0) +
                 (plan.leftFlank?.keys?.size ?: 0) +
                 (plan.rightFlank?.keys?.size ?: 0)
             val map = LinkedHashMap<FocusKey, Neighbors>(total)
             val order = ArrayList<FocusKey>(total)
+            val duplicates = ArrayList<FocusKey>()
 
             // 侧段先入序：空页兜底落在导航上（与旧版"顶栏第一项"同一角色）。
             plan.side?.let { side ->
@@ -285,8 +302,15 @@ class FocusGraph private constructor(
                     } else {
                         section.down ?: crossSection(plan, sectionIndex, 1, column, columns, key)
                     }
-                    require(!map.containsKey(key)) {
-                        "焦点 key 重复：${key.value}。同一个 key 不能出现在两个位置，否则焦点会指向两处"
+                    if (map.containsKey(key)) {
+                        if (strict) {
+                            throw IllegalArgumentException(
+                                "焦点 key 重复：${key.value}。同一个 key 不能出现在两个位置，否则焦点会指向两处",
+                            )
+                        }
+                        // 生产：跳过后声明者，第一处保留（视图表里同名 key 本来也只剩一个 View）
+                        if (key !in duplicates) duplicates += key
+                        return@forEachIndexed
                     }
                     map[key] = Neighbors(left = left, right = right, up = up, down = down)
                 }
@@ -300,7 +324,7 @@ class FocusGraph private constructor(
                     map[sideKey] = map.getValue(sideKey).copy(right = entry)
                 }
             }
-            return FocusGraph(map, order)
+            return FocusGraph(map, order, duplicates)
         }
 
         /**

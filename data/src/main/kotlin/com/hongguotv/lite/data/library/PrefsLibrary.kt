@@ -511,14 +511,18 @@ class PrefsLibrary(
 
     private fun persist(vararg keys: String) {
         val batch = buildBatch(keys.toList())
-        writer.execute {
-            try {
-                store.commit(batch)
-            } catch (cause: Throwable) {
-                // 磁盘失败不回滚内存（内存是最新事实），下一次写同一分区会整段重写；留痕供诊断
-                lastWriteFailure = cause
+        // 外层：close() 之后仍可能有收尾中的协程走到这里（取消是协作式的），
+        // 拒绝执行按"写盘失败"留痕，不炸调用方。内层：磁盘失败不回滚内存
+        // （内存是最新事实），下一次写同一分区会整段重写；同样留痕供诊断。
+        runCatching {
+            writer.execute {
+                try {
+                    store.commit(batch)
+                } catch (cause: Throwable) {
+                    lastWriteFailure = cause
+                }
             }
-        }
+        }.onFailure { cause -> lastWriteFailure = cause }
     }
 
     /** 最近一次落盘失败（null = 没失败过）。诊断端口接入前先留个观察口。 */
@@ -683,6 +687,16 @@ class PrefsLibrary(
     /** 等待排队中的写盘完成（仅退出与测试用；端口契约是"调用方不关心写盘时机"）。 */
     fun flush() {
         writer.submit {}.get()
+    }
+
+    /**
+     * flush 后停掉写线程（进程收摊用）：线程是非守护的且闭包持有
+     * 全量内存态，Activity 每重建一轮就泄漏一条，必须显式收。幂等；之后 persist
+     * 的写入被拒绝并留痕（见 [persist]），端口方法不会因此抛异常。
+     */
+    fun close() {
+        runCatching { flush() }   // 二次调用时 submit 会被拒绝：runCatching 兜住保持幂等
+        runCatching { writer.shutdown() }
     }
 
     private companion object {

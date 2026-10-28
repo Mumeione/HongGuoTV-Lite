@@ -35,6 +35,17 @@ fun interface ApkDownloader {
 }
 
 /**
+ * 安装包落盘后的完整性 / 身份校验：哈希、包名、版本、签名。
+ * 任何一道不过抛 [ApkVerificationException]——这个包绝不能进 [UpdateState.ReadyToInstall]。
+ */
+fun interface ApkVerifier {
+    fun verify(apk: File, manifest: UpdateManifest)
+}
+
+/** 校验未通过。消息只进日志与诊断，用户文案按 [UpdateFailure.VERIFICATION] 类型给。 */
+class ApkVerificationException(message: String) : IOException(message)
+
+/**
  * 更新检查与下载（[UpdatePort] 的 data 实现）。
  *
  * 双源顺序：CNB raw 清单 → GitHub releases/latest。CNB 的 404/无清单**会**切 GitHub
@@ -48,6 +59,11 @@ class UpdateManager(
     private val downloadDir: File,
     private val http: HttpTransport,
     private val downloader: ApkDownloader,
+    /**
+     * 装前的最后一道闸（包名/版本/签名/哈希）。测试注入空实现——
+     * 生产用 [SignedApkVerifier]，签名证书钉死在发布密钥上。
+     */
+    private val verifier: ApkVerifier,
     private val diagnostics: DiagnosticsPort = SilentDiagnostics,
     /** 节流时间戳的落盘（独立 prefs 文件）；null = 不节流（单测）。 */
     private val store: KeyValueStore? = null,
@@ -167,9 +183,17 @@ class UpdateManager(
         downloadJob = ioScope.launch {
             set(UpdateState.Downloading(if (manifest.sizeBytes > 0) 0 else -1))
             loadCatching({ error ->
-                diagnostics.event("update.download", mapOf("ok" to false, "error" to error.message))
+                val failure = when (error) {
+                    is IncompleteDownload -> UpdateFailure.INCOMPLETE
+                    is ApkVerificationException -> UpdateFailure.VERIFICATION
+                    else -> UpdateFailure.DOWNLOAD
+                }
+                diagnostics.event(
+                    "update.download",
+                    mapOf("ok" to false, "failure" to failure.name, "error" to error.message),
+                )
                 runCatching { target.delete() }
-                set(UpdateState.Failed(if (error is IncompleteDownload) UpdateFailure.INCOMPLETE else UpdateFailure.DOWNLOAD))
+                set(UpdateState.Failed(failure))
             }) {
                 downloader.download(manifest, target) { percent -> set(UpdateState.Downloading(percent)) }
                 val actual = target.length()
@@ -178,6 +202,8 @@ class UpdateManager(
                     // 大小不符 = 下载不完整，不是"下载失败"：文案分开说，别让用户怀疑网络
                     throw IncompleteDownload("size mismatch: $actual != ${manifest.sizeBytes}")
                 }
+                verifyIntegrity(target, manifest)   // 文件哈希对清单（清单给了才查）
+                verifier.verify(target, manifest)   // 包名 / 版本 / 签名证书（钉死发布密钥）
                 diagnostics.event("update.downloaded", mapOf("bytes" to actual))
                 set(UpdateState.ReadyToInstall(target.absolutePath, manifest.versionName))
                 target
@@ -197,6 +223,19 @@ class UpdateManager(
     }
 
     private fun apkFile(): File = File(downloadDir, APK_NAME)
+
+    /**
+     * 文件哈希校验（清单给了 sha256 才查；包名/版本/签名在 [verifier] 里）。
+     * 体积校验拦得住截断、拦不住"等长被换"的包——哈希是内容完整性的权威。
+     */
+    private fun verifyIntegrity(apk: File, manifest: UpdateManifest) {
+        val expected = manifest.sha256
+        if (expected.isEmpty()) return
+        val actual = sha256Hex(apk)
+        if (!actual.equals(expected, ignoreCase = true)) {
+            throw ApkVerificationException("sha256 mismatch: $actual != $expected")
+        }
+    }
 
     private fun set(next: UpdateState) {
         val notifyListener = synchronized(lock) {

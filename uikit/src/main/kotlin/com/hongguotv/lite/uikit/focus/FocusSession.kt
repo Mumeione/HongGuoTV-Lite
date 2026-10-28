@@ -1,6 +1,10 @@
 package com.hongguotv.lite.uikit.focus
 
+import android.util.Log
 import android.view.View
+
+/** 与 data 层 [com.hongguotv.lite.data.diagnostics.LogcatDiagnostics] 同名：`logcat -s HongGuoTV` 一把抓。 */
+private const val TAG = "HongGuoTV"
 
 /**
  * 一帧防抖：同一帧内提交的多次请求**只执行最后一次**，此前未执行的作废。
@@ -98,6 +102,13 @@ class FocusSession(
         visualExits: FocusExits,
     ): FocusGraph {
         val built = FocusGraph.of(plan)
+        // FocusGraph 不引用 android.*（JVM 单测约束），脏数据留痕由这里补
+        if (built.duplicates.isNotEmpty()) {
+            Log.w(
+                TAG,
+                "focus.duplicateKeys " + built.duplicates.joinToString(",") { it.value } + "（先声明者保留）",
+            )
+        }
         FocusBinder.bind(built, views)
         graph = built
         this.views = views

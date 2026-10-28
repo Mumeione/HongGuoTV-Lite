@@ -48,6 +48,16 @@ object UpdatePolicy {
         stripVersionPrefix(version)
             .split('.').map { it.filter(Char::isDigit).toIntOrNull() ?: 0 }
 
+    /**
+     * 清单里的安装包哈希：64 位十六进制才算数，统一成小写。
+     * 字段缺失或格式不对都按"没给"处理（空串）——清单本身由发布渠道控制，
+     * 一个非法的哈希值和没有哈希是同一种威胁等级，不该让它拦死正常更新。
+     */
+    private fun normalizedSha256(raw: String): String =
+        raw.trim().takeIf { SHA256.matches(it) }?.lowercase() ?: ""
+
+    private val SHA256 = Regex("[0-9a-fA-F]{64}")
+
     /** `v1.2` / `V1.2` 与 `1.2` 等价：两个解析入口（分段比较、GitHub tag）共用这一份。 */
     private fun stripVersionPrefix(version: String): String =
         version.trim().removePrefix("v").removePrefix("V")
@@ -71,6 +81,7 @@ object UpdatePolicy {
             apkUrl = apkUrlBase + urlEncode(apk),
             sizeBytes = obj.optLong("size", 0L).coerceAtLeast(0L),
             notes = obj.optString("notes").trim(),
+            sha256 = normalizedSha256(obj.optString("sha256")),
         )
     }
 

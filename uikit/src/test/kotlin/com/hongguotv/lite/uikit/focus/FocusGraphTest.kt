@@ -126,16 +126,35 @@ class FocusGraphTest {
         assertTrue("空段必须被拒绝", error is IllegalArgumentException)
     }
 
+    /** 单测入口（ofStrict）保留硬校验：重复 key 是编程错误，必须在测试里炸出来。 */
     @Test
-    fun `duplicate key across sections is rejected`() {
+    fun `duplicate key across sections is rejected in strict mode`() {
         val plan = FocusPlan(
             listOf(
                 FocusSection(listOf(key("nav0")), columns = 1),
                 FocusSection(listOf(key("nav0")), columns = 1),
             ),
         )
-        val error = runCatching { FocusGraph.of(plan) }.exceptionOrNull()
+        val error = runCatching { FocusGraph.ofStrict(plan) }.exceptionOrNull()
         assertTrue("重复 key 必须被拒绝，否则焦点会指向两个位置", error is IllegalArgumentException)
+    }
+
+    /** 生产入口降级：脏数据跳过后声明者并留痕，不在主线程渲染路径上炸。 */
+    @Test
+    fun `duplicate key in production mode is skipped with first declaration kept`() {
+        val plan = FocusPlan(
+            listOf(
+                FocusSection(listOf(key("nav0"), key("nav1")), columns = 1),
+                FocusSection(listOf(key("nav0"), key("card0")), columns = 1),
+            ),
+        )
+        val graph = FocusGraph.of(plan)
+        assertEquals(listOf(key("nav0")), graph.duplicates)
+        // 第一处的邻居关系原样保留（单列段：nav1 在 nav0 下方）
+        assertEquals(key("nav1"), graph.neighborsOf(key("nav0"))!!.down)
+        // 第二处被跳过：不进图、不影响 order 之外的行为
+        assertEquals(setOf("nav0", "nav1", "card0"), graph.order.map { it.value }.toSet())
+        assertEquals(key("card0"), graph.order.last())
     }
 
     @Test

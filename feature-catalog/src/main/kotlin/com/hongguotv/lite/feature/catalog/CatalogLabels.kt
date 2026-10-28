@@ -126,6 +126,8 @@ internal object SettingRows {
             UpdateFailure.NETWORK -> "检查失败，请稍后再试"
             UpdateFailure.DOWNLOAD -> "下载失败，请重试"
             UpdateFailure.INCOMPLETE -> "下载不完整，请重试"
+            // 问题在包不在网，与"下载失败"分开说；发布方修正清单或附件后重试才能过
+            UpdateFailure.VERIFICATION -> "安装包校验未通过，请稍后再试"
         }
     }
 }

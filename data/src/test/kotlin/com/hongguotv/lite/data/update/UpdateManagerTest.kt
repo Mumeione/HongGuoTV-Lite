@@ -51,9 +51,17 @@ class UpdateManagerTest {
     private val cnbManifest = """{"versionCode":2,"versionName":"1.1.0","apk":"hongguotv-1.1.0.apk","size":10,"notes":"n"}"""
     private val githubRelease = """{"tag_name":"v1.3.0","assets":[{"name":"h.apk","browser_download_url":"https://g/h.apk","size":10}],"body":"b"}"""
 
+    private fun sha256Hex(bytes: ByteArray): String =
+        java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+
+    /** FakeDownloader 固定写 10 个 0 字节：清单哈希按这个值给才能过校验。 */
+    private fun cnbManifestWith(sha256: String = ""): String =
+        """{"versionCode":2,"versionName":"1.1.0","apk":"h.apk","size":10,"sha256":"$sha256"}"""
+
     private fun manager(
         transport: FakeTransport,
         downloader: ApkDownloader = FakeDownloader(),
+        verifier: ApkVerifier = ApkVerifier { _, _ -> },   // 包校验是 Android 侧的事，这里测哈希与状态机
         store: KeyValueStore? = null,
         now: Long = 1_000_000L,
         downloadDir: File = tmp.newFolder(),
@@ -61,6 +69,7 @@ class UpdateManagerTest {
         downloadDir = downloadDir,
         http = transport,
         downloader = downloader,
+        verifier = verifier,
         store = store,
         clock = { now },
         notify = { it() },   // 测试里同步执行
@@ -160,6 +169,51 @@ class UpdateManagerTest {
         updates.check()
         updates.download()
         assertEquals(UpdateState.Failed(UpdateFailure.DOWNLOAD), updates.state())
+    }
+
+    /** 清单带了 sha256 且对得上：哈希校验通过才进 ReadyToInstall。 */
+    @Test
+    fun manifestSha256MatchLandsReadyToInstall() = runBlocking {
+        val transport = FakeTransport(respond = { if (isCnb(it.url)) cnbManifestWith(sha256Hex(ByteArray(10))) else null })
+        val updates = manager(transport)
+        updates.check()
+        updates.download()
+        val state = updates.state()
+        assertTrue("state=$state", state is UpdateState.ReadyToInstall)
+    }
+
+    /** 等长但内容被换：体积校验拦不住，哈希必须拦下。 */
+    @Test
+    fun manifestSha256MismatchFailsAsVerification() = runBlocking {
+        val dir = tmp.newFolder()
+        // 与下载内容（10 个 0 字节）等长的另一份内容的哈希
+        val transport = FakeTransport(respond = { if (isCnb(it.url)) cnbManifestWith(sha256Hex(ByteArray(11))) else null })
+        val updates = manager(transport, downloadDir = dir)
+        updates.check()
+        updates.download()
+        assertEquals(UpdateState.Failed(UpdateFailure.VERIFICATION), updates.state())
+        assertFalse(File(dir, "hongguotv-update.apk").exists())   // 拒下的包不落盘
+    }
+
+    /** 包名/签名校验由注入的 verifier 把关：它拒，状态就是 VERIFICATION（不弹安装器）。 */
+    @Test
+    fun verifierRejectionFailsAsVerification() = runBlocking {
+        val transport = FakeTransport(respond = { if (isCnb(it.url)) cnbManifestWith(sha256Hex(ByteArray(10))) else null })
+        val updates = manager(transport, verifier = ApkVerifier { _, _ -> throw ApkVerificationException("package mismatch") })
+        updates.check()
+        updates.download()
+        assertEquals(UpdateState.Failed(UpdateFailure.VERIFICATION), updates.state())
+    }
+
+    /** GitHub 源没有清单哈希字段：sha256 为空时跳过哈希校验，落到 ReadyToInstall。 */
+    @Test
+    fun githubSourceWithoutSha256SkipsHashCheck() = runBlocking {
+        val transport = FakeTransport(respond = { if (isGithub(it.url)) githubRelease else null })
+        val updates = manager(transport)
+        updates.check()
+        updates.download()
+        val state = updates.state()
+        assertTrue("state=$state", state is UpdateState.ReadyToInstall)
     }
 
     @Test

@@ -224,11 +224,22 @@ internal class PlayerPage(
                 return@launch
             }
             detail = loaded
-            // 历史行是"播过才有的"：拿到详情时把这一行的元数据补全（旧记录的分类常常是空的，
-            // 历史页信息栏因此缺一段）。只更新已有行，不会因为打开播放页就造一条历史
-            host.progress.rememberSeries(loaded.series)
-            preloadSeasonLine(loaded)
-            session.start(loaded, startIndex, startPositionMs)
+            // 起播的其余步骤与详情加载同一待遇：它们在 loadCatching
+            // 之外抛任何异常，都会被宿主作用域静默吃进 logcat——loadFailure 为 null、
+            // 状态停在 Idle、画面全黑、按键无响应，用户只能杀进程。宁可多一张失败卡。
+            val started = loadCatching({ loadFailure = it }) {
+                // 历史行是"播过才有的"：拿到详情时把这一行的元数据补全（旧记录的分类常常是空的，
+                // 历史页信息栏因此缺一段）。只更新已有行，不会因为打开播放页就造一条历史
+                host.progress.rememberSeries(loaded.series)
+                // 季线预取失败降级成"少连一季"（内部网络请求已自带兜底，这里防它的组装路径）
+                runCatching { preloadSeasonLine(loaded) }
+                session.start(loaded, startIndex, startPositionMs)
+                true
+            }
+            if (started == null) {
+                render()
+                return@launch
+            }
             // 建页时就已退到后台：补一次暂停，别让流装成"自动播放"
             if (pausedBeforeStart) session.onLifecyclePause()
             render()
