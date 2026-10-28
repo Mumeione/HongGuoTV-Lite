@@ -17,6 +17,7 @@ import com.hongguotv.core.port.FavoritesPort
 import com.hongguotv.core.port.ProgressPort
 import com.hongguotv.core.port.SettingsPort
 import com.hongguotv.core.port.SilentDiagnostics
+import com.hongguotv.lite.data.internal.evictOldestUntil
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.ExecutorService
@@ -362,7 +363,7 @@ class PrefsLibrary(
             seasonLines.remove(seriesKey)
             if (key != seriesKey) seasonLines.remove(key)
             seasonLines[key] = clean
-            while (seasonLines.size > SEASON_LINE_LIMIT) seasonLines.remove(seasonLines.keys.first())
+            seasonLines.evictOldestUntil(SEASON_LINE_LIMIT)
         }
         if (favoritesChanged) persist(KEY_SEASON_GROUPS, KEY_FAVORITE_SERIES) else persist(KEY_SEASON_GROUPS)
         pruneUpdates()

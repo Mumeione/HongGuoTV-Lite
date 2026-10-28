@@ -91,11 +91,10 @@ class PagerRow(
 
     private fun enable(button: TvButton, enabled: Boolean) {
         button.isEnabled = enabled
-        button.alpha = if (enabled) 1f else DISABLED_ALPHA
+        button.alpha = if (enabled) 1f else tokens.metrics.disabledAlpha
     }
 
     private companion object {
-        const val DISABLED_ALPHA = 0.4f
         const val RANGE_MIN_WIDTH = 104
     }
 }

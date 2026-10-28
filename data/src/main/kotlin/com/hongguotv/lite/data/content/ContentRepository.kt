@@ -27,6 +27,7 @@ import com.hongguotv.core.protocol.SignerRegistry
 import com.hongguotv.lite.data.diagnostics.stageTimed
 import com.hongguotv.lite.data.diagnostics.stageTimedSuspend
 import com.hongguotv.lite.data.http.HttpTransport
+import com.hongguotv.lite.data.internal.evictOldestUntil
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -294,7 +295,7 @@ class ContentRepository(
         synchronized(anchorEvidenceLock) {
             anchorEvidence.remove(id)
             anchorEvidence[id] = series
-            while (anchorEvidence.size > ANCHOR_EVIDENCE_LIMIT) anchorEvidence.remove(anchorEvidence.keys.first())
+            anchorEvidence.evictOldestUntil(ANCHOR_EVIDENCE_LIMIT)
         }
     }
 

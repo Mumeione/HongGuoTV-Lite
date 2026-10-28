@@ -55,7 +55,7 @@ class RailNav internal constructor(ui: UiKit, items: List<RailItem>) : FrameLayo
         val column = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(0, dp(tokens.metrics.railPaddingTop), dp(1), dp(tokens.metrics.railPaddingBottom))
+            setPadding(0, dp(tokens.metrics.railPaddingTop), dp(tokens.space.hairline), dp(tokens.metrics.railPaddingBottom))
         }
         column.addView(
             ImageView(context).apply { setImageResource(Icons.BRAND) },

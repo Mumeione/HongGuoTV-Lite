@@ -118,10 +118,6 @@ class SideStrips(
 
     private fun enable(button: TvButton, enabled: Boolean) {
         button.isEnabled = enabled
-        button.alpha = if (enabled) 1f else DISABLED_ALPHA
-    }
-
-    private companion object {
-        const val DISABLED_ALPHA = 0.4f
+        button.alpha = if (enabled) 1f else tokens.metrics.disabledAlpha
     }
 }

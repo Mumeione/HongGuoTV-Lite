@@ -198,6 +198,12 @@ data class Metrics(
      */
     val sideStripMinHeight: Int = 56,
 
+    /**
+     * 翻组键禁用（已在首组 / 末组）时的不透明度。整键压暗而不是换色：
+     * 换色会让禁用态与"焦点在别处"的暗色撞在一起，用户分不清是到头了还是没选中。
+     */
+    val disabledAlpha: Float = 0.4f,
+
     // ---------- 卡片（目录，宽 149） ----------
     val catalogCardWidth: Int = 149,
     val catalogStripHeight: Int = 34,

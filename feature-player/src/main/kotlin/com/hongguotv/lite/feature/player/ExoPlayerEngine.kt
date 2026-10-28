@@ -21,6 +21,16 @@ import com.hongguotv.lite.uikit.token.Tokens
 import com.hongguotv.lite.uikit.token.UiTier
 
 /**
+ * media3 的解码类错误码：`ERROR_CODE_DECODING_*`（3000 段）到 `ERROR_CODE_DRM_*`（4000 段）。
+ *
+ * 单独拎出来是因为它决定"要不要自动重试"：区间错一位，用户就会看到
+ * "这台电视根本解不了的编码被自动重试三次"。判定不碰 media3 类型，可以脱离设备单测。
+ */
+private val DECODE_ERROR_CODES = 3_000..4_999
+
+internal fun isDecodeFailure(errorCode: Int): Boolean = errorCode in DECODE_ERROR_CODES
+
+/**
  * media3 的实现。**media3 只出现在两个文件里**（本文件与 `StreamDataSource`，后者是"端口流 → media3
  * DataSource"的适配），模块边界由此成立：app 拿不到 ExoPlayer 类型，换播放器实现时
  * 状态机、按键表、侧栏一行都不用动。
@@ -214,12 +224,12 @@ internal class ExoPlayerEngine(context: Context, tokens: Tokens) : PlaybackEngin
         get() = player.playbackState == Player.STATE_ENDED
 
     /**
-     * 失败分类：解码类错误码（3000—4999）**不自动重试**——同一个文件再解三次还是解不了，
+     * 失败分类：解码类错误码**不自动重试**——同一个文件再解三次还是解不了，
      * 换个清晰度才有用；其余（网络、IO、超时）都当成"过一会儿可能好"。
      */
     private fun translate(error: PlaybackException): PlaybackFailure {
         val code = error.errorCode
-        return if (code in DECODE_ERROR_RANGE) {
+        return if (isDecodeFailure(code)) {
             PlaybackFailure.Decode(error.errorCodeName)
         } else {
             PlaybackFailure.Unavailable(error)
@@ -229,9 +239,6 @@ internal class ExoPlayerEngine(context: Context, tokens: Tokens) : PlaybackEngin
     private companion object {
         /** 播放地址永远不落盘、也不进 `MediaItem` 的 URL：它会被重签，而且带时效。 */
         const val EPISODE_URI = "hongguotv://episode"
-
-        /** media3 的解码类错误码区间（`PlaybackException.ERROR_CODE_DECODING_*` 到 `ERROR_CODE_DRM_*`）。 */
-        val DECODE_ERROR_RANGE = 3_000..4_999
 
         /** 无感切集最多压住缓冲转圈的时长（旧实现同值）。 */
         const val SEAMLESS_BUFFERING_MS = 1_200L
