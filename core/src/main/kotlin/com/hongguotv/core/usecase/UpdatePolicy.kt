@@ -32,6 +32,10 @@ object UpdatePolicy {
     /**
      * 点分段版本名比较（`1.10.0` > `1.9.2`；`v1.2` 与 `1.2` 等价；缺段补 0；
      * 非数字段按 0 处理）。任何一段更大即更新；全等或更旧 = false。
+     *
+     * **预发布后缀要先摘掉**：`1.0.0-rc1` 按 `-` 切段后末段是 `0-rc1`，只留数字会得到 `"01"` → 1，
+     * 于是 rc 被判定比 `1.0.0` 新——GitHub 备源（无数值版本号）一旦发 rc 标签，
+     * 稳定版用户会被提示"升级"到 rc。`+build` 元数据同理不参与比较。
      */
     fun isNewerVersion(remote: String, local: String): Boolean {
         val r = segments(remote)
@@ -46,6 +50,8 @@ object UpdatePolicy {
 
     private fun segments(version: String): List<Int> =
         stripVersionPrefix(version)
+            .substringBefore('-')
+            .substringBefore('+')
             .split('.').map { it.filter(Char::isDigit).toIntOrNull() ?: 0 }
 
     /**

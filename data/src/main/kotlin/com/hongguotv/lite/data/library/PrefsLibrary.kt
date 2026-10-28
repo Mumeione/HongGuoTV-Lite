@@ -12,9 +12,11 @@ import com.hongguotv.core.model.SeasonLine
 import com.hongguotv.core.model.Series
 import com.hongguotv.core.model.SeriesIds
 import com.hongguotv.core.model.Settings
+import com.hongguotv.core.port.DiagnosticsPort
 import com.hongguotv.core.port.FavoritesPort
 import com.hongguotv.core.port.ProgressPort
 import com.hongguotv.core.port.SettingsPort
+import com.hongguotv.core.port.SilentDiagnostics
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.ExecutorService
@@ -34,6 +36,12 @@ import java.util.concurrent.Executors
 class PrefsLibrary(
     private val store: KeyValueStore,
     private val clock: () -> Long = System::currentTimeMillis,
+    /**
+     * 诊断出口：坏分区与写盘失败各报一条 event。
+     * 这两件事只落在 [corruptPartitions] / [lastWriteFailure] 两个字段里的话，生产侧没人读——
+     * 磁盘满时用户静默丢收藏与进度，logcat 一行都没有。
+     */
+    private val diagnostics: DiagnosticsPort = SilentDiagnostics,
 ) : ProgressPort, FavoritesPort, SettingsPort {
 
     // ---------- 内存态（全部由 [lock] 保护；port 方法可能从任意线程调） ----------
@@ -82,6 +90,9 @@ class PrefsLibrary(
         // 旧收藏行按季线里的 id 证据换到系列基名（篇名季的标题算不出基名）
         if (migrateCanonicalFavoriteKeys()) persist(KEY_FAVORITE_SERIES, KEY_SEASON_GROUPS)
         corruptPartitions = corrupt.toList()
+        if (corrupt.isNotEmpty()) {
+            diagnostics.event("prefs.corrupt", mapOf("partitions" to corrupt.joinToString(",")))
+        }
     }
 
     // ---------- ProgressPort ----------
@@ -286,14 +297,24 @@ class PrefsLibrary(
     }
 
     /**
-     * 收藏条数上限（写入端执行，V1.0.0 容量治理）：超限淘汰 `addedAt` 最旧的一条。
-     * 解码端已有 `take(FAVORITES_LIMIT)`，这里补的是**会话内连续收藏**的那条路。
+     * 收藏行的容量口径：**只留 `addedAt` 最新的 [FAVORITES_LIMIT] 条**。
+     *
+     * 解码端、迁移端、写入端共用这一份：三处各截各的就会出现"读回来留最旧的、写进去淘汰最旧的"
+     * （旧版上限 500 → 100 时按存储序 `take` 截断，被丢掉的是最新那批收藏）。
+     *
+     * 同一 `addedAt` 的行按**插入序后者更新**（升序稳定排序取尾 N）：时钟精度不够或
+     * 测试里注入固定时钟时，刚收藏的那条才不会被当成最旧的淘汰掉。保留的部分仍按插入序排，
+     * 与旧口径（`all()` 再按 `addedAt` 倒排）一致。
      */
+    private fun keepNewest(
+        rows: Map<String, Pair<Series, Long>>,
+    ): LinkedHashMap<String, Pair<Series, Long>> = LinkedHashMap(
+        rows.entries.sortedBy { it.value.second }.takeLast(FAVORITES_LIMIT).associate { it.key to it.value },
+    )
+
+    /** 会话内连续收藏超过上限时按 [keepNewest] 收口（与解码端、迁移端同一份口径）。 */
     private fun evictOldestFavoriteLocked() {
-        while (favoriteRows.size > FAVORITES_LIMIT) {
-            val oldest = favoriteRows.entries.minByOrNull { it.value.second } ?: break
-            favoriteRows.remove(oldest.key)
-        }
+        if (favoriteRows.size > FAVORITES_LIMIT) favoriteRows = keepNewest(favoriteRows)
     }
 
     /**
@@ -473,9 +494,7 @@ class PrefsLibrary(
         }
         synchronized(lock) {
             // 截断口径与写入端一致：按 addedAt 最旧淘汰（迁移时全部同刻，退化为插入序）
-            favoriteRows = LinkedHashMap(
-                all.entries.sortedByDescending { it.value.second }.take(FAVORITES_LIMIT).associate { it.key to it.value },
-            )
+            favoriteRows = keepNewest(all)
         }
         persist(KEY_FAVORITE_SERIES)
         // 旧版口径：迁移完立即同步检查结果——旧的无主 update 行不该活过这次迁移
@@ -520,12 +539,23 @@ class PrefsLibrary(
                     store.commit(batch)
                 } catch (cause: Throwable) {
                     lastWriteFailure = cause
+                    diagnostics.event(
+                        "prefs.write.failed",
+                        mapOf("keys" to keys.joinToString(","), "error" to cause.javaClass.simpleName),
+                    )
                 }
             }
-        }.onFailure { cause -> lastWriteFailure = cause }
+        }.onFailure { cause ->
+            // 写线程已经收摊（close 之后的收尾协程）：同样留痕，不炸调用方
+            lastWriteFailure = cause
+            diagnostics.event(
+                "prefs.write.rejected",
+                mapOf("keys" to keys.joinToString(","), "error" to cause.javaClass.simpleName),
+            )
+        }
     }
 
-    /** 最近一次落盘失败（null = 没失败过）。诊断端口接入前先留个观察口。 */
+    /** 最近一次落盘失败（null = 没失败过）。对外留痕走 [diagnostics]，这里供测试与调试直接读。 */
     @Volatile
     var lastWriteFailure: Throwable? = null
         private set
@@ -575,7 +605,7 @@ class PrefsLibrary(
                 result[base] = series.copy(title = base) to entry.optLong("addedAt")
             }
         }
-        return LinkedHashMap(result.toList().take(FAVORITES_LIMIT).toMap())
+        return keepNewest(result)
     }
 
     private fun encodeSeasonGroups(rows: Map<String, List<Series>>): String {

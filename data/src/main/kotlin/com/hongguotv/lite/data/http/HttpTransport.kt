@@ -101,6 +101,17 @@ class OkHttpTransport(
             .callTimeout(45, TimeUnit.SECONDS)
             .build()
 
+        /**
+         * 安装包下载专用：**不设 `callTimeout`**。
+         *
+         * `callTimeout` 是整个 Call 的硬顶（含读响应体）：7MB 的包在弱网（<200KB/s）就要 35s 以上，
+         * 一抖动整包失败。下载只该有"连接 + 单次读"两级超时——进度慢是可以接受的，被判死不是。
+         */
+        fun downloadClient(): OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+
         private fun readCapped(input: InputStream, cap: Int): ByteArray? {
             val out = java.io.ByteArrayOutputStream()
             val buffer = ByteArray(8192)

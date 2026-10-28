@@ -42,6 +42,22 @@ class UpdatePolicyTest {
         assertFalse(UpdatePolicy.isNewerVersion("abc", "1.0.0"))    // 非数字段按 0
     }
 
+    /**
+     * 预发布后缀不参与比较：`1.0.0-rc1` 不比 `1.0.0` 新。
+     *
+     * GitHub 备源的 versionCode=0 会走这一条——不摘后缀的话末段 `0-rc1` 被读成 "01" → 1 > 0，
+     * 稳定版用户会被提示"升级"到 rc。
+     */
+    @Test
+    fun prereleaseSuffixIsNotNewerThanTheStableRelease() {
+        assertFalse(UpdatePolicy.isNewerVersion("1.0.0-rc1", "1.0.0"))
+        assertFalse(UpdatePolicy.isNewerVersion("v1.0.0-rc1", "1.0.0"))
+        assertFalse(UpdatePolicy.isNewerVersion("1.0.0+build.7", "1.0.0"))
+        // 真升级仍然认得出
+        assertTrue(UpdatePolicy.isNewerVersion("1.0.1-rc1", "1.0.0"))
+        assertTrue(UpdatePolicy.isNewerVersion("1.1.0-beta", "1.0.9"))
+    }
+
     // ---------- parseCnbUpdateJson ----------
 
     @Test

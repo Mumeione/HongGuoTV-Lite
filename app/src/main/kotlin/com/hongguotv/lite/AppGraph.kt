@@ -76,9 +76,12 @@ internal class AppGraph(
     private val http: OkHttpClient = OkHttpTransport.defaultClient()
     private val artworkHttp: OkHttpClient = ArtworkLoader.defaultClient()
 
+    /** 安装包下载专用客户端：不设 `callTimeout`，弱网下不至于整包失败（口径见 `OkHttpTransport`）。 */
+    private val downloadHttp: OkHttpClient = OkHttpTransport.downloadClient()
+
     /** 本地库：进度 / 收藏 / 设置三个端口的同一份事实（prefs 文件名 `native-library-v1` 不许改）。 */
     private val store = SharedPreferencesStore(context)
-    private val library: PrefsLibrary = PrefsLibrary(store)
+    private val library: PrefsLibrary = PrefsLibrary(store, diagnostics = diagnostics)
 
     private val transport = OkHttpTransport(http, diagnostics)
 
@@ -90,7 +93,7 @@ internal class AppGraph(
     val updates: UpdateManager = UpdateManager(
         downloadDir = File(context.cacheDir, "update"),
         http = transport,
-        downloader = OkHttpApkDownloader(http),
+        downloader = OkHttpApkDownloader(downloadHttp),
         verifier = SignedApkVerifier(
             packageManager = context.packageManager,
             localPackage = BuildConfig.APPLICATION_ID,

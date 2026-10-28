@@ -7,6 +7,7 @@ import com.hongguotv.core.model.Progress
 import com.hongguotv.core.model.SeasonLine
 import com.hongguotv.core.model.Series
 import com.hongguotv.core.model.Settings
+import com.hongguotv.core.port.DiagnosticsPort
 import kotlinx.coroutines.test.runTest
 import org.json.JSONArray
 import org.json.JSONObject
@@ -326,6 +327,35 @@ class PrefsLibraryTest {
         assertTrue(lib.isFavorite("测试剧101"))
     }
 
+    /**
+     * 旧版上限 500 → 100：解码端必须按 `addedAt` 留**最新**的 100 条。
+     *
+     * 盘上是插入序（旧行在前），`take(100)` 留下的是最旧的 100 条——升级一次就把最新收藏全丢掉。
+     */
+    @Test
+    fun decodingKeepsTheNewestFavoritesNotTheFirstStoredOnes() = runTest {
+        val rows = JSONObject()
+        (1..150).forEach { index ->
+            val base = "测试剧${index.toString().padStart(3, '0')}"
+            rows.put(
+                base,
+                JSONObject()
+                    .put("series", SeriesCodec.toJson(Series(index.toString(), base)))
+                    .put("addedAt", index.toLong()),
+            )
+        }
+        val lib = PrefsLibrary(store("favoriteSeries" to rows.toString()))
+        val kept = lib.all().map { it.seriesKey }
+        assertEquals(100, kept.size)
+        assertFalse(lib.isFavorite("测试剧001"))
+        assertFalse(lib.isFavorite("测试剧050"))
+        assertTrue(lib.isFavorite("测试剧051"))
+        assertTrue(lib.isFavorite("测试剧150"))
+        // 读回来也是按 addedAt 倒序（最新在最前）
+        assertEquals("测试剧150", kept.first())
+    }
+
+
     /** 篇名季（分宗篇）的标题算不出系列基名：季线缓存在手时按线里的 id 归到基名。 */
     private fun namedSeasonLine(): SeasonLine = SeasonLine(
         listOf(
@@ -631,5 +661,27 @@ class PrefsLibraryTest {
         lib.toggle(Series("1", "测试书"))
         lib.flush()
         assertNotNull(lib.lastWriteFailure)
+    }
+
+    /** 坏分区与写盘失败必须进诊断（原来只有测试读那两个字段，生产侧静默丢数据）。 */
+    @Test
+    fun corruptPartitionAndWriteFailureAreReportedToDiagnostics() = runTest {
+        val events = mutableListOf<String>()
+        val port = object : DiagnosticsPort {
+            override fun stage(stage: DiagnosticsPort.Stage, ok: Boolean, detail: String) = Unit
+            override fun event(name: String, fields: Map<String, Any?>) {
+                events += name
+            }
+        }
+        val broken = object : KeyValueStore {
+            override fun all(): Map<String, Any?> = mapOf("progress" to "{ 这不是 json")
+            override fun commit(values: Map<String, Any?>) = throw java.io.IOException("disk full")
+        }
+        val lib = PrefsLibrary(broken, diagnostics = port)
+        lib.toggle(Series("1", "测试书"))
+        lib.flush()
+        assertEquals("prefs.corrupt", events.first())
+        // 启动时的旧收藏迁移写一次、toggle 再写一次：两次失败都要留痕
+        assertEquals(2, events.count { it == "prefs.write.failed" })
     }
 }
