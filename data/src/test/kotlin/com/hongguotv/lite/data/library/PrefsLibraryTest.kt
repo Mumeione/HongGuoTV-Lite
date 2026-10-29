@@ -523,6 +523,31 @@ class PrefsLibraryTest {
         assertNull(lib.entry("999"))
     }
 
+    /**
+     * 整轮时间单独存一份，与各部的 checkedAt 分开：单部检查不能推动它，
+     * 否则收藏页的自动轮转会被一次详情页检查停 6 小时。
+     */
+    @Test
+    fun theRoundTimestampIsStoredApartFromThePerRowCheckTime() = runTest {
+        val store = ValidatingMemoryStore(mapOf("favoriteSeries" to "{}"))
+        val lib = PrefsLibrary(store)
+        lib.toggle(Series("1", "测试书"))
+
+        assertEquals("新库没有整轮时间", 0L, lib.lastCheckRoundAt())
+
+        // 单部检查写的是这一部的 checkedAt，不碰整轮时间
+        lib.acknowledge("1", totalEpisodes = 10, at = 5_000L)
+        assertEquals(0L, lib.lastCheckRoundAt())
+
+        lib.markCheckRound(9_000L)
+        assertEquals(9_000L, lib.lastCheckRoundAt())
+
+        // 重开一次库：值从盘上读回来（键名与类型都不能漂）
+        lib.flush()
+        val reopened = PrefsLibrary(ValidatingMemoryStore(store.data))
+        assertEquals(9_000L, reopened.lastCheckRoundAt())
+    }
+
     @Test
     fun anUnknownCountOnlyRefreshesTheCheckTime() = runTest {
         // 季线里没有当前季那一格：这次查到了时间，但不知道集数——不能拿旧数字当确认

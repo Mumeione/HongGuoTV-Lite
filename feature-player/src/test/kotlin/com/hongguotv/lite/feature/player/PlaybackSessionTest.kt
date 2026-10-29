@@ -146,6 +146,8 @@ class PlaybackSessionTest {
         }
         override fun rememberSeasonLine(seriesKey: String, line: SeasonLine) = Unit
         override fun acknowledge(seriesId: String, totalEpisodes: Int, at: Long) = Unit
+        override fun lastCheckRoundAt(): Long = 0L
+        override fun markCheckRound(at: Long) = Unit
     }
 
     private class RecordingHost : PlayerHost {

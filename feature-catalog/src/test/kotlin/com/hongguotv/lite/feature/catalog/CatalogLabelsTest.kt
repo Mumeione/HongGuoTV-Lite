@@ -154,9 +154,10 @@ class CatalogLabelsTest {
 
     @Test
     fun summarySaysHowManyAreLeftWhenTheRunWasCapped() {
-        // 自动检查每轮最多 40 部：剩下的必须说出来，否则像"只查了这些"
+        // 自动检查每轮最多 40 部：剩下的必须说出来，否则像"只查了这些"。
+        // 写法是"本次 40/100"而不是"还有 60 部待查"——两个数一起给，用户才知道总量。
         assertEquals(
-            "检查完成 · 2 部有新一季 · 还有 60 部待查",
+            "检查完成 · 2 部有新一季 · 本次 40/100",
             FavoriteLabels.summary(FavoriteCheckReport(40, 0, 2, 0, false, null, remaining = 60)),
         )
     }

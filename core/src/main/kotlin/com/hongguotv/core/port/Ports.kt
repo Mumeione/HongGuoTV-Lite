@@ -79,6 +79,15 @@ interface FavoritesPort {
     fun seasonLine(seriesKey: String): SeasonLine?
     fun rememberSeasonLine(seriesKey: String, line: SeasonLine)
     fun acknowledge(seriesId: String, totalEpisodes: Int, at: Long)
+    /**
+     * 上一次**整轮**检查（收藏页的自动轮或手动全量）的时间；0 = 从未跑过。
+     *
+     * 与单部的 `checkedAt` 分开：整轮节流看这一个值。拿 `max(checkedAt)` 代替的话，
+     * 详情页/选季页做一次**单部**检查就会把整轮推后 6 小时——其余收藏永远轮不到。
+     */
+    fun lastCheckRoundAt(): Long
+    /** 记下一次整轮检查。单部检查**不调**它。 */
+    fun markCheckRound(at: Long)
 }
 
 /** 设置端口。读同步、写异步；六项偏好一个入口。 */

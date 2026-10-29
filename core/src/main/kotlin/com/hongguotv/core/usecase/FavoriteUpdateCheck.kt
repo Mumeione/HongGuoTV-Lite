@@ -114,14 +114,23 @@ object FavoriteUpdateCheck {
      * - 自动：全局门槛（[RUN_GAP_MS]）→ 最旧优先 → 上限 [AUTO_LIMIT]，
      *   剩下的进 [FavoriteCheckPlan.remaining]。最旧优先保证 100 部能轮转扫完，
      *   不会永远只查同一批。
+     *
+     * [lastRoundAt] 是上一次**整轮**检查的时间（0 = 从未跑过）。门槛只看它，不看
+     * `max(checkedAt)`：单部检查（剧集详情 / 选季页）也会写 checkedAt，拿它当门槛等于
+     * "查了一部就把整轮停 6 小时"，其余收藏永远轮不到。旧盘没有这个值（0）时退回
+     * `max(checkedAt)`，升级后的第一轮行为与旧版一致。
      */
-    fun plan(entries: List<FavoriteEntry>, now: Long, manual: Boolean): FavoriteCheckPlan {
+    fun plan(
+        entries: List<FavoriteEntry>,
+        now: Long,
+        manual: Boolean,
+        lastRoundAt: Long = 0L,
+    ): FavoriteCheckPlan {
         if (entries.isEmpty()) return FavoriteCheckPlan(emptyList(), 0, blocked = false)
         val pending = due(entries, now, manual)
         if (manual) return FavoriteCheckPlan(pending.sortedBy { it.checkedAt }, 0, blocked = false)
-        // 全局门槛用"任一部的最大 checkedAt"判断，不需要另存一个时间戳。
         // 时间戳落在未来（时钟回拨）时 age < 0，不算"刚查过"。
-        val last = entries.maxOf { it.checkedAt }
+        val last = if (lastRoundAt > 0L) lastRoundAt else entries.maxOf { it.checkedAt }
         val age = now - last
         if (last > 0L && age in 0 until RUN_GAP_MS) {
             return FavoriteCheckPlan(emptyList(), pending.size, blocked = true)

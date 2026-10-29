@@ -429,7 +429,10 @@ internal class EpisodePage(
             val status = DetailText.checkStatus(DetailText.checkFinding(line, data.series, data.episodes.size))
             renderHero(data)
             renderNextSeason(data)
-            // 这一查查出了第二季：键要收起来（多季剧的入口在选季页），结果改用 toast 说一次——
+            // 重提焦点图：这一查把键查没了时（多季剧），主操作的上/左仍绑在已 GONE 的键 id 上，
+            // 按下去会"没反应"。applyFocus 不带显式目标 → 刷新不抢焦，只把落点表换成新的。
+            applyFocus()
+            // 键要收起来（多季剧的入口在选季页）时结果改用 toast 说一次——
             // 否则键与说明行一起消失，用户会以为"按了没反应"。
             if (checkButton.visibility == View.VISIBLE) showCheckNote(status) else toast(status)
         }

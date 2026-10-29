@@ -128,7 +128,14 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
         // 自动检查是"全局门槛 + 最旧优先 + 每轮 40 部"：先问计划，再决定要不要发请求。
         // 手动（force）是全量，不看门槛。
         val now = System.currentTimeMillis()
-        val plan = FavoriteUpdateCheck.plan(source, now, manual = force)
+        // 门槛只看"整轮"时间：单部检查（详情页/选季页）也会写各部的 checkedAt，
+        // 拿它当门槛会让一次单部检查把整轮停 6 小时。
+        val plan = FavoriteUpdateCheck.plan(
+            source,
+            now,
+            manual = force,
+            lastRoundAt = host.favorites.lastCheckRoundAt(),
+        )
         if (!force && plan.blocked) {
             status = FavoriteLabels.blockedStatus(plan.remaining)
             chrome()
@@ -195,6 +202,9 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
             busy = Busy.IDLE
             // 页面被离开就不刷了：视图已经摘掉，写它只会打一串 Log
             if (currentCoroutineContext().isActive) {
+                // 这一轮跑过了（含部分失败）：6 小时内不再自动跑。
+                // 被取消（离开页面）不算跑过——否则进来瞄一眼就退，会白停 6 小时。
+                host.favorites.markCheckRound(System.currentTimeMillis())
                 reloadCards()
                 chrome()
             }

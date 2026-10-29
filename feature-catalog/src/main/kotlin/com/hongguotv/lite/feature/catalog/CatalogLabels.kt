@@ -81,7 +81,7 @@ internal object FavoriteLabels {
      * 2. **「有新集」是本次增量**（`newEpisodes` 由集数比较得出），不再读历史未读标记，
      *    所以同一句话不会每小时复读一次。
      *
-     * [FavoriteCheckReport.remaining] 非 0 时补一句"还有 N 部待查"——自动检查是分批的，
+     * [FavoriteCheckReport.remaining] 非 0 时补一句「本次 40/100」——自动检查是分批的，
      * 不说清楚会让用户以为只查了这些。
      */
     fun summary(report: FavoriteCheckReport): String = when {
@@ -114,7 +114,9 @@ internal object FavoriteLabels {
             )
         }
         if (report.failed > 0) add("${report.failed} 部失败")
-        if (report.remaining > 0) add("还有 ${report.remaining} 部待查")
+        // 分批要如实说"这一轮查了多少 / 一共多少"：只说"还有 N 部待查"，
+        // 用户不知道这一轮是 40 还是 100，也不知道全量有多大
+        if (report.remaining > 0) add("本次 ${report.checked}/${report.checked + report.remaining}")
         if (isEmpty()) add("没有要查的")
     }
 

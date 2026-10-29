@@ -71,6 +71,14 @@ class PrefsLibrary(
     private var settings: Settings
 
     /**
+     * 上一次整轮收藏检查的时间（0 = 从未跑过）。
+     *
+     * 单独存一个值，而不是从 `updateRows` 里取 `max(checkedAt)`：单部检查（详情页/选季页）
+     * 也会写 checkedAt，取最大值等于让"查了一部"把整轮的 6 小时节流推后——其余收藏永远轮不到。
+     */
+    private var checkRoundAt: Long = 0L
+
+    /**
      * 启动加载时无法解析、被整段丢弃的分区（对应 LocalError.Corrupt 的分类位置）。
      * 加载失败不炸启动（旧行为：坏分区按空处理），但必须留痕——默默丢数据是迁移大忌。
      */
@@ -88,6 +96,7 @@ class PrefsLibrary(
         seasonLines = decodeSeasonGroups(values[KEY_SEASON_GROUPS] as? String) { corrupt += KEY_SEASON_GROUPS }
         updateRows = decodeUpdates(values[KEY_FAVORITE_UPDATES] as? String) { corrupt += KEY_FAVORITE_UPDATES }
         historyRows = decodeHistory(values[KEY_PROGRESS] as? String) { corrupt += KEY_PROGRESS }
+        checkRoundAt = (values[KEY_CHECK_ROUND] as? Long) ?: 0L
         settings = loadSettings(values)
         if (!values.containsKey(KEY_FAVORITE_SERIES)) migrateLegacyFavorites(values)
         // 旧收藏行按季线里的 id 证据换到系列基名（篇名季的标题算不出基名）
@@ -404,9 +413,20 @@ class PrefsLibrary(
         if (changed) persist(KEY_FAVORITE_UPDATES)
     }
 
+    override fun lastCheckRoundAt(): Long = synchronized(lock) { checkRoundAt }
+
+    override fun markCheckRound(at: Long) {
+        val changed = synchronized(lock) {
+            if (checkRoundAt == at) false else {
+                checkRoundAt = at
+                true
+            }
+        }
+        if (changed) persist(KEY_CHECK_ROUND)
+    }
+
     /** 收藏卡片的更新状态：新一季上线 > 已是最新 > 尚未检查。 */
-    private fun statusOf(seriesId: String): FavoriteStatus = when (val row = updateRows[seriesId]) {
-        null -> FavoriteStatus.UNCHECKED
+    private fun statusOf(seriesId: String): FavoriteStatus = when (val row = updateRows[seriesId]) {        null -> FavoriteStatus.UNCHECKED
         else -> if (row.added > 0) FavoriteStatus.NEW_SEASON else FavoriteStatus.UP_TO_DATE
     }
 
@@ -575,6 +595,7 @@ class PrefsLibrary(
                 SETTING_FRAME -> batch[key] = settings.frame.name
                 SETTING_STARTUP_TAB -> batch[key] = settings.startupTab
                 SETTING_SEASON_SORT_ASC -> batch[key] = settings.seasonSortAsc
+                KEY_CHECK_ROUND -> batch[key] = checkRoundAt
                 // 调用点拼错键名是编程错误（静态错误），按端口契约直接炸，不包 LocalError
                 else -> throw IllegalArgumentException("未知的本地库分区：$key")
             }
@@ -736,6 +757,9 @@ class PrefsLibrary(
         const val KEY_SEASON_GROUPS = "seasonGroups"
         const val KEY_FAVORITE_UPDATES = "favoriteUpdates"
         const val KEY_PROGRESS = "progress"
+
+        /** 整轮检查时间（毫秒）。与 [KEY_FAVORITE_UPDATES] 分开，见 [checkRoundAt] 的说明。 */
+        const val KEY_CHECK_ROUND = "favoriteCheckRoundAt"
 
         // 设置项与旧版 prefs 键名逐字相同（旧数据要能读）
         const val SETTING_QUALITY = "quality"

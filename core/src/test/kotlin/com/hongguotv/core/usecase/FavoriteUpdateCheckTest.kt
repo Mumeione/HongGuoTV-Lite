@@ -104,6 +104,9 @@ class FavoriteUpdateCheckTest {
         override fun acknowledge(seriesId: String, totalEpisodes: Int, at: Long) {
             acknowledged += Triple(seriesId, totalEpisodes, at)
         }
+
+        override fun lastCheckRoundAt(): Long = 0L
+        override fun markCheckRound(at: Long) = Unit
     }
 
     private fun check(
@@ -198,6 +201,44 @@ class FavoriteUpdateCheckTest {
         val after = entry("1", checkedAt = written)
         assertFalse(FavoriteUpdateCheck.isDue(after, now, force = false))
         assertTrue(FavoriteUpdateCheck.plan(listOf(after), now, manual = false).targets.isEmpty())
+    }
+
+    /**
+     * 整轮门槛只看 [FavoriteUpdateCheck.plan] 的 `lastRoundAt`，不看各部的 `checkedAt`。
+     *
+     * 反例（旧实现）：在详情页查了一部 → 那一部 checkedAt = now → 门槛读 max(checkedAt)
+     * → 整轮被挡住 6 小时，其余收藏永远轮不到。这条测试就是那件事的照妖镜。
+     */
+    @Test
+    fun aSingleCheckDoesNotPushTheWholeRoundBack() {
+        // 用一个"足够晚"的时钟：要给 13 小时前的 checkedAt 留出正数空间
+        val t = 10L * 24 * 3_600_000L
+        // 一部刚在详情页查过（5 分钟前），其余 9 部 13 小时没查，上一轮整轮是 7 小时前
+        val entries = listOf(entry("1", checkedAt = t - 5 * 60_000L)) +
+            (2..10).map { entry("$it", checkedAt = t - 13 * 3_600_000L - it) }
+        val plan = FavoriteUpdateCheck.plan(entries, t, manual = false, lastRoundAt = t - 7 * 3_600_000L)
+
+        assertFalse("单部检查不该把整轮挡住", plan.blocked)
+        assertEquals("刚查过的那一部不入列", 9, plan.targets.size)
+        assertTrue("1 号不在本轮", plan.targets.none { it.series.id == "1" })
+    }
+
+    /** 整轮时间在 6 小时内：整轮跳过，与各部 checkedAt 无关。 */
+    @Test
+    fun theRoundGateReadsTheRoundTimestamp() {
+        val entries = (1..10).map { entry("$it", checkedAt = now - 13 * 3_600_000L) }
+        val blocked = FavoriteUpdateCheck.plan(entries, now, manual = false, lastRoundAt = now - 3_600_000L)
+        assertTrue("上一轮 1 小时前跑过：自动检查整轮跳过", blocked.blocked)
+        assertEquals(10, blocked.remaining)
+    }
+
+    /** 旧盘没有整轮时间（0）：退回 max(checkedAt)，升级后的第一轮与旧版行为一致。 */
+    @Test
+    fun anOldStoreFallsBackToTheNewestRow() {
+        val entries = (1..5).map { entry("$it", checkedAt = now - 13 * 3_600_000L) } +
+            entry("99", checkedAt = now - 3_600_000L)
+        val plan = FavoriteUpdateCheck.plan(entries, now, manual = false)
+        assertTrue("没有整轮时间时按最新的一部判门槛", plan.blocked)
     }
 
     @Test
