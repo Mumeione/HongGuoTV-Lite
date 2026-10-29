@@ -22,4 +22,5 @@ docs/**
 !docs/ARCHITECTURE.md
 !docs/PLATFORM.md
 !docs/UI/UI-RULES.md
+!docs/UI/*.jpg
 !docs/ui-assets/**
