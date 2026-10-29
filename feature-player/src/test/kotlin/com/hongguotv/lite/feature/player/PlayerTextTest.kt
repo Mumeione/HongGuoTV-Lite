@@ -39,7 +39,7 @@ class PlayerTextTest {
         assertEquals(
             listOf(
                 "左右" to "快退/快进",
-                "长按→" to "2倍快进",
+                "长按右" to "2倍快进",
                 "上下" to "切集",
                 "确定" to "暂停/继续",
                 "菜单" to "选集·播放设置",
