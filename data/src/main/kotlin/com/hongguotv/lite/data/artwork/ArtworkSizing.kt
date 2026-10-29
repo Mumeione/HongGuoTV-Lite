@@ -50,4 +50,23 @@ object ArtworkSizing {
 
     /** 降采样后仍然过大的图直接放弃：老电视上一次分配几十 MB 就是一次 OOM。 */
     fun exceedsDecodeBudget(size: Size, limitPixels: Long): Boolean = size.pixels > limitPixels
+
+    /**
+     * 缓存键 / 解码目标用的尺寸：向上取整到 [SIZE_BUCKET] 的整桶。
+     *
+     * 为什么要归桶：缓存键含宽高，而宽高是布局量出来的——hero 封面跟着右侧信息列的
+     * 文字高度走，规格表从空值变成真值就差几十像素。不归桶的话，一次重排就是一次新下载，
+     * 同一张封面在内存里还留两份；归桶之后"差几像素"落在同一张图上。
+     *
+     * 向上取整（而不是四舍五入）：取整后的图只会比需要的略大，`CENTER_CROP` 不会缺角。
+     */
+    fun cacheSize(width: Int, height: Int): Size = Size(bucket(width), bucket(height))
+
+    /** 64px 一档：1080p 卡宽 298 → 320。 */
+    const val SIZE_BUCKET: Int = 64
+
+    private fun bucket(value: Int): Int {
+        if (value <= 0) return SIZE_BUCKET
+        return ((value + SIZE_BUCKET - 1) / SIZE_BUCKET) * SIZE_BUCKET
+    }
 }

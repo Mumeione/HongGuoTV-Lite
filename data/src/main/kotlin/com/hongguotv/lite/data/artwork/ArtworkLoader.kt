@@ -146,10 +146,12 @@ class ArtworkLoader(
         // HEIC 变体在 API 23 上解不了：入口处统一换成可解码的那份（老数据里存的就是 HEIC）
         val normalized = CoverUrls.normalize(url)
         if (normalized.isBlank()) return
+        // 尺寸归桶：布局差几像素不该换一张图（见 ArtworkSizing.cacheSize）
+        val size = ArtworkSizing.cacheSize(spec.widthPx, spec.heightPx)
 
         val previous = bindings[view]
         if (previous != null && previous.generation == generation && previous.url == normalized &&
-            previous.width == spec.widthPx && previous.height == spec.heightPx
+            previous.width == size.width && previous.height == size.height
         ) {
             // 同一张图再要一次（聚焦、重渲染）：只提升优先级 / 补落盘，不动图
             previous.priority = spec.priority.coerceIn(ArtworkSpec.PRIORITY_FOCUSED, ArtworkSpec.PRIORITY_VISIBLE)
@@ -159,12 +161,14 @@ class ArtworkLoader(
             return
         }
         if (previous != null) detach(previous)
-        view.setImageDrawable(null)
+        // 只有换了图才清屏：同一张图换尺寸时保留旧位图直到新图贴上，
+        // 否则每次重排都白一下（hero 跟着右列文字高度变化时最明显）
+        if (previous == null || previous.url != normalized) view.setImageDrawable(null)
         val binding = Binding(
             view = WeakReference(view),
             url = normalized,
-            width = spec.widthPx,
-            height = spec.heightPx,
+            width = size.width,
+            height = size.height,
             priority = spec.priority.coerceIn(ArtworkSpec.PRIORITY_FOCUSED, ArtworkSpec.PRIORITY_VISIBLE),
             persist = spec.persist,
             generation = generation,
@@ -181,7 +185,9 @@ class ArtworkLoader(
         if (closed) return
         val normalized = CoverUrls.normalize(url)
         if (normalized.isBlank() || spec.widthPx <= 0 || spec.heightPx <= 0) return
-        val key = Key(normalized, spec.widthPx, spec.heightPx)
+        // 与 load() 同一个归桶口径：否则预热取回来的图，翻页时永远命不中
+        val size = ArtworkSizing.cacheSize(spec.widthPx, spec.heightPx)
+        val key = Key(normalized, size.width, size.height)
         if (cache.get(key) != null) return
         synchronized(signal) {
             if (closed || key in prefetchFailed || jobs.containsKey(key)) return

@@ -74,4 +74,26 @@ class ArtworkSizingTest {
         assertFalse(ArtworkSizing.exceedsDecodeBudget(ArtworkSizing.Size(1000, 1000), 1_000_000))
         assertTrue(ArtworkSizing.exceedsDecodeBudget(ArtworkSizing.Size(1001, 1000), 1_000_000))
     }
+
+    // ---------- 缓存键的尺寸归桶（2026-10-28）----------
+
+    @Test
+    fun `缓存尺寸向上归到 64 的整桶`() {
+        // 1080p 卡宽 298、封面高 426 → 一个桶里共用同一张图
+        assertEquals(ArtworkSizing.Size(320, 448), ArtworkSizing.cacheSize(298, 426))
+        // 两个相差 2px 的请求必须是同一个键：布局抖动不该换图
+        assertEquals(ArtworkSizing.cacheSize(298, 426), ArtworkSizing.cacheSize(300, 425))
+    }
+
+    @Test
+    fun `刚好落在桶边界时不再加一桶`() {
+        assertEquals(ArtworkSizing.Size(320, 320), ArtworkSizing.cacheSize(320, 320))
+        assertEquals(ArtworkSizing.Size(384, 384), ArtworkSizing.cacheSize(321, 321))
+    }
+
+    @Test
+    fun `尺寸缺失或为负时退回一个最小桶`() {
+        assertEquals(ArtworkSizing.Size(64, 64), ArtworkSizing.cacheSize(0, 0))
+        assertEquals(ArtworkSizing.Size(64, 64), ArtworkSizing.cacheSize(-10, -1))
+    }
 }

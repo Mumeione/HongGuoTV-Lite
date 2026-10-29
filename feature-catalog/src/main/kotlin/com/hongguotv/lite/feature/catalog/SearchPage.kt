@@ -179,6 +179,10 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
 
         continueGrid = ui.grid(CONTINUE_SECTION).apply {
             visibility = View.GONE
+            // 「继续看」是**历史的前 5 部**（同 `progress.history(limit = 5)`），封面与历史页
+            // 是同一批 URL：历史页早就落盘了，这里开落盘不会多占一个文件，只是不再每次重下。
+            // 放弃"没网时一眼看出是空的"这个信号——首页可切换，搜索页不再是"第一眼"。
+            persistCovers = true
             // B 方案：「继续看」是背景墙，非焦点卡压暗（mockup 画面1 的 0.62）
             spotlight = true
             onCardActivated = { item -> host.navigator.toDetail(item.id, resumeRecording = true) }
@@ -505,7 +509,11 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         sortChip.visibility = if (model.aggregated) View.VISIBLE else View.GONE
 
         val error = model.error
-        val showContinue = model.keyword.isBlank() && error == null && continueEntries.isNotEmpty()
+        // 卡片要按量到的视口夹高：视口还没有（首帧）时先不画「继续看」，
+        // 否则会先按自然比例取一遍封面、夹短后再取第二遍（同一张图下两遍）。
+        // 页头照常显示，它得先被量出来，夹高才算得准。
+        val canShowContinue = model.keyword.isBlank() && error == null && continueEntries.isNotEmpty()
+        val showContinue = canShowContinue && viewport > 0
         val showResult = error == null && model.items.isNotEmpty()
         val emptyPage = model.hasSearched && model.page > 1 && model.items.isEmpty()
         val stateText = when {
@@ -517,7 +525,8 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
                 else -> "正在搜索…"
             }
             error != null -> TvText.error(error)
-            showContinue || showResult -> null
+            // canShowContinue：等一帧布局再画，这一帧不能闪成空态文案
+            canShowContinue || showResult -> null
             emptyPage && current.filter != ContentFilter.ALL ->
                 "这一页没有「${SettingRows.filterLabel(current.filter)}」的结果，翻回上一页看看"
             emptyPage -> "这一页没有新的结果，翻回上一页看看"
@@ -526,6 +535,7 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
 
         if (stateText == null) pane.showContent() else pane.showEmpty(stateText)
         retry.visibility = if (error != null) View.VISIBLE else View.GONE
+        // 页头跟着网格一起等视口：量到再画，"卡片区多高"这件事在首帧还不知道
         continueHeader.visibility = if (showContinue) View.VISIBLE else View.GONE
         continueGrid.visibility = if (showContinue) View.VISIBLE else View.GONE
         resultGrid.visibility = if (showResult) View.VISIBLE else View.GONE
@@ -544,7 +554,7 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         }
         // 信息栏伴着卡片出现：焦点落到卡片上时由落定回调显示；没有卡片可说时收起。
         // 本页预留了槽位高度（reserveBand），收起也不释放空间——内容区高度保持稳定。
-        if (!showContinue && !showResult) scaffold.hideBand()
+        if (!canShowContinue && !showResult) scaffold.hideBand()
 
         // 视口还没量到时不夹（保持比例）；量到之后由布局回调再走一遍 render
         applyCardLimit()
@@ -555,12 +565,15 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
         }
         rendered = if (showResult) resultGrid.render(model.items.map { CatalogCards.search(it, model.aggregated) }) else null
 
-        // 翻页预热：下一页的数据已在内存时先把封面取回来，翻过去直接命中；
+        // 翻页预热：下一页的数据已在内存时先把**第一行**的封面取回来，翻过去直接命中。
+        // 只预一半（5 张）：一整页 10 张全预取会把 8MB 内存缓存塞满（10 张 ≈ 4.8MB），
+        // 首页「继续看」那 5 张就被挤出去了；第二行不预热，翻过去看得见图在加载。
         // 数据还没补拉（需要额外请求）就不预取——预热不能变成额外的上游流量。
         if (showResult) {
             resultGrid.prefetchCovers(
                 model.pageItems(model.page + 1, current.seasonSortAsc)
                     .map { CatalogCards.search(it, model.aggregated) },
+                limit = PREFETCH_LIMIT,
             )
         }
 
@@ -660,6 +673,8 @@ internal class SearchPage(host: CatalogFeature) : CatalogPage(host, CatalogTab.S
          * 多一个就会折到第二行，而第二行在首屏放不下——用户要么看不见，要么得先滚一下才知道还有。
          */
         const val CONTINUE_LIMIT = 5
+        /** 翻页预热只预下一页的第一行（5 张）：一整页全预取会挤掉首页自己的封面。 */
+        const val PREFETCH_LIMIT = 5
         const val TITLE_NOTE = "输入完整剧名，按确认搜索 · 支持拼音联想"
         val KEY_PREV = FocusKey("search:prev")
         val KEY_NEXT = FocusKey("search:next")
