@@ -96,8 +96,15 @@ data class FavoriteEntry(
      * 收藏卡片的"更新到多少集"靠它，不再显示"已是最新"这种没有信息量的状态。
      */
     val latestEpisodes: Int = 0,
-    /** 最近一次「检查更新」的时间；0 = 从未检查。1 小时有效期用它判断。 */
+    /** 最近一次「检查更新」的时间；0 = 从未检查。有效期用它判断。 */
     val checkedAt: Long = 0,
+    /**
+     * **当前季**已知的集数（检查更新记录的 total）；0 = 未知。
+     *
+     * 与 [latestEpisodes] 分工：那个是"最新一季现在多少集"（给角标看），
+     * 这个是"上一次检查时当前季多少集"（给本轮判定"涨没涨"用）。多季剧两者可能指向不同季。
+     */
+    val currentEpisodes: Int = 0,
 )
 
 enum class FavoriteStatus { UP_TO_DATE, NEW_SEASON, UNCHECKED, FAILED }

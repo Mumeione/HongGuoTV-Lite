@@ -7,7 +7,11 @@ import com.hongguotv.core.protocol.SignedRequest
 import com.hongguotv.lite.data.http.HttpTransport
 import com.hongguotv.lite.data.library.KeyValueStore
 import com.hongguotv.lite.data.library.ValidatingMemoryStore
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -59,7 +63,7 @@ class UpdateManagerTest {
         """{"versionCode":2,"versionName":"1.1.0","apk":"h.apk","size":10,"sha256":"$sha256"}"""
 
     private fun manager(
-        transport: FakeTransport,
+        transport: HttpTransport,
         downloader: ApkDownloader = FakeDownloader(),
         verifier: ApkVerifier = ApkVerifier { _, _ -> },   // 包校验是 Android 侧的事，这里测哈希与状态机
         store: KeyValueStore? = null,
@@ -169,6 +173,100 @@ class UpdateManagerTest {
         updates.check()
         updates.download()
         assertEquals(UpdateState.Failed(UpdateFailure.DOWNLOAD), updates.state())
+    }
+
+    /**
+     * 下载失败后按「重试下载」直接重下：不再走一遍检查。
+     *
+     * 以前 `download()` 只认 [UpdateState.Available]，失败后要按三次（检查 → 等结果 → 下载）
+     * 才能重下一次下载——按钮上写着「检查更新」，说明行却写着"下载失败，请重试"。
+     */
+    @Test
+    fun aDownloadFailureIsRetriedWithoutCheckingAgain() = runBlocking {
+        val transport = FakeTransport(respond = { if (isCnb(it.url)) cnbManifest else null })
+        val downloader = FakeDownloader().apply { fail = true }
+        val updates = manager(transport, downloader)
+
+        updates.check()
+        updates.download()
+        assertEquals(UpdateState.Failed(UpdateFailure.DOWNLOAD), updates.state())
+        val requestsAfterCheck = transport.requests.size
+
+        downloader.fail = false
+        updates.download()   // 「重试下载」
+        assertTrue("重试下载不该再发检查请求", transport.requests.size == requestsAfterCheck)
+        assertTrue("state=${updates.state()}", updates.state() is UpdateState.ReadyToInstall)
+        assertEquals(1, downloader.downloads.size)   // 第一次失败没落盘，只有这一次算数
+    }
+
+    /** 校验未通过也是"包不对"：清单还在，重下一份是唯一能推进的动作。 */
+    @Test
+    fun aVerificationFailureIsAlsoRetryable() = runBlocking {
+        var reject = true
+        val verifier = ApkVerifier { _, _ -> if (reject) throw ApkVerificationException("package mismatch") else Unit }
+        val updates = manager(
+            FakeTransport(respond = { if (isCnb(it.url)) cnbManifest else null }),
+            verifier = verifier,
+        )
+        updates.check()
+        updates.download()
+        assertEquals(UpdateState.Failed(UpdateFailure.VERIFICATION), updates.state())
+
+        reject = false
+        updates.download()
+        assertTrue("state=${updates.state()}", updates.state() is UpdateState.ReadyToInstall)
+    }
+
+    /** 检查类失败（断网 / 没发版）手上没有清单：`download()` 必须是空操作，别把状态搅乱。 */
+    @Test
+    fun checkFailuresAreNotRetryableAsDownload() = runBlocking {
+        val downloader = FakeDownloader()
+        val updates = manager(FakeTransport(respond = { "!net down" }), downloader)
+        updates.check()
+        assertEquals(UpdateState.Failed(UpdateFailure.NETWORK), updates.state())
+
+        updates.download()
+        assertEquals(UpdateState.Failed(UpdateFailure.NETWORK), updates.state())
+        assertTrue(downloader.downloads.isEmpty())
+    }
+
+    /**
+     * 连按「检查更新」只发一轮请求：第二轮进来时状态已经是 Checking，直接返回。
+     *
+     * 用一条会卡住的请求把第一轮按在"检查中"，再从另一条协程按第二下——
+     * 用户连按时按钮还没刷新，两下之间只隔几十毫秒，就是这个时序。
+     */
+    @Test
+    fun aSecondCheckWhileOneIsRunningSendsNothing() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
+        var first = true
+        val requests = mutableListOf<String>()
+        val transport = object : HttpTransport {
+            override suspend fun text(request: SignedRequest): String {
+                requests += request.url
+                if (first) {
+                    first = false
+                    entered.complete(Unit)
+                    gate.await()   // 把这一轮按在 Checking
+                }
+                return cnbManifest
+            }
+        }
+        val updates = manager(transport)
+        val running = launch(Dispatchers.Default) { updates.check() }
+        entered.await()
+        assertEquals(UpdateState.Checking, updates.state())
+
+        // 第二下：状态是 Checking，立即返回。给 1 秒上限——没有重入保护时它会卡在这条
+        // 请求上，回归应该表现为"失败"而不是"测试挂死"
+        withTimeout(1_000) { updates.check() }
+        assertEquals(1, requests.size)
+
+        gate.complete(Unit)
+        running.join()
+        assertEquals(1, requests.size)
+        assertTrue("state=${updates.state()}", updates.state() is UpdateState.Available)
     }
 
     /** 清单带了 sha256 且对得上：哈希校验通过才进 ReadyToInstall。 */

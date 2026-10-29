@@ -22,8 +22,9 @@ import org.junit.Test
 import java.io.IOException
 
 /**
- * 收藏更新检查的三条规则（1 小时、连续失败 3 次、新季看季号）都在这里钉死。
- * 用假端口测：断言的是"发起了哪些调用、按什么顺序、报告了几个数"，不是内部实现。
+ * 收藏更新检查的规则（12 小时有效期、全局 6 小时门槛、每轮 40 部、连续失败 3 次、
+ * "每部只问一次"的探针选择）。用假端口测：断言的是"发起了哪些请求、按什么顺序、
+ * 报告了几个数"，不是内部实现。
  */
 class FavoriteUpdateCheckTest {
 
@@ -35,12 +36,15 @@ class FavoriteUpdateCheckTest {
         season: Int = 0,
         checkedAt: Long = 0L,
         key: String = "测试书",
+        currentEpisodes: Int = 0,
+        albumId: String = "",
     ) = FavoriteEntry(
-        series = Series(id = id, title = title, season = season),
+        series = Series(id = id, title = title, season = season, albumId = albumId),
         addedAt = 0L,
         status = FavoriteStatus.UP_TO_DATE,
         seriesKey = key,
         checkedAt = checkedAt,
+        currentEpisodes = currentEpisodes,
     )
 
     private fun detail(id: String, episodes: Int, season: Int = 0): Detail =
@@ -81,21 +85,18 @@ class FavoriteUpdateCheckTest {
     private class FakeFavorites : FavoritesPort {
         val remembered = mutableListOf<Pair<String, SeasonLine>>()
         val acknowledged = mutableListOf<Triple<String, Int, Long>>()
-        /** 检查后重新读到的收藏行；null = 收藏已被删除。 */
-        var currentEntry: FavoriteEntry? = null
-
-        /** 非 null 时只有这个键读得到 [currentEntry]（模拟篇名季行换到了基名键）。 */
-        var currentKey: String? = null
-        var favoriteKeys: Set<String> = emptySet()
+        var line: SeasonLine? = null
+        var currentSeason: Pair<String, Series>? = null
 
         override fun all(): List<FavoriteEntry> = emptyList()
-        override fun isFavorite(seriesKey: String): Boolean = seriesKey in favoriteKeys
-        override fun entry(seriesKey: String): FavoriteEntry? =
-            currentEntry?.takeIf { currentKey == null || currentKey == seriesKey }
-
+        override fun isFavorite(seriesKey: String): Boolean = false
+        override fun entry(seriesKey: String): FavoriteEntry? = null
         override suspend fun toggle(series: Series): Boolean = false
-        override suspend fun setCurrentSeason(seriesKey: String, series: Series) = Unit
-        override fun seasonLine(seriesKey: String): SeasonLine? = null
+        override suspend fun setCurrentSeason(seriesKey: String, series: Series) {
+            currentSeason = seriesKey to series
+        }
+
+        override fun seasonLine(seriesKey: String): SeasonLine? = line
         override fun rememberSeasonLine(seriesKey: String, line: SeasonLine) {
             remembered += seriesKey to line
         }
@@ -121,7 +122,7 @@ class FavoriteUpdateCheckTest {
         )
     }
 
-    // ---------- 1 小时有效期 ----------
+    // ---------- 有效期 ----------
 
     @Test
     fun freshEntriesAreSkipped() {
@@ -142,158 +143,249 @@ class FavoriteUpdateCheckTest {
         assertFalse(FavoriteUpdateCheck.isDue(entry("1", checkedAt = now - 1L), now, force = false))
     }
 
+    // ---------- 每轮查哪些（全局门槛 + 轮转） ----------
+
     @Test
-    fun forceChecksEvenFreshEntries() {
+    fun autoCheckIsBlockedWithinSixHoursOfTheLastRun() {
+        // 上一轮两小时前刚查过一批：其余过期项也先压住，别把 100 部分成几秒内连打两轮
+        val entries = listOf(
+            entry("a", checkedAt = now - 2 * 3_600_000L),
+            entry("b", checkedAt = now - 20 * 3_600_000L),
+            entry("c", checkedAt = now - 20 * 3_600_000L),
+        )
+        val plan = FavoriteUpdateCheck.plan(entries, now, manual = false)
+        assertTrue(plan.blocked)
+        assertTrue(plan.targets.isEmpty())
+        // 过期的两部如实报出来：页面说"刚查过 · 还有 2 部待查"
+        assertEquals(2, plan.remaining)
+    }
+
+    @Test
+    fun autoCheckPicksTheOldestFortyAndReportsTheRest() {
+        // 100 部都没查过：只查最旧的 40 部，剩下的 60 部如实报出来（下一轮再来）
+        val entries = (1..100).map { entry("$it", checkedAt = now - 13 * 3_600_000L - it) }
+        val plan = FavoriteUpdateCheck.plan(entries, now, manual = false)
+        assertFalse(plan.blocked)
+        assertEquals(FavoriteUpdateCheck.AUTO_LIMIT, plan.targets.size)
+        assertEquals(60, plan.remaining)
+        // 最旧优先：checkedAt 最小的是 id=100
+        assertEquals("100", plan.targets.first().series.id)
+    }
+
+    @Test
+    fun manualCheckTakesEverythingWithoutTouchingTheRotation() {
+        val entries = (1..100).map { entry("$it", checkedAt = now - 60_000L) }
+        val plan = FavoriteUpdateCheck.plan(entries, now, manual = true)
+        assertFalse(plan.blocked)
+        assertEquals(100, plan.targets.size)
+        assertEquals(0, plan.remaining)
+    }
+
+    /**
+     * 在某一部的详情页手动查过它（`acknowledge` 把 checkedAt 写成现在）：
+     * 12 小时内它不会再进自动轮转——**不占别人的名额**，也不需要额外的"已手动检查"标记。
+     */
+    @Test
+    fun aManuallyCheckedFavoriteDropsOutOfTheNextRotation() {
         val content = FakeContent().apply { details["1"] = detail("1", episodes = 3) }
-        val report = check(listOf(entry("1", checkedAt = now - 1L)), content, FakeFavorites(), force = true)
+        val favorites = FakeFavorites()
+        runBlocking {
+            FavoriteUpdateCheck.run(listOf(entry("1")), content, favorites, clock = { now }, force = true)
+        }
+        val written = favorites.acknowledged.single().third
+        assertEquals("落库的就是这一轮的时钟", now, written)
+
+        val after = entry("1", checkedAt = written)
+        assertFalse(FavoriteUpdateCheck.isDue(after, now, force = false))
+        assertTrue(FavoriteUpdateCheck.plan(listOf(after), now, manual = false).targets.isEmpty())
+    }
+
+    @Test
+    fun aRunReportsHowManyAreLeft() {
+        val content = FakeContent()
+        (1..45).forEach { content.details["$it"] = detail("$it", episodes = 3) }
+        val entries = (1..45).map { entry("$it", checkedAt = now - 13 * 3_600_000L - it) }
+        val report = runBlocking {
+            FavoriteUpdateCheck.run(entries, content, FakeFavorites(), clock = { now }, force = false)
+        }
+        assertEquals(40, report.checked)
+        assertEquals(5, report.remaining)
+        assertEquals(40, content.calls.size)
+    }
+
+    // ---------- 每部只问一次（探针） ----------
+
+    @Test
+    fun singleSeasonFavoriteOnlyAsksForTheDetail() {
+        val content = FakeContent().apply { details["1"] = detail("1", episodes = 12, season = 1) }
+        val report = check(listOf(entry("1")), content, FakeFavorites())
+
+        assertEquals(listOf("detail:1"), content.calls)
         assertEquals(1, report.checked)
     }
 
-    // ---------- 检查内容 ----------
-
     @Test
-    fun detailComesBeforeSeasonLineAndEpisodeCountIsAcknowledged() {
+    fun multiSeasonFavoriteOnlyAsksForTheSeasonLine() {
         val content = FakeContent().apply {
-            details["1"] = detail("1", episodes = 12, season = 1)
-            lines["1"] = SeasonLine(listOf(Series("1", "测试书第一季", season = 1), Series("2", "测试书第二季", season = 2)))
-            details["2"] = detail("2", episodes = 5)
+            lines["1"] = SeasonLine(
+                listOf(
+                    Series("1", "测试书第一季", season = 1, episodeCount = 12),
+                    Series("2", "测试书第二季", season = 2, episodeCount = 5),
+                ),
+            )
         }
-        val favorites = FakeFavorites()
-        val report = check(listOf(entry("1"), entry("2")), content, favorites)
+        val favorites = FakeFavorites().apply { line = content.lines["1"] }
+        val report = check(listOf(entry("1", season = 1, title = "测试书第一季", currentEpisodes = 12)), content, favorites)
 
-        assertEquals(listOf("detail:1", "seasons:1", "detail:2", "seasons:2"), content.calls)
-        assertEquals(2, report.checked)
-        // 集数以详情为准（与详情页一致），季线只负责"有没有更新的季"
-        assertEquals(listOf(Triple("1", 12, now), Triple("2", 5, now)), favorites.acknowledged)
-    }
-
-    @Test
-    fun seasonLineIsRememberedOnlyWhenItHasAtLeastTwoSeasons() {
-        val content = FakeContent().apply {
-            details["1"] = detail("1", episodes = 4)
-            lines["1"] = SeasonLine(listOf(Series("1", "测试书第一季", season = 1)))
-            details["2"] = detail("2", episodes = 4)
-            lines["2"] = SeasonLine(listOf(Series("2", "测试书第一季", season = 1), Series("3", "测试书第二季", season = 2)))
-        }
-        val favorites = FakeFavorites()
-        check(listOf(entry("1", key = "书一"), entry("2", key = "书二")), content, favorites)
-
-        assertEquals(listOf("书二"), favorites.remembered.map { it.first })
-    }
-
-    @Test
-    fun seasonLineFailureDoesNotFailTheItem() {
-        val content = FakeContent().apply {
-            details["1"] = detail("1", episodes = 4)
-            failingLines += "1"
-        }
-        val favorites = FakeFavorites()
-        val report = check(listOf(entry("1")), content, favorites)
-
-        // 集数已经拿到了，"这次不知道有没有新季"不是整部失败（旧行为）
+        assertEquals(listOf("seasons:1"), content.calls)
         assertEquals(1, report.checked)
-        assertEquals(0, report.failed)
-        assertEquals(1, favorites.acknowledged.size)
+        // 当前季在线里且集数已知：按 12 落库（与详情一致），不是拿别的季顶
+        assertEquals(Triple("1", 12, now), favorites.acknowledged.single())
+    }
+
+    @Test
+    fun aLineWithOneSeasonStillGoesThroughTheDetail() {
+        // 季线只有一季（单季剧）：问详情，详情给的是准确集数。
+        // 带专辑号也不改判据——单季剧也可能有 album_id，按它判会把它永远锁在季线路径上。
+        val content = FakeContent().apply {
+            details["1"] = detail("1", episodes = 4, season = 1)
+            lines["1"] = SeasonLine(listOf(Series("1", "测试书第一季", season = 1, episodeCount = 4)))
+        }
+        val favorites = FakeFavorites().apply { line = content.lines["1"] }
+        check(listOf(entry("1", albumId = "album-1")), content, favorites)
+
+        assertEquals(listOf("detail:1"), content.calls)
         assertTrue(favorites.remembered.isEmpty())
     }
 
     @Test
-    fun newerSeasonIsJudgedBySeasonNumberNotEpisodeGrowth() {
+    fun theSeasonLineIsRememberedWhenItHasAtLeastTwoSeasons() {
         val content = FakeContent().apply {
-            details["1"] = detail("1", episodes = 12, season = 5)
-            lines["1"] = SeasonLine(listOf(Series("1", "测试书第五季", season = 5), Series("2", "测试书第七季", season = 7)))
-            details["2"] = detail("2", episodes = 12, season = 8)
-            lines["2"] = SeasonLine(listOf(Series("2", "测试书第八季", season = 8), Series("3", "测试书第七季", season = 7)))
+            lines["1"] = SeasonLine(
+                listOf(Series("1", "测试书第一季", season = 1, episodeCount = 4), Series("2", "测试书第二季", season = 2)),
+            )
         }
-        val report = check(listOf(entry("1", season = 5), entry("2", season = 8)), content, FakeFavorites())
+        val favorites = FakeFavorites().apply { line = content.lines["1"] }
+        check(listOf(entry("1", title = "测试书第一季", key = "书一")), content, favorites)
+
+        assertEquals(listOf("书一"), favorites.remembered.map { it.first })
+    }
+
+    // ---------- 判定 ----------
+
+    @Test
+    fun episodeGrowthIsMeasuredAgainstTheKnownCount() {
+        // 单季短剧每日加集：已知 520，详情 524 → 本次有新集
+        val content = FakeContent().apply { details["1"] = detail("1", episodes = 524) }
+        val favorites = FakeFavorites()
+        val report = check(listOf(entry("1", title = "十八岁的二次回响", currentEpisodes = 520)), content, favorites)
+
+        assertEquals(0, report.newSeasons)
+        assertEquals(1, report.newEpisodes)
+        assertEquals(Triple("1", 524, now), favorites.acknowledged.single())
+    }
+
+    @Test
+    fun anUnknownCountNeverCountsAsGrowth() {
+        // 首次检查（已知 0）：落库但不报"有新集"
+        val content = FakeContent().apply { details["1"] = detail("1", episodes = 524) }
+        val report = check(listOf(entry("1", currentEpisodes = 0)), content, FakeFavorites())
+
+        assertEquals(0, report.newEpisodes)
+    }
+
+    @Test
+    fun aNewSeasonIsJudgedBySeasonNumberNotEpisodeGrowth() {
+        val content = FakeContent().apply {
+            lines["1"] = SeasonLine(
+                listOf(
+                    Series("1", "测试书第五季", season = 5, episodeCount = 12),
+                    Series("2", "测试书第七季", season = 7, episodeCount = 3),
+                ),
+            )
+        }
+        val favorites = FakeFavorites().apply { line = content.lines["1"] }
+        val report = check(listOf(entry("1", season = 5, title = "测试书第五季", currentEpisodes = 12)), content, favorites)
 
         assertEquals(1, report.newSeasons)
         assertEquals(0, report.newEpisodes)
-        assertEquals(2, report.checked)
-    }
-
-    @Test
-    fun episodeGrowthInTheSameSeasonCountsAsNewEpisodes() {
-        // 单季短剧每日加集：没有新季，但详情集数涨了。旧实现只看季号，状态行会误报"已是最新"。
-        val content = FakeContent().apply {
-            details["1"] = detail("1", episodes = 524, season = 0)
-            lines["1"] = SeasonLine(listOf(Series("1", "十八岁的二次回响", season = 0)))
-        }
-        val favorites = FakeFavorites().apply {
-            currentEntry = entry("1", title = "十八岁的二次回响", season = 0)
-                .copy(status = FavoriteStatus.NEW_SEASON)
-        }
-        val report = check(listOf(entry("1", title = "十八岁的二次回响", season = 0)), content, favorites)
-
-        assertEquals(0, report.newSeasons)
-        assertEquals(1, report.newEpisodes)
-        assertEquals(1, report.checked)
-    }
-
-    @Test
-    fun aRekeyedNamedSeasonFavoriteStillReportsNewEpisodes() {
-        // 篇名季的收藏行在 rememberSeasonLine 里换到了系列基名键：状态要按新键读，
-        // 否则第一次检查会把"同季加集"误报成没有
-        val content = FakeContent().apply {
-            details["1"] = detail("1", episodes = 30, season = 2)
-            lines["1"] = SeasonLine(
-                listOf(Series("1", "测试书分宗篇", season = 1), Series("2", "测试书第二季", season = 2)),
-            )
-        }
-        val favorites = FakeFavorites().apply {
-            currentEntry = entry("1", key = "测试书").copy(status = FavoriteStatus.NEW_SEASON)
-            currentKey = "测试书"
-            favoriteKeys = setOf("测试书")
-        }
-        val report = check(
-            listOf(entry("1", title = "测试书分宗篇", season = 2, key = "测试书分宗篇")),
-            content,
-            favorites,
-        )
-
-        assertEquals(1, report.newEpisodes)
-        assertEquals(0, report.newSeasons)
     }
 
     @Test
     fun unreleasedSeasonDoesNotCountAsNewSeason() {
         val content = FakeContent().apply {
-            details["1"] = detail("1", episodes = 56, season = 9)
             lines["1"] = SeasonLine(
                 listOf(
-                    Series("1", "测试书第九季", season = 9),
+                    Series("1", "测试书第九季", season = 9, episodeCount = 56),
                     Series("2", "测试书第十季", season = 10, released = false),
                 ),
             )
         }
-        val report = check(listOf(entry("1", season = 9)), content, FakeFavorites())
+        val favorites = FakeFavorites().apply { line = content.lines["1"] }
+        val report = check(listOf(entry("1", season = 9, title = "测试书第九季", currentEpisodes = 56)), content, favorites)
 
         assertEquals(0, report.newSeasons)
     }
 
     @Test
     fun aNewSeasonAndEpisodeGrowthCanHappenTogether() {
-        // 既有新季、当前季又加了集：两个计数都要+1，不能让"新一季"把"新集"吞掉。
-        // acknowledge 是假端口里没实现的落库，所以直接把检查后状态摆成 NEW_SEASON（与真库一致）。
         val content = FakeContent().apply {
-            details["1"] = detail("1", episodes = 60, season = 9)
             lines["1"] = SeasonLine(
                 listOf(
-                    Series("1", "测试书第九季", season = 9),
-                    Series("2", "测试书第十季", season = 10),
+                    Series("1", "测试书第九季", season = 9, episodeCount = 60),
+                    Series("2", "测试书第十季", season = 10, episodeCount = 2),
                 ),
             )
         }
-        val favorites = FakeFavorites().apply {
-            currentEntry = entry("1", season = 9).copy(status = FavoriteStatus.NEW_SEASON)
-        }
-        val report = check(listOf(entry("1", season = 9)), content, favorites)
+        val favorites = FakeFavorites().apply { line = content.lines["1"] }
+        val report = check(listOf(entry("1", season = 9, title = "测试书第九季", currentEpisodes = 56)), content, favorites)
 
         assertEquals(1, report.newSeasons)
         assertEquals(1, report.newEpisodes)
     }
 
-    // ---------- 连续失败 ----------
+    @Test
+    fun anUnknownCurrentSeasonCountOnlyRefreshesTheCheckTime() {
+        // 季线里没有当前季：不能拿别的季的数字去覆盖，只记"查过"
+        val content = FakeContent().apply {
+            lines["1"] = SeasonLine(
+                listOf(Series("9", "测试书第九季", season = 9, episodeCount = 60), Series("8", "测试书第八季", season = 8)),
+            )
+        }
+        val favorites = FakeFavorites().apply { line = content.lines["1"] }
+        check(listOf(entry("1", season = 9, title = "测试书第九季", currentEpisodes = 60)), content, favorites)
+
+        assertEquals(Triple("1", 0, now), favorites.acknowledged.single())
+    }
+
+    @Test
+    fun aDetailRunLearnsThatTheSeasonBelongsToAnAlbum() {
+        // 单季剧第一次走详情：详情说它属于某张专辑 → 写回收藏行，下次改走季线
+        val content = FakeContent().apply {
+            details["1"] = Detail(Series("1", "测试书第一季", season = 1, albumId = "album-1"), List(3) { Episode("v$it", it) })
+        }
+        val favorites = FakeFavorites()
+        check(listOf(entry("1")), content, favorites)
+
+        assertEquals("album-1", favorites.currentSeason?.second?.albumId)
+    }
+
+    // ---------- 失败 ----------
+
+    @Test
+    fun aSeasonLineFailureCountsAsAFailedItem() {
+        // 这一部只问了一次季线，问不到就是这一部失败（不再有"详情拿到了所以不算失败"的分支）
+        val content = FakeContent().apply {
+            lines["1"] = SeasonLine(listOf(Series("1", "测试书第一季", season = 1), Series("2", "测试书第二季", season = 2)))
+            failingLines += "1"
+        }
+        val favorites = FakeFavorites().apply { line = content.lines["1"] }
+        val report = check(listOf(entry("1")), content, favorites)
+
+        assertEquals(1, report.failed)
+        assertEquals(0, report.checked)
+        assertTrue(favorites.acknowledged.isEmpty())
+    }
 
     @Test
     fun threeConsecutiveFailuresStopTheRun() {
@@ -303,7 +395,7 @@ class FavoriteUpdateCheckTest {
                 failingDetails += id
             }
         }
-        val report = check(listOf(entry("1"), entry("2"), entry("3"), entry("4")), content, FakeFavorites())
+        val report = check(listOf("1", "2", "3", "4").map { entry(it) }, content, FakeFavorites())
 
         assertEquals(3, report.failed)
         assertEquals(0, report.checked)

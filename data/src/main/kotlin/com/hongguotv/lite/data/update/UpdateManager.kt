@@ -5,6 +5,7 @@ import android.os.Looper
 import com.hongguotv.core.model.UpdateFailure
 import com.hongguotv.core.model.UpdateManifest
 import com.hongguotv.core.model.UpdateState
+import com.hongguotv.core.model.isDownloadFailure
 import com.hongguotv.core.port.DiagnosticsPort
 import com.hongguotv.core.port.SilentDiagnostics
 import com.hongguotv.core.port.UpdatePort
@@ -82,6 +83,12 @@ class UpdateManager(
     private var current: UpdateState = UpdateState.Idle
     private var listener: (() -> Unit)? = null
 
+    /**
+     * 最近一次检出的清单。下载失败后**重试下载**不必再查一遍：
+     * 没有它，用户要按三次（检查 → 等结果 → 下载）才能重下一次。
+     */
+    private var lastManifest: UpdateManifest? = null
+
     /** 下载与自动检查共用的后台作用域：活过页面，死在 [shutdown]。 */
     private val ioScope = CoroutineScope(SupervisorJob() + ioDispatcher)
     private var downloadJob: Job? = null
@@ -112,6 +119,9 @@ class UpdateManager(
     override suspend fun check() = checkInternal(silent = false)
 
     private suspend fun checkInternal(silent: Boolean) {
+        // 连按「检查更新」不该发两轮请求：状态已经是 Checking 就说明有一轮在跑。
+        // 这一条同时挡住手动与自动检查撞车（以前只挡了 downloadJob）。
+        if (state() is UpdateState.Checking) return
         // 下载进行中不再检查：查完的 UpToDate/Available 会把"下载中 45%"盖掉，
         // 而下载完成又会强设 ReadyToInstall——两边互相覆盖，UI 语义就乱了
         if (downloadJob?.isActive == true) return
@@ -130,13 +140,14 @@ class UpdateManager(
                 Fetch.Unavailable -> if (silent) UpdateState.Idle else UpdateState.Failed(UpdateFailure.NETWORK)
             }
             set(state)
+            if (state is UpdateState.Available) synchronized(lock) { lastManifest = state.manifest }
             // 节流时间戳写不进去只是"下次多查一次"，无害；autoCheck 挂在无 handler 的
             // ioScope 上，这里抛出去会把一次成功的检查变成进程级未捕获异常，所以兜住
             runCatching { store?.commit(mapOf(KEY_LAST_CHECK to clock())) }
-        } catch (cancelled: CancellationException) {
-            // 手动检查挂页面作用域，离开设置页会取消：回落 Idle，别把状态卡死在 Checking
+        } finally {
+            // 取消（手动检查随设置页离开而取消）或意外异常：别把状态卡在 Checking——
+            // 上面的重入守卫会因此挡掉之后所有的检查，用户只能重启应用。
             if (state() is UpdateState.Checking) set(UpdateState.Idle)
-            throw cancelled
         }
     }
 
@@ -176,8 +187,18 @@ class UpdateManager(
         body = null,
     )
 
+    /**
+     * 开始下载。**Available 之外，下载类失败（DOWNLOAD / INCOMPLETE / VERIFICATION）也能重试**：
+     * 清单还在手上，重下一次就能推进；让用户为此重新检查一遍纯属浪费。
+     */
     override fun download() {
-        val manifest = synchronized(lock) { (current as? UpdateState.Available)?.manifest } ?: return
+        val manifest = synchronized(lock) {
+            when (val state = current) {
+                is UpdateState.Available -> state.manifest
+                is UpdateState.Failed -> lastManifest.takeIf { state.failure.isDownloadFailure }
+                else -> null
+            }
+        } ?: return
         if (downloadJob?.isActive == true) return
         val target = apkFile()
         downloadJob = ioScope.launch {

@@ -1,6 +1,7 @@
 package com.hongguotv.lite.data.library
 
 import com.hongguotv.core.model.FavoriteEntry
+import com.hongguotv.core.model.FavoriteLimits
 import com.hongguotv.core.model.FavoriteStatus
 import com.hongguotv.core.model.FrameMode
 import com.hongguotv.core.model.ContentFilter
@@ -214,6 +215,7 @@ class PrefsLibrary(
                 latestSeason = latestSeasonOf(base, value.first),
                 latestEpisodes = latestEpisodesOf(base, value.first),
                 checkedAt = updateRows[value.first.id]?.checkedAt ?: 0L,
+                currentEpisodes = updateRows[value.first.id]?.total ?: 0,
             )
         }
     }
@@ -230,6 +232,7 @@ class PrefsLibrary(
                 latestSeason = latestSeasonOf(seriesKey, series),
                 latestEpisodes = latestEpisodesOf(seriesKey, series),
                 checkedAt = updateRows[series.id]?.checkedAt ?: 0L,
+                currentEpisodes = updateRows[series.id]?.total ?: 0,
             )
         }
     }
@@ -372,24 +375,28 @@ class PrefsLibrary(
     /**
      * 「检查更新」回报：该季现在共 totalEpisodes 集。seen 记录"已确认到的集数"，
      * 状态由 added = total - seen 派生。端口只有这一个写入口，规则定为：
+     * - **totalEpisodes ≤ 0**（这次查到了时间、但不知道集数）：只刷新 checkedAt，
+     *   不动 total/seen——拿一个更旧/更小的数字去覆盖，会被当成"确认"把未读标记清掉；
      * - 首次检查：seen = total，不算更新（首次落库不打 NEW_SEASON 标签，旧行为）；
      * - total 增长：seen 不动 → NEW_SEASON，等用户看过这一季后再调一次（total 不变）
      *   走下面的"确认"分支消掉标签；
-     * - total 没涨：seen 提到 total → UP_TO_DATE。
+     * - total 没涨：seen 提到 total → UP_TO_DATE；
+     * - **total 变小**：同样只刷新时间。季线里那一格是收藏时的快照，比已知更小说明这次
+     *   问到的是一份旧数据，不能拿它当"用户已确认"。
      */
     override fun acknowledge(seriesId: String, totalEpisodes: Int, at: Long) {
         val changed = synchronized(lock) {
             // 非收藏系列的检查结果不留：没主的 update 行会在 pruneUpdates 里全量漂移
             if (seriesId !in trackedIds()) return
-            val next = when (val previous = updateRows[seriesId]) {
-                null -> FavoriteUpdateRow.first(totalEpisodes, at)
-                else -> if (totalEpisodes > previous.total) {
-                    FavoriteUpdateRow(totalEpisodes, previous.seen, at)
-                } else {
-                    FavoriteUpdateRow(totalEpisodes, totalEpisodes, at)
-                }
+            val previous = updateRows[seriesId]
+            val next = when {
+                totalEpisodes <= 0 -> previous?.copy(checkedAt = at) ?: FavoriteUpdateRow.unknown(at)
+                previous == null -> FavoriteUpdateRow.first(totalEpisodes, at)
+                totalEpisodes > previous.total -> FavoriteUpdateRow(totalEpisodes, previous.seen, at)
+                totalEpisodes == previous.total -> FavoriteUpdateRow(totalEpisodes, totalEpisodes, at)
+                else -> previous.copy(checkedAt = at)
             }
-            if (updateRows[seriesId] == next) false else {
+            if (previous == next) false else {
                 updateRows[seriesId] = next
                 true
             }
@@ -422,6 +429,10 @@ class PrefsLibrary(
             seasonLines[base]?.firstOrNull { it.released && it.season == latest }?.episodeCount?.takeIf { it > 0 }
                 ?.let { return it }
         }
+        // 检查记录里的 total 是**当前季**的集数：只有"最新季就是当前季"（或季号未知）时它才是
+        // 最新季的集数。新季刚上线而季线没给那一季的集数时**不能拿它顶**——角标会写成
+        // 「更新到第十一季 第60集」，而 60 是第九季的。集数未知就只写「更新到第十一季」。
+        if (latest > 0 && latest != current.season) return 0
         return updateRows[current.id]?.total ?: 0
     }
 
@@ -737,8 +748,8 @@ class PrefsLibrary(
 
         const val HISTORY_LIMIT = 30
 
-        /** 收藏上限（2026-10-26 容量治理：500 → 100）。老电视上 JSON 解析与封面磁盘都按它封顶。 */
-        const val FAVORITES_LIMIT = 100
+        /** 收藏上限（2026-10-26 容量治理：500 → 100）。口径在 core，页面读同一份来判断"要替换哪一部"。 */
+        const val FAVORITES_LIMIT = FavoriteLimits.CAPACITY
         const val SEASON_LINE_LIMIT = 20
     }
 }
@@ -746,6 +757,9 @@ class PrefsLibrary(
 /**
  * 检查更新的观察记录（旧版 FavoriteUpdate 的存储形态，键名不变）。
  * added 是高水位口径：total 只增不减，临时下架不算"新一季"。
+ *
+ * `total = 0` 是合法状态：查过了，但这次不知道当前季多少集（季线里没有那一格）。
+ * 它只用于记住检查时间，`added` 恒 0，不产生任何"有新内容"的标记。
  */
 internal data class FavoriteUpdateRow(val total: Int, val seen: Int, val checkedAt: Long) {
     val added: Int get() = (total - seen).coerceAtLeast(0)
@@ -753,10 +767,10 @@ internal data class FavoriteUpdateRow(val total: Int, val seen: Int, val checked
     fun toJson(): JSONObject = JSONObject().put("total", total).put("seen", seen).put("checkedAt", checkedAt)
 
     companion object {
-        fun first(count: Int, now: Long): FavoriteUpdateRow {
-            require(count > 0)
-            return FavoriteUpdateRow(count, count, now)
-        }
+        fun first(count: Int, now: Long): FavoriteUpdateRow = FavoriteUpdateRow(count.coerceAtLeast(0), count.coerceAtLeast(0), now)
+
+        /** 只记"查过"：集数未知。 */
+        fun unknown(now: Long): FavoriteUpdateRow = FavoriteUpdateRow(0, 0, now)
 
         /** 坏行返回 null（丢掉这一条的"检查结果"，不牵连整个分区）。 */
         fun fromJson(value: JSONObject?): FavoriteUpdateRow? = parseOrNull {
@@ -764,7 +778,8 @@ internal data class FavoriteUpdateRow(val total: Int, val seen: Int, val checked
             val total = value.getInt("total")
             val seen = value.getInt("seen")
             val time = value.getLong("checkedAt")
-            require(total > 0 && seen > 0 && time >= 0)
+            // total/seen 允许 0（集数未知），但 seen 不能超过 total（那是坏数据）
+            require(total >= 0 && seen >= 0 && seen <= total && time >= 0)
             FavoriteUpdateRow(total, seen, time)
         }
     }

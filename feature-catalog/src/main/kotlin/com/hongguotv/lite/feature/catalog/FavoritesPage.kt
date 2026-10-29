@@ -125,8 +125,17 @@ internal class FavoritesPage(host: CatalogFeature) : CatalogPage(host, CatalogTa
             chrome()
             return
         }
-        if (!force && FavoriteUpdateCheck.due(source, System.currentTimeMillis(), force = false).isEmpty()) {
-            status = FavoriteLabels.idleStatus(source.size, 0)
+        // 自动检查是"全局门槛 + 最旧优先 + 每轮 40 部"：先问计划，再决定要不要发请求。
+        // 手动（force）是全量，不看门槛。
+        val now = System.currentTimeMillis()
+        val plan = FavoriteUpdateCheck.plan(source, now, manual = force)
+        if (!force && plan.blocked) {
+            status = FavoriteLabels.blockedStatus(plan.remaining)
+            chrome()
+            return
+        }
+        if (plan.targets.isEmpty()) {
+            status = FavoriteLabels.idleStatus(source.size, plan.remaining)
             chrome()
             return
         }

@@ -62,3 +62,11 @@ enum class UpdateFailure {
      */
     VERIFICATION,
 }
+
+/**
+ * 下载类失败：清单还在手上，**重试"下载"就能推进**，不必重新检查一次。
+ *
+ * 设置页据此把按钮写成「重试下载」（否则下载失败后要按三次才能重下：检查 → 等结果 → 下载）。
+ */
+val UpdateFailure.isDownloadFailure: Boolean
+    get() = this == UpdateFailure.DOWNLOAD || this == UpdateFailure.INCOMPLETE || this == UpdateFailure.VERIFICATION

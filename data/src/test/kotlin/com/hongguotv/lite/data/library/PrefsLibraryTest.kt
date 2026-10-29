@@ -524,6 +524,70 @@ class PrefsLibraryTest {
     }
 
     @Test
+    fun anUnknownCountOnlyRefreshesTheCheckTime() = runTest {
+        // 季线里没有当前季那一格：这次查到了时间，但不知道集数——不能拿旧数字当确认
+        val lib = PrefsLibrary(store("favoriteSeries" to "{}"))
+        lib.toggle(Series("1", "测试书"))
+        lib.acknowledge("1", totalEpisodes = 10, at = 1_000L)
+        lib.acknowledge("1", totalEpisodes = 0, at = 2_000L)
+
+        val entry = lib.entry("测试书")!!
+        assertEquals(2_000L, entry.checkedAt)
+        assertEquals(10, entry.currentEpisodes)
+        assertEquals(FavoriteStatus.UP_TO_DATE, entry.status)
+    }
+
+    @Test
+    fun anUnknownCountOnTheFirstCheckStillRecordsTheTime() = runTest {
+        val lib = PrefsLibrary(store("favoriteSeries" to "{}"))
+        lib.toggle(Series("1", "测试书"))
+        lib.acknowledge("1", totalEpisodes = 0, at = 1_000L)
+
+        val entry = lib.entry("测试书")!!
+        assertEquals(1_000L, entry.checkedAt)
+        assertEquals(0, entry.currentEpisodes)
+        // 0/0 的行不产生"有新内容"的标记
+        assertEquals(FavoriteStatus.UP_TO_DATE, entry.status)
+    }
+
+    @Test
+    fun aShrunkCountDoesNotClearTheUnreadMark() = runTest {
+        // 季线那一格是收藏时的快照：比已知更小只说明这次问到的旧，不是"用户已确认"
+        val lib = PrefsLibrary(store("favoriteSeries" to "{}"))
+        lib.toggle(Series("1", "测试书"))
+        lib.acknowledge("1", totalEpisodes = 10, at = 1_000L)
+        lib.acknowledge("1", totalEpisodes = 14, at = 2_000L)
+        assertEquals(FavoriteStatus.NEW_SEASON, lib.entry("测试书")!!.status)
+
+        lib.acknowledge("1", totalEpisodes = 12, at = 3_000L)
+        val entry = lib.entry("测试书")!!
+        assertEquals(3_000L, entry.checkedAt)
+        assertEquals(14, entry.currentEpisodes)
+        assertEquals(FavoriteStatus.NEW_SEASON, entry.status)
+    }
+
+    @Test
+    fun currentEpisodesExposesTheCurrentSeasonsTotal() = runTest {
+        // 角标看 latestEpisodes（最新一季），"这次涨没涨"看 currentEpisodes（当前季）
+        val lib = PrefsLibrary(store("favoriteSeries" to "{}"))
+        lib.toggle(Series("9", "测试书第九季", season = 9))
+        lib.acknowledge("9", totalEpisodes = 60, at = 1_000L)
+        assertEquals(60, lib.entry("测试书")!!.currentEpisodes)
+    }
+
+    @Test
+    fun aZeroRowSurvivesTheRoundTrip() = runTest {
+        // 0/0 是"查过但集数未知"，落盘后必须能读回来（否则每次都要重新查一遍）
+        val raw = JSONObject().put("1", JSONObject().put("total", 0).put("seen", 0).put("checkedAt", 500L)).toString()
+        val lib = PrefsLibrary(store("favoriteSeries" to "{}", "favoriteUpdates" to raw))
+        lib.toggle(Series("1", "测试书"))
+
+        val entry = lib.entry("测试书")!!
+        assertEquals(500L, entry.checkedAt)
+        assertEquals(0, entry.currentEpisodes)
+    }
+
+    @Test
     fun latestSeasonComesFromTheRememberedLine() = runTest {
         val lib = PrefsLibrary(store("favoriteSeries" to "{}"))
         lib.toggle(Series("1", "测试书"))
@@ -572,6 +636,27 @@ class PrefsLibraryTest {
         lib.toggle(Series("1", "单季剧"))
         lib.acknowledge("1", totalEpisodes = 524, at = 1_000L)
         assertEquals(524, lib.entry("单季剧")!!.latestEpisodes)
+    }
+
+    @Test
+    fun anUnknownNewSeasonCountIsNotBorrowedFromTheCurrentSeason() = runTest {
+        // 第十一季刚上线、季线没给那一季的集数：不能拿第九季的 60 集顶上。
+        // 顶上去角标会写成"更新到第十一季 第60集"，数字和"有新季"的标记互相打架。
+        val lib = PrefsLibrary(store("favoriteSeries" to "{}"))
+        lib.toggle(Series("9", "测试书第九季", season = 9))
+        lib.acknowledge("9", totalEpisodes = 60, at = 1_000L)
+        lib.rememberSeasonLine(
+            "测试书",
+            SeasonLine(
+                listOf(
+                    Series("9", "测试书第九季", season = 9, episodeCount = 60),
+                    Series("11", "测试书第十一季", season = 11, episodeCount = 0),
+                ),
+            ),
+        )
+        val entry = lib.entry("测试书")!!
+        assertEquals(11, entry.latestSeason)
+        assertEquals(0, entry.latestEpisodes)
     }
 
     @Test

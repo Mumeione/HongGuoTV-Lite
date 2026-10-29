@@ -8,6 +8,7 @@ import android.widget.TextView
 import android.widget.Toast
 import com.hongguotv.core.model.Settings
 import com.hongguotv.core.model.UpdateState
+import com.hongguotv.core.model.isDownloadFailure
 import com.hongguotv.lite.uikit.focus.FocusKey
 import com.hongguotv.lite.uikit.focus.FocusSections
 import com.hongguotv.lite.uikit.focus.navKey
@@ -41,6 +42,14 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
     private lateinit var updateNote: TextView
 
     private val confirm = TwoStepConfirm()
+
+    /**
+     * 这一次动作是用户手动发起的：终止态要弹一句 toast。
+     *
+     * 启动时的静默检查不经过这里（页面还没建），所以它永远不会打扰用户。
+     * 检查 → 有新版 → 下载 是两段动作，每次按键都重新置位，最后一段的终止态才弹。
+     */
+    private var notifyResult = false
 
     override fun onBuild() {
         // B 方案（mockup 画面7）：「设置」26 + 检查更新跟在旁边（收藏页同款）
@@ -137,7 +146,11 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
         // 第二次按才换成「再按一次确认」——比把警告塞进主标签更贴近表格的读法
         clearRow.value(if (confirm.isArmed(KEY_CLEAR)) "再按一次确认" else "不可恢复")
         startupRow.value(SettingRows.tabLabel(current.startupTab))
-        updateNote.text = SettingRows.updateLabel(host.updates.state())
+        // 按钮说"按下去会发生什么"：检查 / 正在检查 / 下载新版 / 下载中 / 去安装 / 重试下载。
+        // 说明行只补细节（版本号、百分比、失败原因）——两者同一份状态派生。
+        val updateState = host.updates.state()
+        updateButton.label(SettingRows.updateAction(updateState))
+        updateNote.text = SettingRows.updateLabel(updateState)
     }
 
     // ---------- 交互 ----------
@@ -204,23 +217,51 @@ internal class SettingsPage(host: CatalogFeature) : CatalogPage(host, CatalogTab
 
     /**
      * 「检查更新」的点击行为按当前状态分派：
-     * 没查过/失败/已最新 → 检查；有新版 → 开始下载；下载完 → 拉起安装器；
-     * 检查与下载进行中 → 忽略（防抖）。状态变化统一走 [syncLabels] 刷新值列。
+     * 没查过/已最新/检查类失败 → 检查；有新版 → 下载；下载类失败 → 重试下载；
+     * 下载完 → 拉起安装器；检查与下载进行中 → 忽略（防抖）。
+     *
+     * 前三种都会置 [notifyResult]，终止态由 [onUpdatedRemotely] 弹一句 toast——
+     * 检查几百毫秒就回来，只靠小字变化用户会以为"按了没反应"。
      */
     private fun onUpdateTap() {
         when (val state = host.updates.state()) {
-            is UpdateState.Idle, is UpdateState.Failed, is UpdateState.UpToDate ->
-                scope.launch { host.updates.check() }
-            is UpdateState.Available -> host.updates.download()
+            is UpdateState.Idle, is UpdateState.UpToDate -> startCheck()
+            is UpdateState.Available -> {
+                notifyResult = true
+                host.updates.download()
+            }
+            is UpdateState.Failed -> if (state.failure.isDownloadFailure) {
+                // 清单还在手上，重下就行，不必再查一遍（否则要按三次才能重试）
+                notifyResult = true
+                host.updates.download()
+            } else {
+                startCheck()
+            }
             is UpdateState.ReadyToInstall -> host.onInstallApk(state.apkPath)
             is UpdateState.Checking, is UpdateState.Downloading -> Unit
         }
         syncLabels()
     }
 
-    /** 管理器的状态回调（已在主线程）：只刷值列，不动焦点。 */
+    private fun startCheck() {
+        notifyResult = true
+        scope.launch { host.updates.check() }
+    }
+
+    /**
+     * 管理器的状态回调（已在主线程）：刷值列；手动动作到了终止态就弹一句。
+     *
+     * 进行中的状态（Checking / Downloading）`updateToast` 返回 null，不会打扰；
+     * 弹过就把 [notifyResult] 清掉，同一次动作只响一次。
+     */
     private fun onUpdatedRemotely() {
-        scope.launch { syncLabels() }
+        scope.launch {
+            syncLabels()
+            if (!notifyResult) return@launch
+            val text = SettingRows.updateToast(host.updates.state()) ?: return@launch
+            notifyResult = false
+            Toast.makeText(ui.context, text, Toast.LENGTH_SHORT).show()
+        }
     }
 
     // ---------- 焦点：两列网格 ----------

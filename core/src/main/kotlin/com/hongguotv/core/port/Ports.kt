@@ -206,7 +206,12 @@ interface UpdatePort {
     /** 手动检查（绕过 24h 节流）。结束时状态落在 UpToDate / Available / Failed。 */
     suspend fun check()
 
-    /** 下载 [UpdateState.Available] 里的版本。非 Available 态调用是空操作。 */
+    /**
+     * 下载 [UpdateState.Available] 里的版本。
+     *
+     * 也接受**下载类失败**（`UpdateFailure.DOWNLOAD / INCOMPLETE / VERIFICATION` 且清单还在）：
+     * 那是"重试下载"，不是重新检查。其余状态调用是空操作。
+     */
     fun download()
 
     /** 启动时的一次静默检查：24 小时节流；失败回落 [UpdateState.Idle]，不打扰用户。 */
