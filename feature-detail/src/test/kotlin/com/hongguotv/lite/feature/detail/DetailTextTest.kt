@@ -180,4 +180,57 @@ class DetailTextTest {
         assertEquals("所有季 · 共 4 季", DetailText.seasonLineTitle(4))
         assertEquals("所有季", DetailText.seasonLineTitle(1))
     }
+
+    /**
+     * 剧集详情页的单剧「检查更新」只有三种结局，三种都得说人话：
+     * 查到没变化、查到有新季、根本没查到（风控/网络/结构变化都不分开讲，用户能做的都是稍后再试）。
+     */
+    @Test
+    fun theSingleSeriesCheckReportsThreeOutcomes() {
+        assertEquals("已是最新 · 共 104 集", DetailText.checkStatus(DetailText.CheckFinding.Latest(104)))
+        assertEquals("第十季已上线", DetailText.checkStatus(DetailText.CheckFinding.NewSeason(10)))
+        assertEquals("检查失败 · 稍后重试", DetailText.checkStatus(DetailText.CheckFinding.Failed))
+    }
+
+    /**
+     * 选季页的检查结果：多季剧关心"有没有新一季"，「已是最新」报季数而不是集数——
+     * 这一页上没有"当前季多少集"的上下文（集数留给剧集详情页那颗键）。
+     */
+    @Test
+    fun theSeasonPageCheckReportsSeasons() {
+        assertEquals("已是最新 · 共 10 季", DetailText.seasonCheckStatus(DetailText.CheckFinding.Latest(104), 10))
+        assertEquals("第十一季已上线", DetailText.seasonCheckStatus(DetailText.CheckFinding.NewSeason(11), 10))
+        assertEquals("检查失败 · 稍后重试", DetailText.seasonCheckStatus(DetailText.CheckFinding.Failed, 10))
+    }
+
+    /** 季线 → 三态的换算：未上线季与"当前季号未知"是两个坑。 */
+    @Test
+    fun theSeasonLineOnlyCountsReleasedSeasons() {
+        val line = SeasonLine(
+            listOf(
+                Series("9", "测试书第九季", season = 9, episodeCount = 56),
+                Series("10", "测试书第十季", season = 10, released = false),
+            ),
+        )
+        // 第十季还没上线：不算新季，落回"已是最新"
+        assertEquals(
+            DetailText.CheckFinding.Latest(56),
+            DetailText.checkFinding(line, Series("9", "测试书第九季", season = 9), episodes = 56),
+        )
+        // 当前季号未知：拿 0 去比会把任何一条季线都报成"新季"
+        assertEquals(
+            DetailText.CheckFinding.Latest(56),
+            DetailText.checkFinding(line, Series("9", "测试书第九季", season = 0), episodes = 56),
+        )
+        val withNew = SeasonLine(
+            listOf(
+                Series("9", "测试书第九季", season = 9),
+                Series("10", "测试书第十季", season = 10, episodeCount = 2),
+            ),
+        )
+        assertEquals(
+            DetailText.CheckFinding.NewSeason(10),
+            DetailText.checkFinding(withNew, Series("9", "测试书第九季", season = 9), episodes = 56),
+        )
+    }
 }

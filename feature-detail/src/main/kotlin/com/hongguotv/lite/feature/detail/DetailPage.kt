@@ -16,14 +16,55 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 
 /**
- * 详情两页共用的动作列出口：按左固定回页头返回，返回按下固定回主操作。
+ * 详情两页共用的动作列出口。
  *
  * 动作列左边是封面与简介（不可聚焦），按矩形的最近项是侧栏——不声明出口就会"按左跑出这一页"。
- * 返回下方同样是封面与简介，按几何会落到分集格或侧栏；页头按下的意图是"去主操作"。
+ *
+ * 页头只剩「检查更新」一颗：主操作按上/左回到它，
+ * 因为用户就是从那里按下来的，一来一回是同一条路。下面两颗（选集/收藏）的左边是封面，
+ * 没有可去的地方，夹住自己——不让它们顺着几何越过检查键跳去侧栏。
  */
-internal fun detailActionExits(back: FocusKey, play: FocusKey, pick: FocusKey, favorite: FocusKey): FocusExits =
-    FocusExits.left(back, listOf(play, pick, favorite)) +
-        FocusExits.down(play, listOf(back))
+internal fun detailActionExits(
+    play: FocusKey,
+    pick: FocusKey,
+    favorite: FocusKey,
+    check: FocusKey?,
+): FocusExits {
+    val intoHeader = if (check != null) {
+        FocusExits.left(check, listOf(play)) + FocusExits.up(check, listOf(play))
+    } else {
+        // 没有检查键（未收藏 / 多季剧在选季页检查）：主操作上面就是页头空白，夹住自己
+        FocusExits.clampLeft(listOf(play))
+    }
+    return intoHeader + FocusExits.clampLeft(listOf(pick, favorite))
+}
+
+/**
+ * 页头「检查更新」的方向键出口：它只当**上面那一排**的落点，自己不往上方/左侧跑。
+ *
+ * - 按下 / 按右 → 主操作：检查完最可能接着看；它下面是片名与简介（不可聚焦），
+ *   交给几何会跨段落到「选集」上（维护者实测的旧行为）；
+ * - 上 / 左 → 夹住自己：页头之上、左侧页边距都没有可去的地方。
+ *
+ * 进入它的两条路在页面里声明：主操作的上/左（[detailActionExits]）、选季页排序键的上（[sortExits]）。
+ */
+internal fun detailCheckExits(check: FocusKey, play: FocusKey): FocusExits =
+    FocusExits.down(play, listOf(check)) +
+        FocusExits.right(play, listOf(check)) +
+        FocusExits.up(check, listOf(check)) +
+        FocusExits.clampLeft(listOf(check))
+
+/**
+ * 选季页「正序/倒序」的方向键：左右都夹住自己，按上回页头的「检查更新」。
+ *
+ * 它上方隔着弹性留白与 hero，按几何的最近项会跳到右侧动作列——用户按上的意图是"回页头"。
+ * 按右不接动作列：从下面这一行跨到最右列是一整行的跳跃，而按完排序用户接下来看的是季卡，
+ * 不是最上面那一列按钮。没有检查键时不给上出口，仍由焦点图跨段到动作列。
+ */
+internal fun sortExits(sort: FocusKey, check: FocusKey?): FocusExits {
+    val clamp = FocusExits.left(sort, listOf(sort)) + FocusExits.right(sort, listOf(sort))
+    return if (check == null) clamp else clamp + FocusExits.up(check, listOf(sort))
+}
 
 /**
  * 网格行缘出口：**没有长条的一侧由页面夹住自己**。
@@ -50,6 +91,21 @@ internal fun gridEdgeExits(
     }
     return exits
 }
+
+/**
+ * 这一次提交焦点结构，该不该动光标。
+ *
+ * 详情两页都会因为数据到位而重画（季线到手、分类补全），每次重画都重提一遍焦点结构，
+ * 但**用户此刻可能已经把光标移到了别处**——这时再 `requestFocus` 就是"后台刷新把光标抢回去"
+ * （实测：收藏详情页里把光标移到第 3 张季卡，分类补全的那一帧过后光标被打回「开始播放」）。
+ *
+ * 两条放行条件，其余一律不动：
+ * - [explicit]：这一次渲染显式要落点（首次进页、点收藏、翻组）——用户的动作，不是刷新；
+ * - 本页没有视图持焦（加载中的空窗期、刚换完视图树）——不兜一下遥控器就全灭。
+ *
+ * 抽成纯函数是为了能在 JVM 单测里钉死这四条分支：`View.isFocused` 只有真机/模拟器上才有。
+ */
+internal fun shouldRequest(pageHasFocus: Boolean, explicit: Boolean): Boolean = explicit || !pageHasFocus
 
 /**
  * 一页的公共骨架：稳定树、左侧栏、页头、焦点会话、页面作用域。
@@ -106,7 +162,10 @@ internal abstract class DetailPage(
      * [ladder] 是页面的落焦阶梯（例如"主操作"）：加载中的二次刷新没有显式目标、也没有记忆，
      * 没有阶梯就会回退到焦点图首项——那是侧栏「搜索」，光标被扔到屏幕左缘（维护者实测过顶栏版）。
      *
-     * [visualExits] 是视觉方向键的显式出口（动作列按左回页头返回）：视觉绑定的几何落点
+     * [sideEntry] 是侧栏按右的显式落点：默认映射会进第一段，而详情页的第一段是页头的
+     * 「检查更新」——侧栏按右的意图是"进内容干活"，不是去看一颗低频键。
+     *
+     * [visualExits] 是视觉方向键的显式出口（动作列按左回页头的检查键）：视觉绑定的几何落点
      * 不适合"左边只有不可聚焦的封面"这种布局，由页面指名。
      */
     protected fun submitPlan(
@@ -116,9 +175,11 @@ internal abstract class DetailPage(
         ladder: List<FocusKey> = emptyList(),
         leftFlank: FocusSection? = null,
         rightFlank: FocusSection? = null,
+        sideEntry: FocusKey? = null,
         visualExits: FocusExits = FocusExits.NONE,
     ) {
         val side = FocusSections.section(rail.keys(), columns = 1)
+        // 空态兜底：内容段全空时把侧栏当内容段单独成图，遥控器至少能操作导航
         val plan = FocusSections.plan(
             sections,
             side = side,
@@ -126,46 +187,60 @@ internal abstract class DetailPage(
             sideAnchor = navKey(RAIL_SELECTED),
             leftFlank = leftFlank,
             rightFlank = rightFlank,
-            // 空态兜底：内容段全空时把侧栏当内容段单独成图，遥控器至少能操作导航
+            sideEntry = sideEntry,
         ) ?: FocusSections.plan(listOfNotNull(side)) ?: return
         // 侧栏也要进 views：只声明段、不给 View，方向键的落点表里就没有它，
         // 视觉上在左侧的导航项永远选不中（与长条是同一个坑）
         val allViews = LinkedHashMap(views)
         rail.navItems.forEachIndexed { index, item -> allViews[navKey(index)] = item }
-        // 详情两页按视觉位置走方向键：返回在左上、继续播放才在它右边（2026-10-24 口径）
+        // 详情两页按视觉位置走方向键：检查更新在页头左上、继续播放才在它右下
         focus.bind(plan, allViews, visual = true, visualExits = visualExits)
-        // 没有跨页记忆时把阶梯第一项升格成显式目标（回退链里显式 > 记忆）：
-        // 冷启动框架的自动聚焦（侧栏第一项）不能压过"进这页该落在哪"
-        requestFocus(preferred ?: host.lastFocus[pageKey] ?: ladder.firstOrNull(), ladder)
+        // 刷新不抢焦：显式给了目标（首次进页 / 点收藏 / 翻组）才动光标；否则只要页面里
+        // 已经有人持焦就什么都不做——异步刷新（季线到手、分类补全）不能把光标从用户手里抢走。
+        // 跨页记忆 `host.lastFocus` 只在"页面里没人持焦"时参与回退，排在页面阶梯之后：
+        // 它是上一次进来的位置，比本页记忆（只记用户主动移动）更旧。
+        if (shouldRequest(pageHasFocus = focus.hasFocusInPage(), explicit = preferred != null)) {
+            if (preferred != null) {
+                requestFocus(preferred, ladder)
+            } else {
+                requestFocus(null, ladder + listOfNotNull(host.lastFocus[pageKey]), onlyIfIdle = true)
+            }
+        }
     }
 
     /**
      * 落焦带三级兜底：首次失败（视图还没挂窗口）→ `post` 再要一次；
      * 还失败 → 等一次布局完成再要；仍失败 → 直接把光标点名到侧栏当前项（收藏）。
      * 侧栏项总是存在且已挂窗口，这一级兜底保证页面永远不会"焦点在页外、遥控器全灭"。
+     *
+     * [onlyIfIdle] = 刷新型：页面里已经有人持焦就整段跳过（连重试也不做），
+     * 每级兜底前都重新判一次，避免"布局回调晚到、把已经移走的光标又拽回来"。
      */
-    private fun requestFocus(preferred: FocusKey?, ladder: List<FocusKey>) {
+    private fun requestFocus(preferred: FocusKey?, ladder: List<FocusKey>, onlyIfIdle: Boolean = false) {
         // 阶梯末尾固定接侧栏当前项：内容 key 还不存在（加载中）时光标也有明确的归处
         val fullLadder = ladder + navKey(RAIL_SELECTED)
+        if (onlyIfIdle && focus.hasFocusInPage()) return
         if (focus.request(preferred, fullLadder)) return
         scaffold.post {
+            if (onlyIfIdle && focus.hasFocusInPage()) return@post
             if (focus.request(preferred, fullLadder)) return@post
             val observer = scaffold.viewTreeObserver
             if (!observer.isAlive) {
-                focusFallback(preferred, fullLadder)
+                focusFallback(preferred, fullLadder, onlyIfIdle)
                 return@post
             }
             observer.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
                 override fun onGlobalLayout() {
                     val live = scaffold.viewTreeObserver
                     if (live.isAlive) live.removeOnGlobalLayoutListener(this)
-                    focusFallback(preferred, fullLadder)
+                    focusFallback(preferred, fullLadder, onlyIfIdle)
                 }
             })
         }
     }
 
-    private fun focusFallback(preferred: FocusKey?, ladder: List<FocusKey>) {
+    private fun focusFallback(preferred: FocusKey?, ladder: List<FocusKey>, onlyIfIdle: Boolean) {
+        if (onlyIfIdle && focus.hasFocusInPage()) return
         if (focus.request(preferred, ladder)) return
         rail.navItems.getOrNull(RAIL_SELECTED)?.requestFocus()
     }

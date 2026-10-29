@@ -140,8 +140,28 @@ internal class HeroBlock(private val ui: UiKit) {
         rightColumn.addView(introText, ui.params(width = ViewGroup.LayoutParams.MATCH_PARENT))
     }
 
-    /** 装配头部。规格表整表重建（行数少），文字走增量更新。 */
+    /** 上一次交给 [show] 的内容指纹：完全一样就不再重量一遍（见 [show]）。 */
+    private data class Shown(
+        val coverUrl: String,
+        val title: String,
+        val seasonNote: String,
+        val specs: List<SpecRow>,
+        val intro: String,
+    )
+
+    private var shown: Shown? = null
+
+    /**
+     * 装配头部。规格表整表重建（行数少），文字走增量更新。
+     *
+     * **内容指纹没变就整段跳过**：每次 show 都会 `releaseRightHeight()` 让右列重新量高，
+     * 量出来的高度再驱动封面换尺寸——反复 show 同一份内容就会反复下载封面（表现为"封面
+     * 一直在闪"）。异步刷新（季线、分类）常常给的还是同一份内容，这一层短路把它们挡掉。
+     */
     fun show(coverUrl: String, title: String, seasonNote: String, specs: List<SpecRow>, intro: String) {
+        val next = Shown(coverUrl, title, seasonNote, specs, intro)
+        if (next == shown) return
+        shown = next
         cover.show(coverUrl)
         titleView.text = title
         seasonView.text = seasonNote

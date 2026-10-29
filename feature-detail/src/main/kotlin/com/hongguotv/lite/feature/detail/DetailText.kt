@@ -23,6 +23,63 @@ import com.hongguotv.lite.uikit.ui.SpecRow
 internal object DetailText {
 
     /**
+     * 剧集详情页「检查更新」的三种结局。
+     *
+     * 三态收成一个类型（而不是"两个参数 + 一个失败常量"）：页面只负责把季线换算成其中一个，
+     * 用户看到的那句话全部由 [checkStatus] 派生，测试也只用钉这一处。
+     */
+    sealed interface CheckFinding {
+        /** 季线拿到了，没有更新的季：这一季就是线上最新的。 */
+        data class Latest(val episodes: Int) : CheckFinding
+
+        /** 季线拿到了，且有更新的季已上线。 */
+        data class NewSeason(val season: Int) : CheckFinding
+
+        /** 季线没拿到（风控 / 网络 / 结构变化）：都收成"稍后重试"，重试入口就是那颗键本身。 */
+        data object Failed : CheckFinding
+    }
+
+    /**
+     * 剧集详情页「检查更新」的结果行。
+     *
+     * 只回答两个问题：有没有更新的季、这一季共多少集。当前季号未知（0）时页面不会构造
+     * [CheckFinding.NewSeason]——拿 0 去比会把任何一条季线都报成"新季"。
+     */
+    fun checkStatus(finding: CheckFinding): String = when (finding) {
+        is CheckFinding.Latest -> "已是最新 · 共 ${finding.episodes} 集"
+        is CheckFinding.NewSeason -> "${TvText.season(finding.season)}已上线"
+        CheckFinding.Failed -> "检查失败 · 稍后重试"
+    }
+
+    /**
+     * 选季页「检查更新」的结果行。
+     *
+     * 多季剧关心的是"有没有新一季"，「已是最新」因此报季数而不是集数——
+     * 这一页上没有"当前季多少集"的上下文，写「共 104 集」用户不知道是哪一季的。
+     */
+    fun seasonCheckStatus(finding: CheckFinding, seasonCount: Int): String = when (finding) {
+        is CheckFinding.Latest -> "已是最新 · 共 $seasonCount 季"
+        is CheckFinding.NewSeason -> checkStatus(finding)
+        CheckFinding.Failed -> checkStatus(finding)
+    }
+
+    /**
+     * 季线 → 三态（[checkStatus] 的输入）。
+     *
+     * 两条判据：
+     * - 未上线季不算"已上线"：季线里给它留着占位，但用户点不进去；
+     * - **当前季号未知（0）时不做季号比较**——拿 0 去比会把任何一条季线都报成"新季"。
+     */
+    fun checkFinding(line: SeasonLine, series: Series, episodes: Int): CheckFinding {
+        val latest = line.seasons.filter { it.released }.maxOfOrNull { it.season } ?: 0
+        return if (series.season > 0 && latest > series.season) {
+            CheckFinding.NewSeason(latest)
+        } else {
+            CheckFinding.Latest(episodes)
+        }
+    }
+
+    /**
      * 片名副行（「共 10 季」/「共 10 季 · 9 季已上线」）。
      * [withReleased] 给收藏详情页用（它关心有几季还没上线）；剧集详情页只写季数。
      * 单季剧返回空串——季号已经在标题里，再写"共 1 季"是废话。

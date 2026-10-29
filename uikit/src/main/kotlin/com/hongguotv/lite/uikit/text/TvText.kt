@@ -1,5 +1,6 @@
 package com.hongguotv.lite.uikit.text
 
+import com.hongguotv.core.model.FavoriteLimits
 import com.hongguotv.core.model.FrameMode
 import com.hongguotv.core.model.Progress
 import com.hongguotv.core.port.LocalError
@@ -116,6 +117,24 @@ object TvText {
         is LocalError -> "读取本机数据失败，请重试。"
         else -> "内容加载失败，请稍后重试。"
     }
+
+    /**
+     * 收藏满时的提示：说清"会替换掉哪一部"。
+     *
+     * 长度是为 Toast 定的：API 31 起系统把文字 Toast 截到两行，所以剧名截到 12 字 + 「…」，
+     * 整句控制在 25 字上下——电视上一行，窄屏最多折一次，不会被系统截在半句上。
+     */
+    fun favoriteCapacityNotice(oldestTitle: String): String {
+        val name = if (oldestTitle.length > CAPACITY_NAME_LIMIT) {
+            oldestTitle.take(CAPACITY_NAME_LIMIT) + "…"
+        } else {
+            oldestTitle
+        }
+        return "收藏已满 ${FavoriteLimits.CAPACITY} 部，将替换《$name》"
+    }
+
+    /** 提示里剧名最多留几个字（见 [favoriteCapacityNotice]）。 */
+    private const val CAPACITY_NAME_LIMIT = 12
 
     private fun twoDigits(value: Long): String = if (value < 10) "0$value" else value.toString()
 }

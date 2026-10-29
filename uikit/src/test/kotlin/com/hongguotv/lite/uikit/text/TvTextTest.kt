@@ -1,10 +1,12 @@
 package com.hongguotv.lite.uikit.text
 
+import com.hongguotv.core.model.FavoriteLimits
 import com.hongguotv.core.model.FrameMode
 import com.hongguotv.core.port.LocalError
 import com.hongguotv.core.port.UpstreamError
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
 
@@ -84,5 +86,25 @@ class TvTextTest {
         assertEquals("1 分钟后", TvText.sleepTimer(remainingMs = 30_000L, episodesLeft = 0))
         assertEquals("再播完 3 集", TvText.sleepTimer(remainingMs = null, episodesLeft = 3))
         assertEquals("关闭", TvText.sleepTimer(remainingMs = null, episodesLeft = 0))
+    }
+
+    /**
+     * 收藏满 100 的提示：**必须说清会替换掉哪一部**——写入口按 `addedAt` 淘汰最旧的一条，
+     * 不给一句话，用户就是在不知情下丢收藏。
+     */
+    @Test
+    fun theCapacityNoticeNamesTheOneThatWillBeReplaced() {
+        assertEquals("收藏已满 100 部，将替换《测试书》", TvText.favoriteCapacityNotice("测试书"))
+        // 上限只读 core 的那一个常量：改数不用改文案
+        assertEquals(100, FavoriteLimits.CAPACITY)
+    }
+
+    /** Android 12+ 的文字 Toast 最多两行：剧名截到 12 字 + 「…」，整句不超过 30 字。 */
+    @Test
+    fun theCapacityNoticeNeverGrowsPastTwoLines() {
+        val long = "这是一个特别特别长的剧名足足有二十多个字那么长"
+        val text = TvText.favoriteCapacityNotice(long)
+        assertEquals("收藏已满 100 部，将替换《${long.take(12)}…》", text)
+        assertTrue("$text 超过 30 字", text.length <= 30)
     }
 }

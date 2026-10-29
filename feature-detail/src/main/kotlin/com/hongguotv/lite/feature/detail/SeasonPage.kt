@@ -44,6 +44,8 @@ internal class SeasonPage(
     private lateinit var stateView: TextView
     private lateinit var retryButton: TvButton
     private lateinit var detailOnlyButton: TvButton
+    private lateinit var checkButton: TvButton
+    private lateinit var checkNote: TextView
     private lateinit var hero: HeroBlock
     private lateinit var playButton: TvButton
     private lateinit var pickButton: TvButton
@@ -63,6 +65,9 @@ internal class SeasonPage(
     private var singleSeason: Series? = null
     private var pageIndex = 0
 
+    /** 检查进行中：按钮禁用、重入直接返回（不重复发季线请求）。 */
+    private var checking = false
+
     /** 分类兜底最多问两次详情：收藏行是卡片元数据，有些卡片本来就不带分类。 */
     private var tagsAttempts = 0
 
@@ -75,8 +80,25 @@ internal class SeasonPage(
     private val confirm = TwoStepConfirm()
 
     override fun onBuild() {
-        // 页头写页面名，剧名交给下面的主视觉：同一行标题重复两遍既占高度又显得乱
-        header = scaffold.showHeader("收藏详情") { host.navigator.back() }
+        // 页头写页面名，剧名交给下面的主视觉：同一行标题重复两遍既占高度又显得乱。
+        // 不给返回键：遥控器的返回键本来就能回上一页；
+        // 没有返回键时 PageHeader 不给标题加左间距，标题与检查键因此与封面左边平齐。
+        header = scaffold.showHeader("收藏详情")
+        // 多季剧的「检查更新」在这一页：检查结果（有没有新季）就落在下面的季卡行上。
+        // 单季剧没有这一页，那颗键留在剧集详情页。
+        checkButton = ui.button("检查更新", variant = ButtonVariant.SMALL) { runCheck() }.apply {
+            visibility = View.GONE
+        }
+        header.lead().addView(
+            checkButton,
+            LinearLayout.LayoutParams(ui.dp(tokens.metrics.leadActionWidth), ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                leftMargin = ui.dp(tokens.space.m)
+            },
+        )
+        checkNote = header.leadNote("").apply {
+            textSize = tokens.type.footnote
+            visibility = View.GONE
+        }
         // 这一页没有信息栏，"所有季"整行要压到下半部分（mockup 画面5 的 margin-top:auto）：
         // 用会撑满高度的 body + 一根弹性留白，而不是滚动区（滚动区按内容高测量，权重不生效）
         val body = scaffold.body()
@@ -194,6 +216,85 @@ internal class SeasonPage(
         }
     }
 
+    // ---------- 检查更新 ----------
+
+    /**
+     * 多季剧的「检查更新」：重拉一次季线，把"有没有新一季"说清楚，并写回检查时间。
+     *
+     * 与 [fetchLine] 的分工：进页那次是**静默刷新**（失败保留旧数据、不多说一句话）；
+     * 用户按下这一键要的是**一个答案**，所以结果写进页头说明行，失败也如实说。
+     * 写回 checkedAt 的收益与单剧检查相同：这一部在收藏页的自动轮转里退出 12 小时，
+     * 不占别人的名额。
+     *
+     * 首屏的 [fetchLine] 可能还在跑（有缓存季线时按钮已经出现）：不取消它——两个请求都只读、
+     * 写入的是同一份季线，多一条 GET 换来"按下去一定有答案"，比让用户等一个时长未知的静默刷新好。
+     */
+    private fun runCheck() {
+        val series = anchor ?: return
+        if (entry == null || checking) return
+        checking = true
+        checkButton.label("正在检查…")
+        checkButton.isEnabled = false
+        checkButton.alpha = tokens.metrics.disabledAlpha
+        checkNote.visibility = View.GONE
+        scope.launch {
+            // 用户按的是"检查"，不能拿缓存顶：一次季线请求换来这次结果
+            val fetched = loadCatching { host.content.seasons(series.id, series) }
+            if (!isActive) return@launch
+            checking = false
+            resetCheckButton()
+            if (fetched == null) {
+                showCheckNote(DetailText.checkStatus(DetailText.CheckFinding.Failed))
+                return@launch
+            }
+            if (fetched.seasons.size >= 2) {
+                host.favorites.rememberSeasonLine(seriesKey, fetched)
+                line = fetched
+                // 锚点本尊带着详情元数据（封面/分类/集数）：写回收藏行，旧收藏的 albumId 一起补全
+                fetched.seasons.firstOrNull { it.id == series.id }?.let {
+                    host.favorites.setCurrentSeason(seriesKey, it)
+                }
+                entry = host.favorites.entry(seriesKey)
+                anchor = entry?.series ?: anchor
+            }
+            val current = entry?.series ?: series
+            // 当前季集数就从这份季线里取；本尊不在线里时传 0 —— acknowledge 的语义是
+            // "只刷新检查时间"，不拿别的季的数字顶，否则会把一次"变小"当成确认。
+            val episodes = fetched.seasons.firstOrNull { it.id == current.id }?.episodeCount ?: 0
+            host.favorites.acknowledge(current.id, episodes, System.currentTimeMillis())
+            // 季线可能整条变了：重画 hero 与季卡。光标在检查键上，刷新不抢焦（shouldRequest）。
+            render()
+            val seasons = line ?: fetched
+            showCheckNote(
+                DetailText.seasonCheckStatus(
+                    finding = DetailText.checkFinding(seasons, current, episodes),
+                    seasonCount = seasons.seasons.size,
+                ),
+            )
+        }
+    }
+
+    /** 检查键的显隐。说明行跟着一起藏——否则留一行空字，页头看起来像少了东西。 */
+    private fun syncCheckButton(visible: Boolean) {
+        val hadFocus = checkButton.isFocused
+        checkButton.visibility = if (visible) View.VISIBLE else View.GONE
+        if (!visible) checkNote.visibility = View.GONE
+        // 键被收起时把光标交给主操作：焦点跟着 GONE 一起消失的话，遥控器整页就失灵了
+        if (!visible && hadFocus) applyFocus(KEY_PLAY)
+    }
+
+    private fun resetCheckButton() {
+        checkButton.label("检查更新")
+        checkButton.isEnabled = true
+        checkButton.alpha = 1f
+    }
+
+    private fun showCheckNote(text: String) {
+        if (checkButton.visibility != View.VISIBLE) return
+        checkNote.text = text
+        checkNote.visibility = View.VISIBLE
+    }
+
     // ---------- 渲染 ----------
 
     private fun render() {
@@ -203,6 +304,9 @@ internal class SeasonPage(
         hero.view.visibility = if (series == null) View.GONE else View.VISIBLE
         seasonHeader.visibility = if (ready) View.VISIBLE else View.GONE
         seasonHost.visibility = if (ready) View.VISIBLE else View.GONE
+        // 检查键要等季线到手才出现：没有季线时按下只能再发一次请求，而首屏正在 fetchLine，
+        // 两个请求会撞在一起。季线到手之后（含失败后重试成功）它才是一个有意义的入口。
+        syncCheckButton(visible = series != null && entry != null && ready)
 
         if (series != null) renderHero(series)
 
@@ -497,6 +601,8 @@ internal class SeasonPage(
                 host.navigator.back()
             }
         } else {
+            // 已满 100 部又收藏新的一条：写入口按 addedAt 淘汰最旧的一部，先说清是哪一部
+            favoriteCapacityWarning(host.favorites)?.let { toast(it) }
             scope.launch {
                 host.favorites.toggle(series)
                 if (!isActive) return@launch
@@ -534,7 +640,9 @@ internal class SeasonPage(
         val wanted = preferred ?: preferredOnRender
         preferredOnRender = null
         val views = LinkedHashMap<FocusKey, View>()
-        views[KEY_BACK] = header.back
+        // 页头只剩「检查更新」一颗（多季剧才有）：返回键由遥控器的返回键承担
+        val checkVisible = checkButton.visibility == View.VISIBLE
+        if (checkVisible) views[KEY_CHECK] = checkButton
         val actionKeys = mutableListOf<FocusKey>()
         if (series != null) {
             views[KEY_PLAY] = playButton
@@ -563,10 +671,11 @@ internal class SeasonPage(
         // 在排序键与右侧动作列之间二选一（用户按上/下的意图都是"上一行"）。
         // 目标不在屏上时退回几何，不改 FocusExits 的约定。
         //
-        // 「排序」左右都没有同一行的项：两侧都夹住自己，别按几何越过季卡或跳进侧栏；
+        // 「排序」左右都没有同一行的项（两侧夹住自己），按上回页头的检查键——
+        // 它上方隔着弹性留白与 hero，几何落点会跳到右侧动作列。
         // 季卡行缘在没有长条时同样夹住自己，不撞侧栏、不撞动作列。
         val sortExit = if (seasonHeader.visibility == View.VISIBLE) {
-            FocusExits.left(KEY_SORT, listOf(KEY_SORT)) + FocusExits.right(KEY_SORT, listOf(KEY_SORT))
+            sortExits(KEY_SORT, check = if (checkVisible) KEY_CHECK else null)
         } else {
             FocusExits.NONE
         }
@@ -575,12 +684,20 @@ internal class SeasonPage(
         } else {
             FocusExits.up(KEY_SORT, cardKeys) + FocusExits.down(firstCard, listOf(KEY_SORT))
         }
-        val exits = ACTION_EXITS + sortExit + cardExits +
+        // 检查键：按下回主操作，自己上/左/右夹住；主操作按上/左回它（见 detailCheckExits）
+        val exits = (if (checkVisible) detailCheckExits(KEY_CHECK, KEY_PLAY) else FocusExits.NONE) +
+            (if (series != null) {
+                detailActionExits(KEY_PLAY, KEY_PICK, KEY_FAVORITE, if (checkVisible) KEY_CHECK else null)
+            } else {
+                FocusExits.NONE
+            }) +
+            sortExit + cardExits +
             gridEdgeExits(cardKeys, SEASON_COLUMNS, leftFlank, rightFlank)
 
         submitPlan(
             sections = listOf(
-                FocusSections.section(listOf(KEY_BACK), 1),
+                // 页头：（多季剧的）检查更新
+                if (checkVisible) FocusSections.section(listOf(KEY_CHECK), 1) else null,
                 if (retryButton.visibility == View.VISIBLE) FocusSections.section(listOf(KEY_RETRY), 1) else null,
                 if (detailOnlyButton.visibility == View.VISIBLE) FocusSections.section(listOf(KEY_DETAIL), 1) else null,
                 // 动作列是竖排的：上下在键间移动（mockup 画面5 的右列）
@@ -592,10 +709,12 @@ internal class SeasonPage(
             ),
             views = views,
             preferred = wanted,
-            // 没有显式目标也没有记忆时落主操作：进这页是要接着看，不是要看「返回」
+            // 没有显式目标也没有记忆时落主操作：进这页是要接着看，不是要看页头
             ladder = if (series != null) listOf(KEY_PLAY) else emptyList(),
             leftFlank = leftFlank,
             rightFlank = rightFlank,
+            // 侧栏按右直接进主操作：第一段是页头的检查键，低频动作不该接这一下
+            sideEntry = if (series != null) KEY_PLAY else null,
             visualExits = exits,
         )
     }
@@ -617,7 +736,7 @@ internal class SeasonPage(
 
         fun seasonKey(seasonId: String): String = "$SEASON_KEY_PREFIX$seasonId"
 
-        val KEY_BACK = FocusKey("series:back")
+        val KEY_CHECK = FocusKey("series:check")
         val KEY_RETRY = FocusKey("series:retry")
         val KEY_DETAIL = FocusKey("series:detail")
         val KEY_PLAY = FocusKey("series:play")
@@ -626,8 +745,5 @@ internal class SeasonPage(
         val KEY_SORT = FocusKey("series:sort")
         val KEY_PREV = FocusKey("series:prev")
         val KEY_NEXT = FocusKey("series:next")
-
-        /** 动作列左边是封面与简介（不可聚焦）：按左回页头返回，别掉进侧栏。 */
-        val ACTION_EXITS = detailActionExits(KEY_BACK, KEY_PLAY, KEY_PICK, KEY_FAVORITE)
     }
 }

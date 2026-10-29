@@ -104,8 +104,16 @@ internal class PlayerSidebar(private val ui: UiKit, private val callbacks: Callb
     /**
      * 分集格两侧的翻组长条（2026-10-24 口径：与详情页同一种控件）。
      * 抽屉里原来顶行的「上一组/下一组」小胶囊取消——长条和它翻的内容在同一行，更直接。
+     *
+     * **高度按整页满行固定**（与详情页同一条纪律）：末页只剩一两行格子时，长条不跟着缩，
+     * 连翻两组时位置不变、遥控器不用重新找。
      */
-    private val strips = SideStrips(ui, KEY_PREV, KEY_NEXT) { delta -> goPage(delta) }
+    private val strips = SideStrips(
+        ui,
+        KEY_PREV,
+        KEY_NEXT,
+        blockHeightDp = pagination.rows * (tokens.metrics.episodeCellHeight + tokens.metrics.episodeCellGap),
+    ) { delta -> goPage(delta) }
     private val gridHost = ui.column()
     private val jumpArea = ui.column()
     private val digitsView: TextView = ui.text("", tokens.type.body * tokens.metrics.jumpDigitsScale, tokens.colors.text).apply {

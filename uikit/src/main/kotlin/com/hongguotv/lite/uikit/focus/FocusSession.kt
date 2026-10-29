@@ -209,6 +209,15 @@ class FocusSession(
     fun remembered(): FocusKey? = memory.recall(page)
 
     /**
+     * 本页当前是否有视图持焦。
+     *
+     * 页面的"刷新不抢焦"判定读它（详情两页把规则写成纯函数 `shouldRequest`：
+     * 显式要落点，或本页根本没人持焦，才 [request]）。这里只提供事实，不提供策略——
+     * 策略一旦有第二个实现，就会出现"一处刷新抢焦、一处不抢"。
+     */
+    fun hasFocusInPage(): Boolean = views.any { it.value.isFocused }
+
+    /**
      * 把光标放回本页：显式目标 → 本页记忆 → 页面阶梯（[ladder]）→ 焦点图首项。
      *
      * [ladder] 由页面声明（例如"第一张结果卡 → 搜索框"），见 [FocusStart]。
